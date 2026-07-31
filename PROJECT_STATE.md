@@ -34,10 +34,13 @@ local multiplayer, presentation and every mode are in and integrated.
 Full detail in QA_REPORT.md. Headline numbers:
 
 - 200-game CPU-vs-CPU batch: 100 % completion, **0 rules violations**, **0 watchdog trips**.
-- ~74 combined points, ~50 plays, ~10 touchdowns, ~2 interceptions per game.
-- Home/away split within 1 point across the batch — no directional bias.
-- ~170 ms to simulate a full game headless.
+- 47.8 combined points, 63.7 plays, 5.8 touchdowns, 2.1 interceptions per game.
+- Home/away split 24.6 / 23.2 across the batch — no directional bias.
+- 216 ms to simulate a full game headless; 0.009 ms per simulation tick (147× real-time headroom).
+- Browser smoke: **19/19**. Unit tests **206/206**. Scenarios **24/24**. Determinism **12/12**.
 - Deterministic: identical seed ⇒ identical event log, verified three ways.
+- One balance target missed: **2.56 safeties a game** against a ≤1 target. Documented in
+  QA_REPORT.md §7 rather than hidden.
 
 ## IMPORTANT DECISIONS
 
@@ -55,6 +58,13 @@ Full detail in QA_REPORT.md. Headline numbers:
 7. **Comeback assist is bounded to ±6 % on pursuit and pressure only**, documented, and switchable.
 8. **Extra points are resolved by the conversion path, never by the field-goal path.** They used to
    share it, which quietly scored 3 points for every PAT.
+9. **A safety requires the carrier to be DOWN and his team to have had the ball.** Possession gained
+   inside your own end zone — a kick returner, an interception on a goal-line throw — is a
+   touchback. Getting this wrong paid two points to the team that threw the pick.
+10. **Formations are clamped to the field.** Nobody lines up behind his own goal line, so a shotgun
+    snap or a punt from your own 1 is not an automatic safety.
+11. **The kick meter is edge-triggered and arms on release.** The snap and the kick share a button;
+    accepting the held button made every human field goal fire instantly at 22 % power.
 
 ## ACTIVE BLOCKERS
 

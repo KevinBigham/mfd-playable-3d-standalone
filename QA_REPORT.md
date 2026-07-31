@@ -19,7 +19,7 @@ called out wherever it distorts a number.
 | Production build succeeds | **PASS** | `npm run build` → typecheck clean + `dist/` in ~4 s |
 | Main menu is navigable | **PASS** | smoke: title → menu → quick play, keyboard only |
 | Human-vs-CPU game starts | **PASS** | smoke: match phase leaves `NONE` after seat assignment |
-| Complete match reaches a valid final | **PASS** | smoke: 0–35 in 29 372 ticks, 0 watchdogs; 200/200 headless |
+| Complete match reaches a valid final | **PASS** | smoke: 2–32 in 40 235 ticks, 0 watchdogs; 200/200 headless |
 | Rematch works | **PASS** | smoke check `rematch starts cleanly` |
 | Returning to the menu works | **PASS** | smoke check `quit to menu works` |
 | Core controls work on keyboard | **PASS** | smoke reads the produced intent: `moveZ=1, held=8209` (TURBO+TARGET_M+UP) |
@@ -30,7 +30,7 @@ called out wherever it distorts a number.
 | No duplicate score | **PASS** | scenarios for TD / FG / safety / conversion assert score **deltas** |
 | No impossible down progression | **PASS** | `validateMatchState` run continuously: 0 `DOWN_RANGE` violations |
 | No possession deadlock | **PASS** | 200/200 games completed; phase watchdog never fired |
-| CPU completes games against itself | **PASS** | 200/200, 194 ms per game |
+| CPU completes games against itself | **PASS** | 200/200, 216 ms per game |
 | Save and load work | **PASS** | `npm run replay` save round-trip + corrupt-JSON quarantine |
 | Settings persist | **PASS** | smoke writes `cameraShake=0.42` and reads it back from local storage |
 | Low graphics preset remains playable | **PASS** | LOW: 35 draw calls, 42 k triangles (see §5) |
@@ -206,7 +206,7 @@ PASS  settings persist to local storage                cameraShake=0.42
 PASS  human-vs-CPU match starts
 PASS  keyboard reaches the input layer as actions      {"moveZ":1,"held":8209}
 PASS  seat 1 is bound to an athlete on the field       athlete=0
-PASS  simulation drives to a valid final in the browser 0-35, 29372 ticks, watchdogs=0
+PASS  simulation drives to a valid final in the browser 2-32, 40235 ticks, watchdogs=0
 PASS  match reaches the final screen
 PASS  final score is sane
 PASS  no watchdog trips during the browser match
@@ -218,7 +218,7 @@ PASS  no unbounded GPU resource growth                 geometries 20→20→20�
 PASS  no console errors                                clean
 ```
 
-The 0–35 scoreline is expected: the "human" seat is a script that presses nothing after the input
+The 2–32 scoreline is expected: the "human" seat is a script that presses nothing after the input
 assertion, so that team never moves. What the check proves is that a match with a live human seat
 still reaches a legal final result.
 
