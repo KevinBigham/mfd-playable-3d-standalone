@@ -70,7 +70,7 @@ const SPECS: readonly TeamSpec[] = [
     style: 'GROUND', logo: 'anvil', stadium: 'forgeworks-yard',
     blurb: 'Four yards and a dented facemask. The trenches are the plan.',
     power: { passing: 58, running: 91, line: 92, coverage: 66, special: 72 },
-    primary: '#37424D', secondary: '#FF7A18', accent: '#FFC53D', ink: '#FFEFD6', endzone: '#232C35',
+    primary: '#2E3843', secondary: '#FF7A18', accent: '#FFC53D', ink: '#FFEFD6', endzone: '#1F262E',
   },
   {
     id: 'quarry-point-monoliths',
@@ -126,7 +126,7 @@ const SPECS: readonly TeamSpec[] = [
     style: 'BALANCED', logo: 'horns', stadium: 'rimyard',
     blurb: 'Downhill runs, play-action daggers, dust everywhere.',
     power: { passing: 72, running: 84, line: 82, coverage: 69, special: 63 },
-    primary: '#B25A1E', secondary: '#F0D9A8', accent: '#2E5E4E', ink: '#FFF3E0', endzone: '#8C4416',
+    primary: '#9C4A15', secondary: '#F0D9A8', accent: '#2E5E4E', ink: '#FFF3E0', endzone: '#7E3A10',
   },
 
   // ── FRONTIER CONFERENCE ──────────────────────────────────────────────────
@@ -152,7 +152,7 @@ const SPECS: readonly TeamSpec[] = [
     style: 'CHAOS', logo: 'orbit', stadium: 'mirage-flats',
     blurb: 'Reverses, laterals, fake kicks. Nothing is what it looks like.',
     power: { passing: 81, running: 76, line: 58, coverage: 55, special: 95 },
-    primary: '#E0407A', secondary: '#2B0F2E', accent: '#34E3C8', ink: '#FFF0F5', endzone: '#B32E60',
+    primary: '#C81E5C', secondary: '#2B0F2E', accent: '#34E3C8', ink: '#FFF0F5', endzone: '#A5164B',
   },
   {
     id: 'northreach-glaciers',

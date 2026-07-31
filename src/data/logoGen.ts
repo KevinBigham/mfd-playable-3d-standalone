@@ -62,14 +62,14 @@ function emChevron(p: Pal): string {
 
 function emRaptor(p: Pal): string {
   return [
-    // Angular head wedge, facing right.
-    `<path d="M30 54 L52 30 L82 32 L92 48 L110 44 L96 66 L104 82 L78 76 L66 98 L52 74 L28 72 Z" fill="${p.secondary}"/>`,
+    // Head in profile: domed crown, hooked beak, pointed jaw.
+    `<path d="M28 72 C30 44 48 24 74 26 C86 30 90 38 92 48 L114 54 L94 68 L84 73 L70 96 L54 74 Z" fill="${p.secondary}"/>`,
     // Beak.
-    `<path d="M92 48 L110 44 L96 66 Z" fill="${p.accent}"/>`,
-    // Brow slash + eye.
-    `<path d="M50 46 L82 42 L84 52 L54 56 Z" fill="${p.primary}"/>`,
-    `<circle cx="70" cy="60" r="6" fill="${p.primary}"/>`,
-    `<circle cx="70" cy="60" r="2.6" fill="${p.accent}"/>`,
+    `<path d="M92 48 L114 54 L94 68 Z" fill="${p.accent}"/>`,
+    // Brow slash cut clean through to the badge, eye set into it.
+    `<path d="M46 46 L80 39 L84 54 L50 61 Z" fill="${p.primary}"/>`,
+    `<circle cx="66" cy="50" r="5.5" fill="${p.accent}"/>`,
+    `<circle cx="92" cy="55" r="2.4" fill="${p.primary}"/>`,
   ].join('');
 }
 
@@ -93,21 +93,25 @@ function emAnvil(p: Pal): string {
     // Struck highlight.
     `<path d="M28 42 H88 L94 46 H28 Z" fill="${p.accent}"/>`,
     `<path d="M40 86 H80 L81 92 H39 Z" fill="${p.primary}" fill-opacity="0.55"/>`,
-    // Sparks.
-    `<path d="M96 30 l6 -10 l2 11 l9 -3 l-8 8 Z" fill="${p.accent}"/>`,
+    // Strike spark, kept clear of the badge ring.
+    `<path d="M92 22 L96 30 L104 32 L96 36 L92 46 L88 36 L80 32 L88 30 Z" fill="${p.accent}"/>`,
   ].join('');
 }
 
+/** A quartered standard with a swallowtail hem — deliberately NOT a shield silhouette. */
 function emCrest(p: Pal): string {
+  const banner = 'M30 36 H98 V92 L82 83 L64 98 L46 83 L30 92 Z';
   return [
-    `<path d="M64 24 L102 38 V68 C102 92 86 104 64 110 C42 104 26 92 26 68 V38 Z" fill="${p.secondary}"/>`,
-    // Diagonal band.
-    `<path d="M28 68 L100 48 V64 L30 84 Z" fill="${p.accent}"/>`,
-    // Quartering.
-    `<path d="M64 30 L96 42 V58 L64 68 Z" fill="${p.primary}" fill-opacity="0.5"/>`,
-    `<path d="M64 78 L94 68 V72 C94 88 80 98 64 103 Z" fill="${p.primary}" fill-opacity="0.5"/>`,
-    // Rim.
-    `<path d="M64 24 L102 38 V68 C102 92 86 104 64 110 C42 104 26 92 26 68 V38 Z" fill="none" stroke="${p.ink}" stroke-opacity="0.5" stroke-width="3"/>`,
+    `<path d="${banner}" fill="${p.secondary}"/>`,
+    // Opposing quarters.
+    `<path d="M30 36 H64 V58 H30 Z" fill="${p.primary}" fill-opacity="0.5"/>`,
+    `<path d="M64 68 H98 V92 L82 83 L64 98 Z" fill="${p.primary}" fill-opacity="0.5"/>`,
+    // Cross bands.
+    `<path d="M30 58 H98 V68 H30 Z" fill="${p.accent}"/>`,
+    `<path d="M59 36 H69 V94 H59 Z" fill="${p.accent}"/>`,
+    // Head rail.
+    `<path d="M28 26 H100 V36 H28 Z" fill="${p.accent}"/>`,
+    `<path d="${banner}" fill="none" stroke="${p.ink}" stroke-opacity="0.4" stroke-width="2"/>`,
   ].join('');
 }
 
@@ -170,14 +174,13 @@ function emGear(p: Pal): string {
 }
 
 function emHorns(p: Pal): string {
-  const horn = 'M62 88 C46 88 32 78 26 60 C22 47 28 36 39 33 C35 47 44 62 58 66 Z';
+  const horn = 'M62 90 C42 90 24 78 19 57 C16 41 25 29 39 25 C31 41 39 62 57 69 Z';
   return [
     `<path d="${horn}" fill="${p.secondary}"/>`,
     `<g transform="translate(128,0) scale(-1,1)"><path d="${horn}" fill="${p.secondary}"/></g>`,
-    // Central plate.
-    `<path d="M64 34 L84 46 L84 74 L64 98 L44 74 L44 46 Z" fill="${p.accent}"/>`,
-    `<path d="M64 44 L76 52 L76 72 L64 86 L52 72 L52 52 Z" fill="${p.secondary}"/>`,
-    `<path d="M64 56 L70 64 L64 74 L58 64 Z" fill="${p.accent}"/>`,
+    // Centre plate, kept small so the horns carry the silhouette.
+    `<path d="M64 44 L79 55 L79 77 L64 98 L49 77 L49 55 Z" fill="${p.accent}"/>`,
+    `<path d="M64 57 L71 62 L71 74 L64 86 L57 74 L57 62 Z" fill="${p.secondary}"/>`,
   ].join('');
 }
 
@@ -191,42 +194,54 @@ function emFlame(p: Pal): string {
   ].join('');
 }
 
+/** Shield carrying a portcullis — a gate, for a team that guards one. */
 function emShield(p: Pal): string {
+  const bars = [46, 60, 74]
+    .map((x) => `<path d="M${x} 46 H${x + 8} V84 H${x} Z" fill="${p.accent}"/>`)
+    .join('');
   return [
     `<path d="M64 22 L104 36 V68 C104 91 87 103 64 110 C41 103 24 91 24 68 V36 Z" fill="${p.secondary}"/>`,
-    `<path d="M64 32 L94 42 V68 C94 85 81 95 64 100 C47 95 34 85 34 68 V42 Z" fill="none" stroke="${p.primary}" stroke-width="3"/>`,
-    `<path d="M30 58 H98 V72 H30 Z" fill="${p.accent}"/>`,
-    `<path d="M60 36 H68 V96 H60 Z" fill="${p.accent}" fill-opacity="0.65"/>`,
-    `<circle cx="44" cy="65" r="4" fill="${p.primary}"/>`,
-    `<circle cx="84" cy="65" r="4" fill="${p.primary}"/>`,
+    `<path d="M64 33 L94 43 V68 C94 85 81 95 64 100 C47 95 34 85 34 68 V43 Z" fill="${p.primary}" fill-opacity="0.4"/>`,
+    bars,
+    `<path d="M40 50 H88 V58 H40 Z" fill="${p.accent}"/>`,
+    `<path d="M38 70 H90 V78 H38 Z" fill="${p.accent}"/>`,
+    `<path d="M64 22 L104 36 V68 C104 91 87 103 64 110 C41 103 24 91 24 68 V36 Z" fill="none" stroke="${p.ink}" stroke-opacity="0.35" stroke-width="3"/>`,
   ].join('');
 }
 
+/** Swept wing: a leading edge with primaries hanging beneath it. */
 function emWing(p: Pal): string {
+  // Anchors ride the leading edge; each primary rakes further backward toward the tip.
+  const anchors: readonly (readonly [number, number, number, number])[] = [
+    [32, 48, 26, 14], [50, 41, 30, 22], [68, 43, 34, 30], [85, 51, 38, 38], [99, 62, 42, 46],
+  ];
   let feathers = '';
-  for (let i = 0; i < 5; i++) {
-    const y = 40 + i * 11;
-    const x0 = 26 + i * 5;
-    const x1 = 104 - i * 13;
-    const h = 8 - i * 0.7;
-    feathers += `<path d="M${n2(x0)} ${n2(y)} L${n2(x1)} ${n2(y - 6 + i * 1.5)}` +
-      ` L${n2(x1 - 6)} ${n2(y + h)} L${n2(x0)} ${n2(y + h + 2)} Z"` +
-      ` fill="${i % 2 === 0 ? p.secondary : p.accent}"/>`;
-  }
+  anchors.forEach(([x, y, len, rake], i) => {
+    feathers += `<g transform="rotate(${rake} ${x} ${y})">` +
+      `<path d="M${n2(x - 6)} ${n2(y - 2)} L${n2(x + 7)} ${n2(y)}` +
+      ` L${n2(x + 2)} ${n2(y + len)} L${n2(x - 8)} ${n2(y + len - 8)} Z"` +
+      ` fill="${i % 2 === 0 ? p.secondary : p.accent}"/></g>`;
+  });
   return [
-    `<path d="M22 36 L34 32 L40 100 L26 96 Z" fill="${p.secondary}"/>`,
     feathers,
+    `<path d="M24 50 C48 32 84 40 106 64" fill="none" stroke="${p.secondary}" stroke-width="14" stroke-linecap="round"/>`,
+    `<path d="M28 47 C50 34 80 41 99 59" fill="none" stroke="${p.accent}" stroke-width="4" stroke-linecap="round"/>`,
+    `<circle cx="28" cy="52" r="10" fill="${p.secondary}"/>`,
   ].join('');
 }
 
 function emVisor(p: Pal): string {
   return [
-    `<path d="M22 62 C22 44 41 34 64 34 C87 34 106 44 106 62 L100 80` +
-      ` C86 90 42 90 28 80 Z" fill="${p.secondary}"/>`,
-    `<path d="M30 60 C34 49 47 43 64 43 C81 43 94 49 98 60 L94 72 C80 79 48 79 34 72 Z" fill="${p.accent}"/>`,
-    `<path d="M36 58 C42 51 52 48 64 48 C76 48 86 51 92 58" fill="none" stroke="${p.primary}" stroke-width="4" stroke-linecap="round"/>`,
-    `<path d="M40 84 H56 V92 H38 Z" fill="${p.secondary}"/>`,
-    `<path d="M72 84 H88 L90 92 H72 Z" fill="${p.secondary}"/>`,
+    // Brow chevron.
+    `<path d="M22 46 L64 28 L106 46 L106 37 L64 19 L22 37 Z" fill="${p.accent}"/>`,
+    // Visor slab, raked.
+    `<path d="M24 56 L104 48 L104 76 L24 84 Z" fill="${p.secondary}"/>`,
+    // Lens slit.
+    `<path d="M32 61 L96 55 L96 70 L32 76 Z" fill="${p.accent}"/>`,
+    // Nose bridge.
+    `<path d="M61 50 H67 V82 H61 Z" fill="${p.primary}"/>`,
+    // Chin bar.
+    `<path d="M36 88 H92 L86 98 H42 Z" fill="${p.secondary}"/>`,
   ].join('');
 }
 
@@ -255,15 +270,18 @@ function emTrident(p: Pal): string {
 
 function emMonolith(p: Pal): string {
   return [
-    `<path d="M42 30 L80 24 L86 100 L44 104 Z" fill="${p.secondary}"/>`,
-    `<path d="M80 24 L96 36 L98 94 L86 100 Z" fill="${p.accent}"/>`,
-    `<path d="M42 30 L80 24 L96 36 L56 33 Z" fill="${p.ink}" fill-opacity="0.35"/>`,
+    // Ground shelf, behind the slab.
+    `<path d="M34 96 H98 L102 106 H30 Z" fill="${p.accent}" fill-opacity="0.85"/>`,
+    // Front face.
+    `<path d="M38 22 L78 16 L84 100 L36 104 Z" fill="${p.secondary}"/>`,
+    // Lit side face.
+    `<path d="M78 16 L96 30 L98 92 L84 100 Z" fill="${p.accent}"/>`,
+    // Bevelled cap.
+    `<path d="M38 22 L78 16 L96 30 L56 35 Z" fill="${p.ink}" fill-opacity="0.3"/>`,
     // Carved glyph.
-    `<path d="M54 46 H72 V54 H54 Z" fill="${p.primary}"/>`,
-    `<path d="M54 62 H72 V68 H54 Z" fill="${p.primary}"/>`,
-    `<path d="M54 76 H66 V82 H54 Z" fill="${p.primary}"/>`,
-    // Ground bars.
-    `<path d="M24 104 H104 V110 H24 Z" fill="${p.accent}" fill-opacity="0.8"/>`,
+    `<path d="M48 48 H72 V57 H48 Z" fill="${p.primary}"/>`,
+    `<path d="M48 65 H72 V73 H48 Z" fill="${p.primary}"/>`,
+    `<path d="M48 81 H64 V89 H48 Z" fill="${p.primary}"/>`,
   ].join('');
 }
 
@@ -337,24 +355,33 @@ const FONT_STACK = 'Impact, Haettenschweiler, &quot;Arial Narrow Bold&quot;, san
  */
 export function teamWordmarkSvg(team: TeamDef): string {
   const c = team.colors;
-  const city = esc(team.city.toUpperCase());
-  const name = esc(team.name.toUpperCase());
+  const cityRaw = team.city.toUpperCase();
+  const nameRaw = team.name.toUpperCase();
+  const city = esc(cityRaw);
+  const name = esc(nameRaw);
   const label = esc(`${team.city} ${team.name}`);
+
+  // `textLength` + `spacingAndGlyphs` pins the run to an exact width, so the mark fits its
+  // box whether the heavy condensed face is present or the system sans is substituted.
+  const cityLen = Math.min(300, Math.max(90, cityRaw.length * 19));
+  const nameLen = Math.min(396, Math.max(120, nameRaw.length * 44));
   const common =
-    `font-family="${FONT_STACK}" text-anchor="middle" letter-spacing="2"` +
+    `font-family="${FONT_STACK}" text-anchor="middle" lengthAdjust="spacingAndGlyphs"` +
     ` stroke-linejoin="round" paint-order="stroke"`;
+  // Skew pivots on the mark's own centre line so neither row walks out of the box.
+  const skew = 'translate(0,70) skewX(-11) translate(0,-70)';
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 132" width="440" height="132"` +
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 140" width="460" height="140"` +
     ` role="img" aria-label="${label}">` +
-    `<g transform="skewX(-11)">` +
-    `<text x="240" y="48" ${common} font-size="34" fill="${c.accent}" fill-opacity="0.95"` +
-    ` stroke="${c.ink}" stroke-width="7">${city}</text>` +
-    `<text x="234" y="112" ${common} font-size="72" fill="${c.secondary}"` +
-    ` stroke="${c.ink}" stroke-width="12" opacity="0.55">${name}</text>` +
-    `<text x="228" y="107" ${common} font-size="72" fill="${c.primary}"` +
-    ` stroke="${c.ink}" stroke-width="10">${name}</text>` +
+    `<g transform="${skew}">` +
+    `<text x="230" y="46" ${common} font-size="32" textLength="${n2(cityLen)}"` +
+    ` fill="${c.accent}" stroke="${c.ink}" stroke-width="7">${city}</text>` +
+    `<text x="235" y="115" ${common} font-size="74" textLength="${n2(nameLen)}"` +
+    ` fill="${c.secondary}" stroke="${c.ink}" stroke-width="12" opacity="0.5">${name}</text>` +
+    `<text x="230" y="110" ${common} font-size="74" textLength="${n2(nameLen)}"` +
+    ` fill="${c.primary}" stroke="${c.ink}" stroke-width="10">${name}</text>` +
     `</g>` +
-    `<path d="M18 122 H422 V128 H18 Z" fill="${c.accent}"/>` +
+    `<path d="M30 126 H430 V133 H30 Z" fill="${c.accent}"/>` +
     `</svg>`
   );
 }
