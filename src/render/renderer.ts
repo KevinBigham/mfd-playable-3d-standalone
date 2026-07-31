@@ -117,6 +117,9 @@ export class GameRenderer {
     for (const m of this.rigs) { for (const r of m.values()) r.dispose(); m.clear(); }
     this.numberSprites.length = 0;
     if (this.env) { this.env.dispose(); this.env = null; }
+    // Dispose the owners first, then the groups they registered into, so nothing is orphaned.
+    this.effects?.dispose();
+    this.markers?.dispose();
     this.registry.clearGroup('athletes');
     this.registry.clearGroup('markers');
     this.registry.clearGroup('effects');

@@ -405,6 +405,16 @@ export function detectDead(w: World): DeadReason | null {
   const b = w.ball;
   const st = b.state;
 
+  // A kick play cannot legitimately run forever: without a cap a returner who gets boxed in and
+  // oscillates holds the play open until the phase watchdog fires. The limit is generous enough
+  // for a full-length return (hang time plus 100 yards at top speed is about 12 s).
+  const kickCap = (w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT') ? s(17) : s(9);
+  if (w.special !== null && w.playPhase === 'LIVE' && w.playTicks > kickCap) {
+    if (st.kind === 'held') return 'TACKLE';
+    if (st.kind === 'loose' || st.kind === 'kicked') return 'FUMBLE_DEAD';
+    return 'KICK_RESULT';
+  }
+
   if (st.kind === 'held') {
     const a = w.athletes[st.carrier];
     if (Math.abs(a.x) > FIELD_HALF_WIDTH) return 'OUT_OF_BOUNDS';

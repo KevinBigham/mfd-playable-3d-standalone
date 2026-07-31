@@ -43,19 +43,39 @@ export class SceneRegistry {
     this.disposables.push(typeof d === 'function' ? { dispose: d } : d);
   }
 
-  /** Recursively collect and free everything under a group, then remove it. */
-  clearGroup(name: string): void {
+  /**
+   * Recursively free everything under a group, then remove it.
+   * `free` actually releases the GPU resources — leave it on unless the geometry is shared with
+   * something that outlives the group, which nothing in this project currently is.
+   */
+  clearGroup(name: string, free = true): void {
     const g = this.groups.get(name);
     if (!g) return;
+    const geoms = new Set<THREE.BufferGeometry>();
+    const mats = new Set<THREE.Material>();
     g.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.geometry) this.geoms.add(m.geometry);
+      if (m.geometry) geoms.add(m.geometry);
       const mat = (m as THREE.Mesh).material;
-      if (Array.isArray(mat)) mat.forEach((x) => this.mats.add(x));
-      else if (mat) this.mats.add(mat as THREE.Material);
+      if (Array.isArray(mat)) mat.forEach((x) => mats.add(x));
+      else if (mat) mats.add(mat as THREE.Material);
     });
     this.scene.remove(g);
     this.groups.delete(name);
+    if (!free) {
+      for (const x of geoms) this.geoms.add(x);
+      for (const x of mats) this.mats.add(x);
+      return;
+    }
+    for (const x of geoms) { x.dispose(); this.geoms.delete(x); }
+    for (const x of mats) {
+      const anyMat = x as unknown as Record<string, unknown>;
+      for (const k of Object.keys(anyMat)) {
+        const v = anyMat[k] as THREE.Texture | undefined;
+        if (v && (v as THREE.Texture).isTexture) { v.dispose(); this.texes.delete(v); }
+      }
+      x.dispose(); this.mats.delete(x);
+    }
   }
 
   dispose(): void {
