@@ -18,7 +18,7 @@ const CENTER_Z = 50;
 const TURF_TILE = 10;        // yards per turf detail tile
 /** Apron reaches the largest rectangle that fits inside the stadium bowl's inner wall. */
 const APRON_OUT_X = 37;
-const APRON_OUT_Z = 9;       // beyond each end line
+const APRON_OUT_Z = 16;      // beyond each end line
 
 export const GOAL_HALF_WIDTH = 9.25;
 export const CROSSBAR_Y = 10 / 3;          // 10 feet

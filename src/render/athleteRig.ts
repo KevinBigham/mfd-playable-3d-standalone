@@ -138,7 +138,8 @@ export function buildAthleteRig(
   const jersey = new THREE.Color(away ? colors.secondary : colors.primary);
   const pants = new THREE.Color(away ? colors.primary : colors.secondary).multiplyScalar(0.92);
   const accent = new THREE.Color(colors.accent);
-  const helmet = new THREE.Color(away ? colors.primary : colors.primary).multiplyScalar(1.05);
+  // Away helmets pick up the strip colour so the two teams differ from the shoulders up too.
+  const helmet = new THREE.Color(away ? colors.secondary : colors.primary).multiplyScalar(away ? 0.92 : 1.05);
   const skin = skinColor(def.tone);
   const dark = new THREE.Color('#171a20');
   const ink = new THREE.Color(colors.ink);

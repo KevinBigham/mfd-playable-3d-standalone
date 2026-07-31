@@ -13,9 +13,15 @@ import { bowlLayout, type BowlLayout } from './stadium.ts';
  * vertex shader driven by a per-instance phase — there is never a per-frame CPU matrix update.
  */
 
-const SEAT_W = 0.80;     // yards of loop per seat
-const ROW_DEPTH = 0.88;  // yards of rake per row
+const SEAT_W = 0.76;     // yards of loop per seat
+const ROW_DEPTH = 0.84;  // yards of rake per row
 const MAX_CROWD = 24000;
+/**
+ * Fraction of lattice slots that survive the aisle skip, the upper-deck thin-out and the
+ * midfield weighting. The fill probability is divided by this so `crowdDensity` still lands on
+ * the headline number (HIGH ≈ 24 000, LOW ≈ 5 000).
+ */
+const LATTICE_YIELD = 0.76;
 
 const CROWD_VS = `
 attribute float aTorso;
@@ -23,9 +29,9 @@ attribute float aPhase;
 attribute vec3 aColor;
 attribute vec2 aTile;
 attribute float aSkin;
-uniform float uTime;
-uniform float uExcitement;
-uniform float uPop;
+uniform highp float uTime;
+uniform highp float uExcitement;
+uniform highp float uPop;
 varying vec2 vUv;
 varying vec3 vColor;
 varying float vShade;
@@ -50,10 +56,12 @@ void main() {
   #include <fog_vertex>
 }`;
 
+// `uExcitement` is shared with the vertex stage. GLSL ES refuses to link a program whose uniforms
+// differ in precision between stages, and three.js gives the two stages different default
+// precisions, so the qualifier has to be explicit on BOTH sides.
 const CROWD_FS = `
-precision mediump float;
 uniform sampler2D uAtlas;
-uniform float uExcitement;
+uniform highp float uExcitement;
 varying vec2 vUv;
 varying vec3 vColor;
 varying float vShade;
@@ -131,7 +139,7 @@ export function buildCrowd(reg: SceneRegistry, o: CrowdOptions): CrowdHandle {
   const seatsPerRow = Math.max(8, Math.floor(loop.perimeter / SEAT_W));
   let slots = 0;
   for (const r of rowsPerBand) slots += r * seatsPerRow;
-  const fill = Math.min(1, target / Math.max(1, slots));
+  const fill = Math.min(1, target / Math.max(1, slots) / LATTICE_YIELD);
 
   const geo = personGeometry();
   const atlas = crowdSpriteAtlas(o.quality);

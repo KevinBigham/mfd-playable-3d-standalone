@@ -8,6 +8,7 @@ import { poseAthlete, type AnimSample } from './athletePose.ts';
 import { GameCamera } from './camera.ts';
 import { Effects } from './effects.ts';
 import { buildBall, buildMarkers, makeNumberSprite, type Markers } from './props.ts';
+import { resolveKits } from './kits.ts';
 import { buildEnvironment, type Environment } from './env/index.ts';
 import type { ReplayView } from './replay.ts';
 import type { World } from '../sim/world.ts';
@@ -91,11 +92,13 @@ export class GameRenderer {
     this.ball = buildBall(this.registry);
     this.markers = buildMarkers(this.registry, [home.colors, away.colors], this.quality);
 
+    const kits = resolveKits(home, away);
     const group = this.registry.group('athletes');
     for (const side of [0, 1] as TeamSide[]) {
       const team = side === 0 ? home : away;
+      const colors = side === 0 ? kits.home : kits.away;
       for (const p of team.roster) {
-        const rig = buildAthleteRig(this.registry, p, team.colors, this.quality, side === 1);
+        const rig = buildAthleteRig(this.registry, p, colors, this.quality, side === 1);
         rig.root.visible = false;
         group.add(rig.root);
         this.rigs[side].set(p.number, rig);

@@ -34,6 +34,8 @@ export interface SeasonSave {
   champion: string | null;
   difficulty: Difficulty;
   seed: number;
+  /** Locked when the season starts so CPU results stay comparable week to week. */
+  quarterSeconds?: number;
   leaders: Record<string, { passYds: number; rushYds: number; sacks: number; ints: number; tds: number }>;
 }
 

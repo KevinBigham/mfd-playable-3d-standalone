@@ -9,7 +9,7 @@ import { getSave, writeSave, type TournamentSave } from '../../persistence/save.
 import {
   BYE, advanceRound, bracketSeedOrder, createTournament, isHumanMatch, isHumanTeam,
   isValidTournament, matchSeed, matchWinner, matchesInRound, nextMatch, reportResult,
-  roundName, seatsFor, seedOf, simulateCpuMatch, tieBreakWinner, totalRounds, venueFor,
+  roundName, seatsFor, seedOf, seriesLeader, simulateCpuMatch, tieBreakWinner, totalRounds, venueFor,
   winsNeeded, type TournamentMatchup,
 } from '../../modes/tournament.ts';
 
@@ -58,6 +58,8 @@ export class TournamentScreen implements Screen {
   private sim: SimState = { active: false, mode: 'ONE', target: null, delay: 0, fast: false };
   private results: string[] = [];
   private status = '';
+  private lastView: View | null = null;
+  private keepFocus = false;
   /** Once a match has been launched the screen stack is reset behind us. */
   private stackReset = false;
   private returning = false;
@@ -77,6 +79,7 @@ export class TournamentScreen implements Screen {
     this.sim = { active: false, mode: 'ONE', target: null, delay: 0, fast: false };
     this.results = [];
     this.status = '';
+    this.lastView = null;
 
     const save = getSave();
     if (save.tournament && !isValidTournament(save.tournament)) {
@@ -171,6 +174,9 @@ export class TournamentScreen implements Screen {
     if (!s) return;
     clear(s);
     s.appendChild(el('div', 'go-dim'));
+    // Re-drawing the same view keeps the cursor where it was; changing view resets it.
+    this.keepFocus = this.lastView === this.view;
+    this.lastView = this.view;
     switch (this.view) {
       case 'HOME': this.renderHome(); break;
       case 'SETUP': this.renderSetup(); break;
@@ -181,9 +187,9 @@ export class TournamentScreen implements Screen {
     }
   }
 
-  private mountPanel(p: HTMLElement, items: FocusItem[], keepIndex = false): void {
+  private mountPanel(p: HTMLElement, items: FocusItem[]): void {
     this.node?.appendChild(p);
-    this.ring.set(items, keepIndex);
+    this.ring.set(items, this.keepFocus);
     this.ring.onNav = (e) => this.ctx.sound(e === 'select' ? 'select' : 'move');
   }
 
@@ -256,7 +262,7 @@ export class TournamentScreen implements Screen {
     const back = button(this.t ? 'BACK' : 'MAIN MENU', () => this.onBack(), 'ghost');
     items.push(go, back);
     p.append(go.el, back.el);
-    this.mountPanel(p, items, true);
+    this.mountPanel(p, items);
   }
 
   private applySetupSettings(): void {
@@ -311,12 +317,12 @@ export class TournamentScreen implements Screen {
     p.appendChild(back.el);
     items.push({ ...back, row: 99, col: 0 });
     this.mountPanel(p, items);
-    this.ring.onNav = (e) => {
-      this.ctx.sound(e === 'select' ? 'select' : 'move');
+    const paintDetail = (): void => {
       const cur = this.ring.items[this.ring.index];
       detail.textContent = cur ? this.teamLine((cur.el as HTMLElement).dataset.id ?? '') : '';
     };
-    detail.textContent = this.teamLine(TEAMS[0]?.id ?? '');
+    this.ring.onNav = (e) => { this.ctx.sound(e === 'select' ? 'select' : 'move'); paintDetail(); };
+    paintDetail();
   }
 
   private teamLine(id: string): string {
@@ -383,7 +389,7 @@ export class TournamentScreen implements Screen {
     const back = button('BACK', () => this.onBack(), 'ghost');
     items.push(shuffle, go, back);
     p.append(shuffle.el, go.el, back.el);
-    this.mountPanel(p, items, true);
+    this.mountPanel(p, items);
   }
 
   private start(): void {
@@ -451,7 +457,7 @@ export class TournamentScreen implements Screen {
     const menu = button('MAIN MENU', () => this.exit(), 'ghost');
     items.push(quit, menu);
     for (const it of items) p.appendChild(it.el);
-    this.mountPanel(p, items, true);
+    this.mountPanel(p, items);
   }
 
   private matchupStrip(t: TournamentSave, nm: TournamentMatchup): HTMLElement {
@@ -484,6 +490,8 @@ export class TournamentScreen implements Screen {
       stadium ? stadium.name.toUpperCase() : 'NEUTRAL SITE',
       venue.weather,
     ];
+    const leader = seriesLeader(m);
+    if (t.bestOf3 && leader) bits.push(`${this.abbr(leader)} LEADS THE SERIES`);
     const line = el('p', 'muted', bits.join(' · '));
     line.style.textAlign = 'center';
     wrap.appendChild(line);

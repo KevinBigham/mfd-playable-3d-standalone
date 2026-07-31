@@ -534,7 +534,12 @@ export class FinalScreen implements Screen {
       button('REMATCH', () => {
         const cfg = this.game.match?.config;
         this.game.endMatch();
-        ctx.reset('match', { config: { ...cfg, seed: (Date.now() & 0x7fffffff) >>> 0 }, returnScreen: p2.returnScreen ?? 'mainMenu' });
+        ctx.reset('match', {
+          config: { ...cfg, seed: (Date.now() & 0x7fffffff) >>> 0 },
+          returnScreen: p2.returnScreen ?? 'mainMenu',
+          // Carry the callback through so a rematched tournament/season fixture still records.
+          onFinish: p2.onFinish,
+        });
       }),
       button('MAIN MENU', () => { this.game.endMatch(); ctx.reset(p2.returnScreen ?? 'mainMenu'); }),
     ];

@@ -240,7 +240,11 @@ export class SeasonScreen implements Screen {
       const pick = () => { this.pickTeam = t.id; this.render(); };
       card.addEventListener('click', pick);
       card.addEventListener('mouseenter', () => describe(t));
-      if (t.id === this.pickTeam) card.style.boxShadow = `inset 0 0 0 3px ${t.colors.secondary}`;
+      // Outline rather than box-shadow so it never fights the .focused highlight.
+      if (t.id === this.pickTeam) {
+        card.style.outline = `3px solid ${t.colors.secondary}`;
+        card.style.outlineOffset = '-3px';
+      }
       grid.appendChild(card);
       items.push({ el: card, onSelect: pick, row: Math.floor(i / 5), col: i % 5 });
     });
@@ -703,6 +707,16 @@ export class SeasonScreen implements Screen {
     this.setRing(items);
   }
 
+  /** How the human club's year ended, for the ceremony banner. */
+  private humanFinish(season: SeasonSave): string {
+    const rec = formatRecord(recordOf(season, season.teamId));
+    const mine = season.playoffs.filter((g) => g.played && (g.home === season.teamId || g.away === season.teamId));
+    const last = mine[mine.length - 1];
+    if (!last) return `${abbrOf(season.teamId)} MISSED THE PLAYOFFS AT ${rec}`;
+    if (last.round === 2) return `RUNNERS-UP · ${rec}`;
+    return `OUT IN THE ${ROUND_LABELS[Math.max(0, Math.min(2, last.round))]} · ${rec}`;
+  }
+
   // ── trophy ──────────────────────────────────────────────────────────────
   private renderTrophy(s: HTMLElement): void {
     const season = this.season;
@@ -737,8 +751,7 @@ export class SeasonScreen implements Screen {
       side.appendChild(el('div', 'muted', `${abbrOf(won)} ${ws} — ${ls} ${abbrOf(lost)}`));
     }
 
-    const rec = recordOf(season, season.teamId);
-    const banner = el('div', 'tag on', mine ? 'YOUR CLUB TOOK THE TITLE' : `${abbrOf(season.teamId)} FINISHED ${formatRecord(rec)}`);
+    const banner = el('div', 'tag on', mine ? 'YOUR CLUB TOOK THE TITLE' : this.humanFinish(season));
     banner.style.cssText = 'font-size:15px;letter-spacing:.16em;padding:6px 14px';
     if (mine && !this.game.settings.reducedMotion) banner.style.animation = 'pulse .9s ease-in-out infinite alternate';
     side.appendChild(banner);

@@ -3,7 +3,7 @@
  * Repeatable visual review set. Drives a deterministic CPU-vs-CPU match and screenshots the
  * moments that matter. `npm run capture`
  */
-import { startServer, stopServer, launch, probe, screenshot } from './browser.ts';
+import { startServer, stopServer, launch, probe, screenshot, screenshotDom } from './browser.ts';
 import { mkdirSync } from 'node:fs';
 
 const OUT = 'docs/captures';
@@ -14,27 +14,28 @@ async function main(): Promise<void> {
   const h = await launch(url, { width: 1600, height: 900 });
   const { page } = h;
   const shots: string[] = [];
-  const shot = async (name: string) => {
-    await screenshot(page, `${OUT}/${name}.png`);
+  const shot = async (name: string, dom = false) => {
+    if (dom) await screenshotDom(page, `${OUT}/${name}.png`);
+    else await screenshot(page, `${OUT}/${name}.png`);
     shots.push(name);
     console.log(`  captured ${name}`);
   };
 
   try {
     await page.waitForTimeout(900);
-    await shot('r01-title');
+    await shot('r01-title', true);
     await page.evaluate(() => (window as unknown as { GO: any }).GO.reset('mainMenu'));
-    await page.waitForTimeout(500); await shot('r02-main-menu');
+    await page.waitForTimeout(500); await shot('r02-main-menu', true);
     await page.evaluate(() => (window as unknown as { GO: any }).GO.reset('quickPlay'));
     await page.waitForTimeout(500);
     await page.keyboard.press('KeyS'); await page.keyboard.press('KeyS');
     await page.keyboard.press('KeyS'); await page.keyboard.press('KeyS');
     await page.keyboard.press('Space');
-    await page.waitForTimeout(700); await shot('r03-team-select');
+    await page.waitForTimeout(700); await shot('r03-team-select', true);
     await page.evaluate(() => (window as unknown as { GO: any }).GO.reset('settings'));
-    await page.waitForTimeout(400); await shot('r04-settings');
+    await page.waitForTimeout(400); await shot('r04-settings', true);
     await page.evaluate(() => (window as unknown as { GO: any }).GO.reset('controls'));
-    await page.waitForTimeout(400); await shot('r05-controls');
+    await page.waitForTimeout(400); await shot('r05-controls', true);
 
     // Deterministic CPU-vs-CPU match; grab the moments as they happen.
     for (const [weather, tag] of [['CLEAR', 'clear'], ['RAIN', 'rain'], ['SNOW', 'snow']] as const) {
@@ -74,7 +75,7 @@ async function main(): Promise<void> {
           await page.waitForTimeout(500);
         }
         await page.waitForTimeout(2500);
-        await shot('r20-final-stats');
+        await shot('r20-final-stats', true);
       }
     }
   } finally {

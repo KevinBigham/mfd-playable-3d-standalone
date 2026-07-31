@@ -4,7 +4,7 @@
  * human-controlled match to a final result, checks for console errors and memory growth.
  * `npm run smoke`
  */
-import { startServer, stopServer, launch, tap, probe, enterQuickMatch, screenshot } from './browser.ts';
+import { startServer, stopServer, launch, tap, probe, enterQuickMatch, screenshot, screenshotDom } from './browser.ts';
 import { mkdirSync } from 'node:fs';
 
 const OUT = 'docs/captures';
@@ -28,13 +28,13 @@ async function main(): Promise<void> {
     const boot = await probe(page);
     check('boots to the title screen', boot.screen === 'title', `screen=${boot.screen}`);
     check('WebGL context created', boot.calls >= 0, `drawCalls=${boot.calls} tris=${boot.triangles}`);
-    await screenshot(page, `${OUT}/01-title.png`);
+    await screenshotDom(page, `${OUT}/01-title.png`);
 
     // Title → main menu
     await tap(page, 'Space');
     let p = await probe(page);
     check('title advances to the main menu', p.screen === 'mainMenu', `screen=${p.screen}`);
-    await screenshot(page, `${OUT}/02-main-menu.png`);
+    await screenshotDom(page, `${OUT}/02-main-menu.png`);
 
     // Menu navigation
     await tap(page, 'KeyS'); await tap(page, 'KeyS'); await tap(page, 'KeyW');
@@ -44,22 +44,22 @@ async function main(): Promise<void> {
     await tap(page, 'Space');           // QUICK PLAY
     p = await probe(page);
     check('quick play opens', p.screen === 'quickPlay', `screen=${p.screen}`);
-    await screenshot(page, `${OUT}/03-players.png`);
+    await screenshotDom(page, `${OUT}/03-players.png`);
     // seats -> home team
     await tap(page, 'KeyS'); await tap(page, 'KeyS'); await tap(page, 'KeyS'); await tap(page, 'KeyS');
     await tap(page, 'Space');
     await page.waitForTimeout(400);
-    await screenshot(page, `${OUT}/04-team-select.png`);
+    await screenshotDom(page, `${OUT}/04-team-select.png`);
     await tap(page, 'Space');           // pick home
     await page.waitForTimeout(300);
     await tap(page, 'Space');           // pick away
     await page.waitForTimeout(400);
-    await screenshot(page, `${OUT}/05-match-setup.png`);
+    await screenshotDom(page, `${OUT}/05-match-setup.png`);
 
     // Settings screen reachable and persists
     await page.evaluate(() => (window as unknown as { GO: any }).GO.reset('settings'));
     await page.waitForTimeout(350);
-    await screenshot(page, `${OUT}/06-settings.png`);
+    await screenshotDom(page, `${OUT}/06-settings.png`);
     const persisted = await page.evaluate(() => {
       const g = (window as unknown as { GO: any }).GO;
       g.settings.cameraShake = 0.42;
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
     await tap(page, 'Escape');
     p = await probe(page);
     check('pause opens', p.screen === 'pause', `screen=${p.screen}`);
-    await screenshot(page, `${OUT}/08-pause.png`);
+    await screenshotDom(page, `${OUT}/08-pause.png`);
     await tap(page, 'Escape');
     p = await probe(page);
     check('resume returns to the match', p.screen === 'match', `screen=${p.screen}`);

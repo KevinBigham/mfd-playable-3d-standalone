@@ -63,8 +63,8 @@ interface SurfaceLook {
 }
 
 export const SURFACE_LOOK: Record<SurfaceKind, SurfaceLook> = {
-  GRASS:   { base: '#2c7a37', blotch: '#245f2b', stripe: 0.16, tint: [0.94, 1.06, 0.92], grain: 'BLADE' },
-  TURF:    { base: '#1d7f48', blotch: '#17693c', stripe: 0.11, tint: [0.92, 1.05, 0.99], grain: 'FIBRE' },
+  GRASS:   { base: '#2c7a37', blotch: '#245f2b', stripe: 0.19, tint: [0.94, 1.06, 0.92], grain: 'BLADE' },
+  TURF:    { base: '#1d7f48', blotch: '#17693c', stripe: 0.14, tint: [0.92, 1.05, 0.99], grain: 'FIBRE' },
   FROZEN:  { base: '#8fae95', blotch: '#d8e6ea', stripe: 0.07, tint: [1.02, 1.02, 1.06], grain: 'CRACK' },
   MUD:     { base: '#5b482c', blotch: '#3f3120', stripe: 0.05, tint: [1.05, 0.98, 0.90], grain: 'CLUMP' },
   SAND:    { base: '#c0a165', blotch: '#a98a51', stripe: 0.04, tint: [1.06, 1.00, 0.90], grain: 'RIPPLE' },

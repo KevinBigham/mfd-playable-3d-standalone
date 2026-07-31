@@ -13,6 +13,9 @@ import type { SkyHandle } from './sky.ts';
  * CLEAR builds nothing at all and `update` returns immediately.
  */
 
+/** Device pixels per yard at 1 yard depth, for a 1080-tall buffer at a 52° vertical FOV. */
+const DEFAULT_PIXEL_SCALE = 1100;
+
 const PARTICLE_VS = `
 attribute float aSeed;
 uniform vec3 uCam;
@@ -36,8 +39,9 @@ void main() {
   vec4 mv = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mv;
   float d = -mv.z;
-  gl_PointSize = uSize * (0.7 + aSeed * 0.6) * uPixel / max(1.0, d);
-  vFade = smoothstep(uBox.x * 0.52, uBox.x * 0.20, d) * smoothstep(1.2, 5.0, d);
+  // uSize is a WORLD size in yards; uPixel converts yards-at-1-yard into device pixels.
+  gl_PointSize = clamp(uSize * (0.7 + aSeed * 0.6) * uPixel / max(1.0, d), 1.0, 64.0);
+  vFade = smoothstep(uBox.x * 0.52, uBox.x * 0.18, d) * smoothstep(2.5, 9.0, d);
   vSeed = aSeed;
 }`;
 
@@ -108,6 +112,11 @@ export interface WeatherOptions {
 
 export interface WeatherHandle {
   update(dt: number, cameraPos: THREE.Vector3): void;
+  /**
+   * Device pixels per yard at one yard of depth: `drawingBufferHeight / (2 * tan(fovY / 2))`.
+   * Call on resize / FOV change so precipitation keeps a constant apparent size.
+   */
+  setPixelScale(px: number): void;
   dispose(): void;
 }
 
@@ -119,7 +128,11 @@ interface Field {
 export function buildWeather(reg: SceneRegistry, o: WeatherOptions): WeatherHandle {
   const kind = o.conditions.weather;
   if (kind === 'CLEAR') {
-    return { update(): void { /* nothing to do */ }, dispose(): void { /* nothing built */ } };
+    return {
+      update(): void { /* nothing to do */ },
+      setPixelScale(): void { /* nothing built */ },
+      dispose(): void { /* nothing built */ },
+    };
   }
 
   const group = reg.group('env.weather');
@@ -160,7 +173,7 @@ export function buildWeather(reg: SceneRegistry, o: WeatherOptions): WeatherHand
       uSwirl: { value: swirl },
       uTime: { value: 0 },
       uSize: { value: size },
-      uPixel: { value: 340 },
+      uPixel: { value: DEFAULT_PIXEL_SCALE },
       uColor: { value: new THREE.Color(color) },
       uOpacity: { value: opacity },
     };
@@ -220,9 +233,9 @@ export function buildWeather(reg: SceneRegistry, o: WeatherOptions): WeatherHand
   switch (kind) {
     case 'RAIN': {
       makeField(
-        9000, new THREE.Vector3(72, 42, 72),
+        5200, new THREE.Vector3(72, 42, 72),
         new THREE.Vector3(windX * 0.5, -34, windZ * 0.5), new THREE.Vector2(0.25, 1.1),
-        '#cfe6ff', 240, 0.55, 'RAIN', THREE.AdditiveBlending,
+        '#bcd8f2', 0.50, 0.26, 'RAIN', THREE.AdditiveBlending,
       );
       hazes.push(makeHaze('#b9c9d8', 0.9, 0.16, 3.2, 0.05, 110, 170));
       fogTarget = fogFrom * 2.1 + 0.0008;
@@ -231,9 +244,9 @@ export function buildWeather(reg: SceneRegistry, o: WeatherOptions): WeatherHand
     }
     case 'SNOW': {
       makeField(
-        6500, new THREE.Vector3(66, 40, 66),
+        5000, new THREE.Vector3(66, 40, 66),
         new THREE.Vector3(windX * 0.7, -4.6, windZ * 0.7), new THREE.Vector2(1.5, 0.8),
-        '#ffffff', 210, 0.85, 'SNOW', THREE.NormalBlending,
+        '#ffffff', 0.19, 0.80, 'SNOW', THREE.NormalBlending,
       );
       hazes.push(makeHaze('#e8f0f6', 1.1, 0.20, 2.6, 0.03, 110, 170));
       fogTarget = fogFrom * 2.6 + 0.0012;
@@ -242,14 +255,14 @@ export function buildWeather(reg: SceneRegistry, o: WeatherOptions): WeatherHand
     }
     case 'WIND': {
       makeField(
-        1800, new THREE.Vector3(70, 9, 70),
+        1600, new THREE.Vector3(70, 9, 70),
         new THREE.Vector3(windX * 3.4 - 9, -0.6, windZ * 3.4 - 3), new THREE.Vector2(1.1, 2.4),
-        '#d8c48a', 150, 0.7, 'DEBRIS', THREE.NormalBlending,
+        '#d8c48a', 0.19, 0.75, 'DEBRIS', THREE.NormalBlending,
       );
       makeField(
-        700, new THREE.Vector3(70, 26, 70),
+        600, new THREE.Vector3(70, 26, 70),
         new THREE.Vector3(windX * 2.2 - 6, 0.9, windZ * 2.2 - 2), new THREE.Vector2(2.2, 1.6),
-        '#9aa88a', 120, 0.45, 'DEBRIS', THREE.NormalBlending,
+        '#9aa88a', 0.14, 0.50, 'DEBRIS', THREE.NormalBlending,
       );
       hazes.push(makeHaze('#c7bb96', 0.7, 0.10, 4.0, 0.16, 110, 170));
       fogTarget = fogFrom * 1.5;
@@ -292,6 +305,9 @@ export function buildWeather(reg: SceneRegistry, o: WeatherOptions): WeatherHand
         (f.uniforms.uCam.value as THREE.Vector3).set(cameraPos.x, 0, cameraPos.z);
       }
       for (const h of hazes) h.uTime.value = t;
+    },
+    setPixelScale(px: number): void {
+      for (const f of fields) f.uniforms.uPixel.value = px;
     },
     dispose(): void {
       if (disposed) return;

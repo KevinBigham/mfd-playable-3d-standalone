@@ -117,7 +117,11 @@ export class Game {
   }
 
   back(): void {
-    if (this.stack.length <= 1) return;
+    // Mode screens use reset(), so the stack can legitimately be one deep. Never dead-end.
+    if (this.stack.length <= 1) {
+      if (this.currentScreen !== 'mainMenu' && this.currentScreen !== 'title') this.reset('mainMenu');
+      return;
+    }
     if (this.current) this.current.unmount();
     this.stack.pop();
     const prev = this.stack[this.stack.length - 1];

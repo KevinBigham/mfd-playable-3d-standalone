@@ -5,7 +5,7 @@ import type { TournamentSave } from '../persistence/save.ts';
 import {
   BYE, advanceRound, bracketSeedOrder, createTournament, isComplete, isHumanMatch,
   isValidTournament, matchWinner, nextMatch, reportResult, roundName, seatsFor,
-  simulateCpuMatch, totalRounds, winsNeeded,
+  seriesLeader, simulateCpuMatch, totalRounds, winsNeeded,
 } from './tournament.ts';
 
 function field(n: number, humans = 0, offset = 0): Array<{ teamId: string; human: boolean; seat: number }> {
@@ -143,8 +143,10 @@ describe('best-of-3 needs two wins', () => {
     reportResult(t, 0, 1, 0);
     expect(t.rounds[0][0].done).toBe(false);
     expect(matchWinner(t.rounds[0][0])).toBe(BYE);
+    expect(seriesLeader(t.rounds[0][0])).toBe(t.rounds[0][0].a);
     reportResult(t, 0, 0, 1);
     expect(t.rounds[0][0].done).toBe(false);
+    expect(seriesLeader(t.rounds[0][0])).toBe(BYE);
     reportResult(t, 0, 1, 0);
     expect(t.rounds[0][0].done).toBe(true);
     expect(t.rounds[0][0].winsA).toBe(2);

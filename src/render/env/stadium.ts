@@ -17,7 +17,7 @@ import type { SkyPalette } from './sky.ts';
 // Inner boundary of the bowl. Sized so the field apron, benches and camera positions all fit
 // inside it with room to spare.
 export const BOWL_HALF_X = 44;
-export const BOWL_HALF_Z = 80;
+export const BOWL_HALF_Z = 86;
 export const BOWL_RADIUS = 28;
 export const BOWL_CENTER_Z = 50;
 
@@ -34,7 +34,7 @@ const TIER: Record<1 | 2 | 3, TierSpec> = {
   3: { lowerRun: 19.5, lowerRise: 14.5, upperRun: 20.0, upperRise: 23.0, concourse: 3.9, towers: 8 },
 };
 
-type SegKind = 'SIGN' | 'STRUCT' | 'DARK' | 'ACCENT' | 'SEAT' | 'OUTER';
+type SegKind = 'GROUND' | 'SIGN' | 'STRUCT' | 'DARK' | 'ACCENT' | 'SEAT' | 'OUTER';
 
 interface ProfileSeg { r0: number; y0: number; r1: number; y1: number; kind: SegKind }
 
@@ -51,6 +51,9 @@ export interface BowlLayout {
   centerZ: number;
 }
 
+/** How far inside the loop the bowl floor reaches. Must exceed the field apron's outer corner. */
+const GROUND_REACH = 24;
+
 const SEAT_TILE_U = 7.8;   // yards of loop per seat-texture tile (10 seats)
 const SEAT_TILE_V = 5.1;   // yards of rake per tile (6 rows)
 const SIGN_REPEATS = 9;
@@ -59,7 +62,9 @@ function buildProfile(tier: 1 | 2 | 3): { segs: ProfileSeg[]; bands: SeatBand[];
   const T = TIER[tier];
   const segs: ProfileSeg[] = [];
   const bands: SeatBand[] = [];
-  let r = 0, y = 0;
+  // Start inside the loop: a ground apron ring that runs under the field's own apron so there is
+  // never a hole between the playing surface and the bowl wall.
+  let r = -GROUND_REACH, y = -0.08;
   const to = (dr: number, dy: number, kind: SegKind): void => {
     const seg = { r0: r, y0: y, r1: r + dr, y1: y + dy, kind };
     segs.push(seg);
@@ -67,6 +72,7 @@ function buildProfile(tier: 1 | 2 | 3): { segs: ProfileSeg[]; bands: SeatBand[];
     r += dr; y += dy;
   };
 
+  to(GROUND_REACH, 0.08, 'GROUND');         // bowl floor, tucked under the field apron
   to(0, 2.7, 'SIGN');                       // padded perimeter wall carrying signage
   to(2.2, 0, 'STRUCT');                     // photographers' walkway
   to(0, 0.75, 'ACCENT');                    // front riser
@@ -213,6 +219,7 @@ export function buildStadium(reg: SceneRegistry, o: StadiumOptions): StadiumHand
   const concreteDeep = new THREE.Color('#6f757d').lerp(accent, 0.08);
   const darkCol = new THREE.Color('#2f353d');
   const outerCol = new THREE.Color('#848a92').lerp(accent, 0.16);
+  const groundCol = new THREE.Color('#3c4a3a').lerp(accent, 0.05);
 
   const structure = new GeoBatch();
   const seats = new GeoBatch();
@@ -272,6 +279,9 @@ export function buildStadium(reg: SceneRegistry, o: StadiumOptions): StadiumHand
         }
         case 'ACCENT':
           trim.addQuad(p0, p1, p2, p3, accent, out);
+          break;
+        case 'GROUND':
+          structure.addQuad(p0, p1, p2, p3, groundCol, out);
           break;
         case 'DARK':
           structure.addQuad(p0, p1, p2, p3, darkCol, out);

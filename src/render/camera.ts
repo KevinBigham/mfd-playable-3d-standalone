@@ -50,7 +50,7 @@ export class GameCamera {
 
   snapTo(x: number, z: number, dir: number): void {
     this.lastDir = dir;
-    this.posX = x * 0.4; this.posZ = z - dir * 21; this.posY = 13.5;
+    this.posX = x * 0.4; this.posZ = z - dir * 17; this.posY = 10.2;
     this.lookX = x; this.lookZ = z + dir * 8;
     this.apply(0);
   }
@@ -102,29 +102,31 @@ export class GameCamera {
     }
     this.mode = mode;
 
-    let dist = 21, height = 13.5, ahead = 9, fov = 52;
+    // Arcade framing: close enough that athletes read as characters, wide enough to see the
+    // route concept. Everything below is deliberately tighter than a broadcast camera.
+    let dist = 17, height = 10.2, ahead = 8, fov = 50;
     switch (mode) {
       case 'DEEP': {
         const target = st.kind === 'inAir' ? st.tz : fz;
-        fz = lerp(fz, target, 0.42);
-        dist = 26 + spreadZ * 0.30; height = 17.5; ahead = 13; fov = 58;
+        fz = lerp(fz, target, 0.45);
+        dist = 19 + spreadZ * 0.22; height = 12.5; ahead = 11; fov = 55;
         break;
       }
-      case 'BREAKAWAY': dist = 17.5; height = 10.5; ahead = 11; fov = 50; break;
-      case 'KICK': dist = 27; height = 19; ahead = 16; fov = 60; break;
-      case 'CELEBRATE': dist = 13; height = 7.5; ahead = 2; fov = 46; break;
+      case 'BREAKAWAY': dist = 13.5; height = 7.2; ahead = 10; fov = 48; break;
+      case 'KICK': dist = 23; height = 15.5; ahead = 15; fov = 58; break;
+      case 'CELEBRATE': dist = 10.5; height = 5.4; ahead = 2; fov = 44; break;
       default:
-        dist = 20 + spreadZ * 0.24 + spreadX * 0.10;
-        height = 12.4 + spreadZ * 0.10;
-        ahead = 8 + spreadZ * 0.12;
-        fov = 50 + clamp01(spreadZ / 46) * 6;
+        dist = 16 + spreadZ * 0.20 + spreadX * 0.08;
+        height = 9.6 + spreadZ * 0.085;
+        ahead = 7 + spreadZ * 0.11;
+        fov = 48 + clamp01(spreadZ / 46) * 6;
         break;
     }
 
-    // Keep the LOS and first-down marker visible during pre-snap.
+    // Keep the LOS and the first-down marker visible before the snap.
     if (w.playPhase === 'PRESNAP' || w.playPhase === 'SETUP') {
-      fz = w.losZ + dir * 3.5;
-      dist = 23; height = 14.5; ahead = 12; fov = 54;
+      fz = w.losZ + dir * 4.5;
+      dist = 19.5; height = 11.6; ahead = 12; fov = 53;
     }
 
     const wantX = clamp(fx * 0.55, -FIELD_HALF_WIDTH * 0.6, FIELD_HALF_WIDTH * 0.6);
