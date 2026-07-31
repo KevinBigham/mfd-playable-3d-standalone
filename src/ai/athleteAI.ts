@@ -1,0 +1,471 @@
+import type { Athlete, AthleteId, PlayerIntent, TeamSide } from '../core/types.ts';
+import { Action } from '../input/actions.ts';
+import { clamp, clamp01, dist, heading, angDelta, lerp } from '../core/math.ts';
+import { FIELD_HALF_WIDTH, s, TURBO_COST } from '../core/constants.ts';
+import type { World } from '../sim/world.ts';
+import { OFF_START, DEF_START, dirOf, goalOf, carrier } from '../sim/world.ts';
+import { routeSteer } from '../sim/playRunner.ts';
+import { baseSpeed, turboSpeed } from '../sim/movement.ts';
+import { ballLead } from '../sim/catching.ts';
+import type { AiProfile } from './difficulty.ts';
+
+const steer = { x: 0, z: 0, turbo: false };
+const leadPt = { x: 0, z: 0 };
+
+export interface AiContext {
+  profile: AiProfile;
+  /** Applied to pursuit speed only, bounded. */
+  catchUp: [number, number];
+}
+
+export class AiController {
+  constructor(private ctx: AiContext) {}
+
+  produce(w: World, id: AthleteId, out: PlayerIntent): void {
+    const a = w.athletes[id];
+    out.moveX = 0; out.moveZ = 0; out.held = 0;
+    if (w.playPhase === 'SETUP' || w.playPhase === 'PRESNAP') { presnap(w, a, out); return; }
+    if (w.playPhase === 'POST') { postPlay(w, a, out); return; }
+    if (w.playPhase !== 'LIVE') return;
+
+    const onOffense = a.side === w.possession;
+    if (a.hasBall) { carrierAI(w, a, out, this.ctx); return; }
+    if (onOffense) { offenseAI(w, a, out, this.ctx); return; }
+    defenseAI(w, a, out, this.ctx);
+  }
+}
+
+function presnap(w: World, a: Athlete, out: PlayerIntent): void {
+  // Hold formation.
+  const dx = a.homeX - a.x, dz = a.homeZ - a.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 0.3) { out.moveX = dx / d * 0.6; out.moveZ = dz / d * 0.6; }
+}
+
+function postPlay(w: World, a: Athlete, out: PlayerIntent): void {
+  if (!w.lateHits) return;
+  const car = w.athletes[w.lastCarrier];
+  if (!car || car.side === a.side) return;
+  const d = dist(a.x, a.z, car.x, car.z);
+  if (d < 9 && w.rng.chance(0.02)) {
+    out.moveX = (car.x - a.x) / d; out.moveZ = (car.z - a.z) / d; out.held |= Action.TURBO;
+  }
+}
+
+// ── offense ────────────────────────────────────────────────────────────────
+
+function offenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  const dir = dirOf(a.side);
+
+  if (a.role === 'LINE') {
+    // Pick up the nearest threat to the QB and stay between it and the passer.
+    const qb = w.athletes[w.qbId];
+    let threat: Athlete | null = null; let best = 1e9;
+    for (let i = 0; i < 7; i++) {
+      const d = w.athletes[DEF_START + i];
+      if (d.move === 'DOWN') continue;
+      if (d.blockedBy >= 0 && d.blockedBy !== a.id) continue;
+      const score = dist(d.x, d.z, qb.x, qb.z) + dist(d.x, d.z, a.x, a.z) * 0.6;
+      if (score < best) { best = score; threat = d; }
+    }
+    const anchorX = a.homeX, anchorZ = a.homeZ + dir * 0.6;
+    let tx = anchorX, tz = anchorZ;
+    if (threat) {
+      tx = threat.x * 0.72 + qb.x * 0.28;
+      tz = threat.z * 0.72 + qb.z * 0.28;
+    }
+    driveTo(a, tx, tz, out, 1);
+    return;
+  }
+
+  // Route running.
+  routeSteer(w, a, steer);
+  out.moveX = steer.x; out.moveZ = steer.z;
+  if (steer.turbo) out.held |= Action.TURBO;
+
+  // Attack a ball in the air that is coming to us.
+  const st = w.ball.state;
+  if (st.kind === 'inAir' && st.passKind !== 'LATERAL') {
+    if (a.reactionQueue > 0) { a.reactionQueue--; }
+    else {
+      ballLead(w, 0.12, leadPt);
+      const d = dist(a.x, a.z, leadPt.x, leadPt.z);
+      if (d < 16) {
+        out.moveX = (leadPt.x - a.x) / Math.max(0.001, d);
+        out.moveZ = (leadPt.z - a.z) / Math.max(0.001, d);
+        out.held |= Action.TURBO;
+        if (d < 2.6 && w.ball.y > 2.0 && w.rng.chance(0.35)) out.held |= Action.JUMP;
+        else if (d < 2.2 && w.ball.y < 1.1 && w.rng.chance(0.25 * ctx.profile.catchFocus)) out.held |= Action.DIVE;
+      }
+    }
+  } else if (w.ball.state.kind === 'loose') {
+    const b = w.ball;
+    const d = dist(a.x, a.z, b.x, b.z);
+    if (d < 20) {
+      out.moveX = (b.x - a.x) / Math.max(0.001, d);
+      out.moveZ = (b.z - a.z) / Math.max(0.001, d);
+      out.held |= Action.TURBO;
+      if (d < 2.2) out.held |= Action.DIVE;
+    }
+  } else if (w.passThrown === false && w.playTicks > s(1.4)) {
+    // Nobody blocking for a scrambling QB: come back to the ball.
+    const qb = w.athletes[w.qbId];
+    if (qb.hasBall && (qb.z - w.losZ) * dir < -6) {
+      const d = dist(a.x, a.z, qb.x, qb.z);
+      if (d > 14) { out.moveX = (qb.x - a.x) / d * 0.6; out.moveZ = (qb.z - a.z) / d * 0.6; }
+    }
+  }
+}
+
+function carrierAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  const dir = dirOf(a.side);
+  const isQb = a.id === w.qbId && !w.passThrown && (a.z - w.losZ) * dir < 1.0 && w.special === null;
+  if (isQb) { quarterbackAI(w, a, out, ctx); return; }
+  runToDaylight(w, a, out, ctx);
+}
+
+function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  const dir = dirOf(a.side);
+  const p = ctx.profile;
+  const t = w.playTicks;
+  const play = w.offensePlay;
+  const dropDepth = play && play.formation.includes('SHOTGUN') ? 2.5 : 5.5;
+
+  // Pressure check.
+  let pressure = 99; let pressureX = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = w.athletes[DEF_START + i];
+    if (d.move === 'DOWN') continue;
+    const dd = dist(a.x, a.z, d.x, d.z);
+    if (dd < pressure) { pressure = dd; pressureX = d.x; }
+  }
+
+  // Drop back first.
+  const targetZ = w.losZ - dir * dropDepth;
+  const backedUp = (a.z - targetZ) * dir <= 0.4;
+
+  // Evaluate reads once the timing landmark passes.
+  const primaryTick = play ? play.timing.primary : s(1.0);
+  const secondaryTick = play ? play.timing.secondary : s(1.8);
+  const readyTick = Math.max(s(0.45), primaryTick - p.reactionTicks);
+
+  if (t > readyTick) {
+    const cand = bestReceiver(w, a, t >= secondaryTick ? 2 : 1, p);
+    if (cand.id >= 0 && cand.open > (pressure < 3.2 ? 1.5 : 2.6) - p.riskTolerance * 1.1) {
+      out.held |= Action.ACTION;
+      // Choose the matching target button so latency matches a human's.
+      const idx = w.passTargets.indexOf(cand.id);
+      if (idx === 0) out.held |= Action.TARGET_L;
+      else if (idx === 1) out.held |= Action.TARGET_M;
+      else if (idx === 2) out.held |= Action.TARGET_R;
+      if (cand.deep > 22 && w.rng.chance(0.35)) out.held |= Action.LOB;
+      else if (cand.tight && w.rng.chance(0.55)) out.held |= Action.TURBO;
+      return;
+    }
+  }
+
+  // Sack avoidance / scramble.
+  if (pressure < 2.6) {
+    const away = a.x - pressureX;
+    out.moveX = clamp(away * 0.6, -1, 1);
+    out.moveZ = dir * 0.25;
+    out.held |= Action.TURBO;
+    if (t > s(2.6) && w.rng.chance(0.03)) out.held |= Action.ACTION; // throw it away-ish
+    return;
+  }
+
+  if (!backedUp) {
+    out.moveZ = -dir * 0.9;
+    out.moveX = clamp((play ? 0 : 0) - a.x * 0.02, -0.3, 0.3);
+    return;
+  }
+
+  // Climb / slide in the pocket.
+  if (t > s(2.9)) {
+    // Nothing there: take off.
+    const lane = bestLane(w, a, dir);
+    out.moveX = lane.x; out.moveZ = lane.z;
+    out.held |= Action.TURBO;
+    return;
+  }
+  out.moveX = clamp(-a.x * 0.03, -0.4, 0.4);
+  out.moveZ = 0;
+}
+
+interface ReadResult { id: AthleteId; open: number; deep: number; tight: boolean }
+
+function bestReceiver(w: World, qb: Athlete, depth: number, p: AiProfile): ReadResult {
+  const dir = dirOf(qb.side);
+  const play = w.offensePlay;
+  const order = play ? [play.reads[0], play.reads[1]] : [1, 2];
+  const res: ReadResult = { id: -1, open: -99, deep: 0, tight: false };
+  const consider: AthleteId[] = [];
+  for (let i = 0; i < Math.min(depth, order.length); i++) {
+    const idx = order[i];
+    const ath = w.athletes[OFF_START + idx];
+    if (ath && ath.targetButton !== null) consider.push(ath.id);
+  }
+  for (const id of w.passTargets) if (id >= 0 && !consider.includes(id)) consider.push(id);
+
+  for (const id of consider) {
+    const r = w.athletes[id];
+    if (!r || r.move === 'DOWN') continue;
+    const dz = (r.z - qb.z) * dir;
+    if (dz < -8) continue;
+    const range = dist(qb.x, qb.z, r.x, r.z);
+    if (range > 58) continue;
+    let nearest = 99; let inLane = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = w.athletes[DEF_START + i];
+      if (d.move === 'DOWN') continue;
+      nearest = Math.min(nearest, dist(r.x, r.z, d.x, d.z));
+      // Defender sitting in the throwing lane.
+      const t = clamp01(((d.x - qb.x) * (r.x - qb.x) + (d.z - qb.z) * (r.z - qb.z)) / Math.max(1, range * range));
+      const lx = qb.x + (r.x - qb.x) * t, lz = qb.z + (r.z - qb.z) * t;
+      if (dist(d.x, d.z, lx, lz) < 2.2 && t > 0.15 && t < 0.9) inLane += 1.6;
+    }
+    const noise = w.rng.spread(p.decisionNoise * 2.2);
+    const open = nearest - inLane + noise + clamp(dz, -4, 26) * 0.035;
+    if (open > res.open) { res.id = id; res.open = open; res.deep = dz; res.tight = nearest < 3.4; }
+  }
+  return res;
+}
+
+function bestLane(w: World, a: Athlete, dir: number): { x: number; z: number } {
+  let bestX = 0, bestZ = dir, bestScore = -1e9;
+  for (let k = -4; k <= 4; k++) {
+    const ang = (k / 4) * 1.15;
+    const hx = Math.sin(ang) * (dir > 0 ? 1 : -1);
+    const hz = Math.cos(ang) * dir;
+    const px = a.x + hx * 7, pz = a.z + hz * 7;
+    if (Math.abs(px) > FIELD_HALF_WIDTH - 1.2) continue;
+    let nearest = 40;
+    const defStart = a.side === w.athletes[OFF_START].side ? DEF_START : OFF_START;
+    for (let i = 0; i < 7; i++) {
+      const d = w.athletes[defStart + i];
+      if (d.move === 'DOWN') continue;
+      nearest = Math.min(nearest, dist(px, pz, d.x, d.z));
+    }
+    const progress = (pz - a.z) * dir;
+    const score = nearest * 1.4 + progress * 1.1 - Math.abs(px) * 0.03;
+    if (score > bestScore) { bestScore = score; bestX = hx; bestZ = hz; }
+  }
+  return { x: bestX, z: bestZ };
+}
+
+function runToDaylight(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  const dir = dirOf(a.side);
+  const lane = bestLane(w, a, dir);
+  out.moveX = lane.x; out.moveZ = lane.z;
+  out.held |= Action.TURBO;
+
+  // Nearest threat → decide on a move.
+  const defStart = a.side === w.athletes[OFF_START].side ? DEF_START : OFF_START;
+  let near: Athlete | null = null; let nd = 99;
+  for (let i = 0; i < 7; i++) {
+    const d = w.athletes[defStart + i];
+    if (d.move === 'DOWN' || d.move === 'STUNNED') continue;
+    const dd = dist(a.x, a.z, d.x, d.z);
+    if (dd < nd) { nd = dd; near = d; }
+  }
+  if (!near) return;
+  const timing = ctx.profile.moveTiming;
+  if (nd < 2.6 && a.turbo > 30 && w.rng.chance(0.10 * timing + 0.02)) {
+    const bearing = heading(near.x - a.x, near.z - a.z);
+    const rel = Math.abs(angDelta(a.facing, bearing));
+    if (near.move === 'DIVE_TACKLE' || rel > 1.0) out.held |= Action.JUMP;      // hurdle
+    else if (rel < 0.6 && w.rng.chance(0.5)) { out.held |= Action.TURBO | Action.ACTION; } // stiff arm
+    else out.held |= Action.SPECIAL;                                            // spin
+  }
+  // Dive for the pylon / first down.
+  const goal = goalOf(a.side);
+  if (Math.abs(goal - a.z) < 2.4 && nd < 3.2) out.held |= Action.DIVE;
+}
+
+// ── defense ────────────────────────────────────────────────────────────────
+
+function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  const p = ctx.profile;
+  const offSide = w.possession;
+  const dir = dirOf(offSide);
+  const car = carrier(w);
+  const st = w.ball.state;
+
+  // Kick coverage / return duties.
+  if (w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT') {
+    kickTeamAI(w, a, out, ctx);
+    return;
+  }
+
+  // Ball in the air — converge after a believable recognition delay.
+  if (st.kind === 'inAir' && st.passKind !== 'LATERAL') {
+    if (a.reactionQueue > 0) { a.reactionQueue--; }
+    else {
+      ballLead(w, 0.14, leadPt);
+      const d = dist(a.x, a.z, leadPt.x, leadPt.z);
+      if (d < 20) {
+        pursue(w, a, leadPt.x, leadPt.z, out, ctx, 1);
+        if (d < 2.8 && w.rng.chance(0.25 + p.catchFocus * 0.35)) {
+          out.held |= (w.ball.y > 2.0 ? Action.JUMP : Action.JUMP);
+        }
+        return;
+      }
+    }
+  }
+
+  if (st.kind === 'loose') {
+    const b = w.ball;
+    const d = dist(a.x, a.z, b.x, b.z);
+    if (d < 22) {
+      pursue(w, a, b.x, b.z, out, ctx, 1);
+      if (d < 2.2) out.held |= Action.DIVE;
+      return;
+    }
+  }
+
+  // Live carrier: pursue, unless still in coverage discipline window.
+  if (car && car.side === offSide) {
+    const pastLos = (car.z - w.losZ) * dir > 1.2 || w.handedOff || w.passThrown;
+    const isQbScramble = car.id === w.qbId && !w.passThrown;
+    if (pastLos || isQbScramble || a.assign?.kind === 'RUSH' || a.assign?.kind === 'CONTAIN' || a.assign?.kind === 'SPY') {
+      pursueCarrier(w, a, car, out, ctx);
+      return;
+    }
+  }
+
+  // Coverage.
+  const assign = a.assign;
+  if (!assign) { holdZone(w, a, a.homeX, a.homeZ, out, ctx); return; }
+  switch (assign.kind) {
+    case 'RUSH':
+    case 'BLITZ_DELAY': {
+      const qb = w.athletes[w.qbId];
+      const target = car ?? qb;
+      if (assign.kind === 'BLITZ_DELAY' && w.playTicks < assign.delay) { holdZone(w, a, a.homeX, a.homeZ, out, ctx); return; }
+      const laneX = a.homeX + (assign.kind === 'RUSH' ? assign.lane : assign.lane) * 2.0;
+      const stage = w.playTicks < s(0.4) ? 0.5 : 1;
+      pursue(w, a, lerp(laneX, target.x, stage), target.z, out, ctx, 1);
+      if (dist(a.x, a.z, target.x, target.z) < 2.4 && w.rng.chance(0.05 * p.moveTiming)) out.held |= Action.DIVE;
+      break;
+    }
+    case 'CONTAIN': {
+      const qb = car ?? w.athletes[w.qbId];
+      const edgeX = clamp(qb.x + assign.side * 6.5, -FIELD_HALF_WIDTH + 3, FIELD_HALF_WIDTH - 3);
+      pursue(w, a, edgeX, qb.z + dir * 0.5, out, ctx, 0.92);
+      break;
+    }
+    case 'SPY': {
+      const qb = car ?? w.athletes[w.qbId];
+      pursue(w, a, qb.x, qb.z + dir * 5.5, out, ctx, 0.85);
+      break;
+    }
+    case 'MAN': {
+      const r = w.athletes[OFF_START + assign.slot];
+      if (!r) { holdZone(w, a, a.homeX, a.homeZ, out, ctx); break; }
+      const disc = p.coverageDiscipline;
+      const lead = 0.14 + (1 - disc) * 0.10;
+      const tx = r.x + r.vx * lead + w.rng.spread((1 - disc) * 1.4);
+      const tz = r.z + r.vz * lead + dir * 1.4;
+      pursue(w, a, tx, tz, out, ctx, 1);
+      if (dist(a.x, a.z, r.x, r.z) < 1.5 && w.playTicks < s(1.0) && w.rng.chance(0.02)) {
+        out.held |= Action.TURBO | Action.SPECIAL; // jam
+      }
+      break;
+    }
+    case 'ZONE': {
+      const cx = w.spotX + assign.x * dir;
+      const cz = w.losZ + assign.z * dir;
+      // Drive on the most dangerous receiver in the zone.
+      let threat: Athlete | null = null; let bestD = assign.r;
+      for (let i = 0; i < 7; i++) {
+        const r = w.athletes[OFF_START + i];
+        if (r.targetButton === null) continue;
+        const d = dist(r.x, r.z, cx, cz);
+        if (d < bestD) { bestD = d; threat = r; }
+      }
+      if (threat) {
+        const disc = p.coverageDiscipline;
+        pursue(w, a, lerp(cx, threat.x, disc), lerp(cz, threat.z + dir * 1.2, disc), out, ctx, 1);
+      } else {
+        holdZone(w, a, cx, cz, out, ctx);
+      }
+      break;
+    }
+    default: holdZone(w, a, a.homeX, a.homeZ, out, ctx);
+  }
+}
+
+function pursueCarrier(w: World, a: Athlete, car: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  const p = ctx.profile;
+  const mySpeed = turboSpeed(a) * ctx.catchUp[a.side];
+  // Iterate an intercept point.
+  let t = dist(a.x, a.z, car.x, car.z) / Math.max(1, mySpeed);
+  for (let i = 0; i < 2; i++) {
+    const px = car.x + car.vx * t, pz = car.z + car.vz * t;
+    t = dist(a.x, a.z, px, pz) / Math.max(1, mySpeed);
+  }
+  const err = p.pursuitAngleError;
+  const tx = car.x + car.vx * t + w.rng.spread(err * 3.2);
+  const tz = car.z + car.vz * t + w.rng.spread(err * 3.2);
+  pursue(w, a, tx, tz, out, ctx, 1);
+
+  const d = dist(a.x, a.z, car.x, car.z);
+  if (d < 2.9) {
+    const roll = w.rng.next();
+    if (a.turbo > 40 && roll < 0.10 * p.moveTiming) out.held |= Action.TURBO | Action.SPECIAL; // power tackle
+    else if (roll < 0.22 * p.moveTiming) out.held |= Action.DIVE;
+  }
+}
+
+function pursue(w: World, a: Athlete, tx: number, tz: number, out: PlayerIntent, ctx: AiContext, urgency: number): void {
+  const dx = tx - a.x, dz = tz - a.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.25) { out.moveX = 0; out.moveZ = 0; return; }
+  out.moveX = (dx / d) * urgency;
+  out.moveZ = (dz / d) * urgency;
+  if (d > 2.4 && a.turbo > 12) out.held |= Action.TURBO;
+}
+
+function holdZone(w: World, a: Athlete, cx: number, cz: number, out: PlayerIntent, ctx: AiContext): void {
+  const d = dist(a.x, a.z, cx, cz);
+  if (d > 1.4) pursue(w, a, cx, cz, out, ctx, clamp01(d / 6));
+}
+
+function kickTeamAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  const b = w.ball;
+  const st = b.state;
+  const car = carrier(w);
+  const receiving = a.side !== w.possession ? a.side : null;
+
+  if (car) {
+    if (car.side === a.side) {
+      // Block for the returner.
+      const lead = 6;
+      const tx = car.x + (a.homeX > car.x ? 3 : -3);
+      const tz = car.z + dirOf(car.side) * lead;
+      pursue(w, a, tx, tz, out, ctx, 1);
+    } else {
+      pursueCarrier(w, a, car, out, ctx);
+    }
+    return;
+  }
+
+  if (st.kind === 'kicked' || st.kind === 'loose') {
+    const d = dist(a.x, a.z, b.x, b.z);
+    // The two deepest returners chase; everyone else forms up.
+    if (receiving !== null && d < 30) {
+      pursue(w, a, b.x + b.vx * 0.3, b.z + b.vz * 0.3, out, ctx, 1);
+      if (d < 2.4 && b.y < 2.2) out.held |= Action.DIVE;
+      return;
+    }
+    if (receiving === null) {
+      pursue(w, a, b.x, b.z, out, ctx, 1);
+      return;
+    }
+    pursue(w, a, a.homeX, a.homeZ, out, ctx, 0.6);
+    return;
+  }
+  pursue(w, a, a.homeX, a.homeZ, out, ctx, 0.5);
+}
+
+export { clamp, baseSpeed, TURBO_COST };

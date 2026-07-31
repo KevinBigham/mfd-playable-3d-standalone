@@ -1,0 +1,331 @@
+# GRIDIRON OVERDRIVE — ARCHITECTURE
+
+This document is the **shared contract**. Every agent reads it before touching code. Where this
+document and code disagree, this document wins and the code gets fixed.
+
+---
+
+## 0. THE ONE RULE
+
+**`src/sim`, `src/rules`, `src/plays`, `src/ai`, `src/core`, `src/data` MUST NOT import `three`,
+touch `window`, `document`, `performance`, `localStorage`, `Math.random`, or `Date.now`.**
+
+They are pure, deterministic TypeScript that runs identically in Node and the browser. This is what
+makes headless CPU-vs-CPU batch simulation, scenario tests, and fixed-seed replay possible. The
+renderer *reads* simulation state; it never writes it.
+
+Enforcement: `npm run test` includes `tests/purity.test.ts`, which greps those directories for
+banned identifiers. Breaking the rule fails CI.
+
+---
+
+## 1. LAYERS
+
+```
+                       ┌──────────────────────────────────────┐
+   deterministic       │  core   data   rules   plays   sim    │   pure TS, no DOM, no three
+   (Node + browser)    │                 ai                   │   fixed 60 Hz timestep
+                       └───────────────┬──────────────────────┘
+                                       │  reads state, receives events
+                       ┌───────────────┴──────────────────────┐
+   presentation        │  render (three)   audio (WebAudio)   │   variable framerate
+   (browser only)      │  ui (DOM/CSS)     input (KB/Gamepad) │   writes only via IntentBuffer
+                       └───────────────┬──────────────────────┘
+                       ┌───────────────┴──────────────────────┐
+   shell               │  modes   persistence   app/Game.ts   │
+                       └──────────────────────────────────────┘
+```
+
+Data flow per frame:
+
+```
+Input devices ──▶ InputManager ──▶ PlayerIntent[4]  (pure data struct)
+                                        │
+   render loop (rAF, variable dt) ──────┼──▶ Match.step(dt)  ──▶ accumulator
+                                        │        └─ while(acc >= 1/60) tick(FIXED_DT)
+                                        │              ├─ sim.update()
+                                        │              ├─ rules.evaluate()
+                                        │              └─ events.emit(...)
+                                        ▼
+                              Renderer.sync(world, alpha)   ← interpolates prev/next transforms
+                              AudioEngine.consume(events)
+                              Hud.sync(matchState)
+```
+
+---
+
+## 2. FIXED TIMESTEP
+
+- `FIXED_DT = 1/60` s. Simulation only ever advances in whole ticks.
+- Max 5 catch-up ticks per frame (`MAX_SUBSTEPS`), then time is dropped — never spiral.
+- Rendering interpolates between `prevTransform` and `transform` using `alpha`.
+- `world.tick` is a monotonically increasing integer. All timers are expressed in **ticks**, not
+  seconds, inside sim code. Seconds only appear at authoring boundaries (`s(0.4)` helper).
+
+## 3. DETERMINISTIC RANDOMNESS
+
+- `src/core/rng.ts` exports `Rng` (xoshiro128\*\*). Never `Math.random()` in deterministic layers.
+- One `Rng` lives on the match (`match.rng`), seeded from `MatchConfig.seed`.
+- Presentation may use its own `Rng` instance for cosmetics (`visualRng`), seeded from the match seed
+  so captures reproduce, but its consumption must never feed back into sim.
+- Any new random draw goes through `match.rng` so replays stay bit-identical.
+
+## 4. DIRECTORY OWNERSHIP
+
+One owner per directory. Agents write only inside directories they own; everything else is read-only
+to them. Cross-directory needs are expressed as a request to the lead.
+
+| Directory | Owner | Contents |
+|---|---|---|
+| `src/core` | lead | rng, event bus, math, pools, ids, fixed loop |
+| `src/data` | league agent | teams, rosters, name banks, logo generators, stadium defs |
+| `src/rules` | lead | canonical rules engine + match FSM + clock + scoring |
+| `src/sim` | lead | world, athletes, ball, movement, contact, catch, blocking, kicking |
+| `src/plays` | playbook agent | play types + 27 offensive + 12+ defensive + route DSL |
+| `src/ai` | lead | play caller, offense AI, defense AI, difficulty |
+| `src/input` | lead | actions, bindings, keyboard, gamepad, seat assignment |
+| `src/render` | render agents (split by file, see §12) | three.js scene, meshes, camera, effects |
+| `src/audio` | audio agent | Web Audio synthesis, mixer, event→sound mapping |
+| `src/ui` | ui agent | DOM screens, HUD, play-select, settings |
+| `src/modes` | modes agent | quickplay, tournament, season, practice, play editor |
+| `src/persistence` | modes agent | localStorage schema + migration |
+| `src/testing` | qa agent | invariants, scenario definitions, headless runner |
+| `tools/` | qa agent | CLI entry points |
+
+## 5. SHARED TYPES
+
+All cross-subsystem types live in `src/core/types.ts`. They are **data only** — no methods, no
+classes, no imports. Adding a field is fine; changing the meaning of one requires updating this doc.
+
+Key identities:
+
+```ts
+type TeamSide = 0 | 1;          // 0 = HOME (drives toward +Z), 1 = AWAY (drives toward -Z)
+type AthleteId = number;        // index into world.athletes, stable for the match
+type SeatId = 0 | 1 | 2 | 3;    // local human seat
+```
+
+## 6. COORDINATE SYSTEM & UNITS
+
+- Units are **yards** and **seconds**. Masses are abstract (1.0 = average athlete).
+- `x` = across the field. Sidelines at `x = ±HALF_WIDTH` (`HALF_WIDTH = 26.665`).
+- `z` = along the field. **Home goal line `z = 0`, away goal line `z = 100`.**
+  Home end zone occupies `z ∈ [-10, 0]`, away end zone `z ∈ [100, 110]`.
+- `y` = up. Ground is `y = 0`.
+- HOME scores by carrying the ball to `z >= 100`. AWAY scores at `z <= 0`.
+- `dirOf(side) = side === 0 ? +1 : -1` — the direction that side advances.
+- Three.js maps this 1:1 (`x → x`, `y → y`, `z → z`). No conversion layer, no scaling.
+
+Speeds (yards/sec) — arcade-compressed, ~1.4× real football:
+
+| | base | turbo |
+|---|---|---|
+| skill athlete | 9.4 | 13.6 |
+| lineman | 7.6 | 10.4 |
+
+## 7. EVENT VOCABULARY
+
+`src/core/events.ts` exports a typed emitter. Sim emits; presentation consumes. Events are
+**facts about what happened**, never commands. Full union in `src/core/types.ts` (`GameEvent`).
+
+```
+snap  handoff  throw  pass.arrive  catch  drop  swat  interception  lateral  fumble
+tackle  bigHit  powerTackle  brokenTackle  sack  hurdle  spin  stiffArm  dive  juke
+block.win  block.shed  pancake
+firstDown  down.change  turnover  touchdown  fieldGoal.attempt  fieldGoal.result
+punt  kickoff  onside  safety  touchback  extraPoint  twoPoint  outOfBounds
+overdrive.charge  overdrive.start  overdrive.end
+play.start  play.end  quarter.end  half  overtime  match.end
+camera.impulse  crowd.swell  ui.tick  ui.confirm  ui.back
+```
+
+Every event carries `{ type, tick, ...payload }`. Presentation must tolerate unknown event types.
+
+## 8. MATCH STATE MACHINE (`src/rules/matchState.ts`)
+
+```
+PREGAME → COIN_TOSS → KICKOFF_SETUP → KICKOFF_LIVE ─┐
+                                                     ├→ PLAY_CALL → PRE_SNAP → LIVE → DEAD_BALL
+   ┌─────────────────────────────────────────────────┘        ▲                          │
+   │                                                          └──────────────────────────┤
+   ├← SCORE_RESOLVE ← (touchdown/FG/safety)                                              │
+   │        ↓                                                                            │
+   │   CONVERSION_CALL → CONVERSION_LIVE → CONVERSION_RESOLVE ─→ KICKOFF_SETUP           │
+   │                                                                                      │
+   ├← QUARTER_BREAK ←──────────────────────────────────────────────────────────────────--┤
+   ├← HALFTIME (stats) → KICKOFF_SETUP (receiving side flips)                             │
+   ├← OVERTIME_SETUP → KICKOFF_SETUP                                                      │
+   └← FINAL → (rematch | exit)                                                            │
+```
+
+Invariant: **every state has at least one reachable exit under all inputs.** `matchState` has a
+watchdog: if a state persists longer than `STATE_MAX_TICKS[state]`, it force-advances and emits
+`rules.watchdog`. QA asserts this never fires in normal play.
+
+## 9. PLAY STATE MACHINE (`src/sim/playRunner.ts`)
+
+```
+SETUP → PRESNAP (motion/audible allowed) → SNAP → LIVE
+LIVE sub-states per athlete are animation states, not play states.
+LIVE → DEAD(reason) where reason ∈
+  TACKLE | OUT_OF_BOUNDS | INCOMPLETE | TOUCHDOWN | TOUCHBACK | SAFETY |
+  INTERCEPTION_DEAD | FUMBLE_DEAD | KICK_RESULT | QB_SLIDE | TIME_EXPIRED
+DEAD → POST_PLAY (slapstick window, 0.9 s, zero rules consequence) → SETUP
+```
+
+## 10. BALL AUTHORITY
+
+`world.ball` has exactly one `state`:
+
+```ts
+type BallState =
+  | { kind: 'held';    carrier: AthleteId }
+  | { kind: 'inAir';   from: AthleteId; intended: AthleteId | null; passKind; t; ... }
+  | { kind: 'loose';   lastTouch: AthleteId | null; ... }   // fumble / muff — live
+  | { kind: 'kicked';  from: AthleteId; kickKind; ... }
+  | { kind: 'dead' };
+```
+
+Rules:
+1. At most one athlete has `athlete.hasBall === true`, and it must agree with `ball.state`.
+2. `sim/ball.ts` is the **only** module that mutates `ball.state`. Everything else calls
+   `giveBall()`, `releasePass()`, `dropLoose()`, `killBall()`.
+3. `assertBallInvariant(world)` runs every tick in dev/test builds.
+4. A dead ball can never score, be caught, or be fumbled.
+
+## 11. INPUT ABSTRACTION
+
+`src/input/actions.ts` defines the action enum. Devices produce `PlayerIntent`:
+
+```ts
+interface PlayerIntent {
+  moveX: number; moveZ: number;        // -1..1, deadzoned, normalized
+  held: number;    // bitmask of Action
+  pressed: number; // edge-triggered this tick
+  released: number;
+}
+```
+
+Sim consumes only `PlayerIntent`. It never sees a key code or a gamepad button. Rebinding,
+gamepad support, and AI are all just different producers of `PlayerIntent` — **AI-controlled
+athletes produce intents through the same struct**, which is why difficulty tuning is honest.
+
+Latency budget: device poll → intent → sim tick → render ≤ 2 rendered frames. Input is polled at
+the top of the rAF callback, before the fixed-step accumulator drains.
+
+## 12. RENDER OWNERSHIP SPLIT
+
+`src/render` is the highest-conflict area, so files have single owners:
+
+| File | Owner | Never touched by |
+|---|---|---|
+| `renderer.ts`, `quality.ts`, `postfx.ts` | lead | others |
+| `camera.ts` | lead | others |
+| `athleteRig.ts`, `athletePose.ts` | lead (character+anim) | stadium/effects agents |
+| `field.ts`, `stadium.ts`, `crowd.ts`, `sky.ts`, `weather.ts` | environment agent | lead |
+| `effects.ts`, `particles.ts`, `impact.ts` | effects agent | environment agent |
+| `ballMesh.ts`, `markers.ts` | lead | others |
+| `logo3d.ts` | league agent | others |
+
+Everything registers through `SceneRegistry` (`render/registry.ts`) which owns add/remove/dispose.
+No module calls `scene.add` directly.
+
+## 13. ANIMATION CONTRACT
+
+Athletes are procedurally posed — no imported clips. `athletePose.ts` exposes:
+
+```ts
+poseAthlete(rig: AthleteRig, s: AnimSample): void
+interface AnimSample {
+  state: AnimState;    // IDLE RUN SPRINT BACKPEDAL THROW CATCH DIVE HURDLE SPIN
+                       // STIFFARM TACKLE TACKLED CELEBRATE BLOCK KICK GETUP STUMBLE
+  phase: number;       // 0..1 within the state
+  speed01: number; lean: number; facing: number; blend: number;
+  ragdoll?: RagdollSample;  // cosmetic only — never authoritative
+}
+```
+
+Sim sets `athlete.anim = { state, phase }`. Rendering must not infer state from positions.
+Ragdoll/secondary motion is visual only; possession and dead-ball are decided by sim.
+
+## 14. AI INTERFACE
+
+```ts
+interface Controller { produce(world: World, id: AthleteId, out: PlayerIntent): void }
+```
+
+`HumanController` reads a seat. `AiController` reads difficulty + assignment. Both fill the same
+struct. `src/ai/difficulty.ts` exposes only these knobs (no hidden stat cheats):
+
+`reactionTicks, aimErrorYd, decisionNoise, coverageDiscipline, riskTolerance, moveTiming,
+playCallQuality, pursuitAngleError, catchFocus`.
+
+`catchUpBias` (rubber-banding) is bounded to ±6 % on pursuit speed and pressure, defaults **on** in
+Arcade / **off** in Tournament, and is documented in `DESIGN.md`.
+
+## 15. COLLISION LAYERS
+
+Capsule-vs-capsule in 2D (XZ) with a height term. Layers:
+
+```
+BODY      athlete torso, r=0.42yd  — blocks & tackles
+TACKLE    expanding hit volume during a tackle attempt
+CATCH     sphere around ball, r=1.35yd base, scaled by hands rating & pass kind
+BLOCK     lineman engagement disc, r=0.9yd
+GROUND    y<=0 plane for loose balls
+```
+
+Contact resolution order per tick: movement → blocking → tackling → ball → rules. Contact never
+depends on visual physics.
+
+## 16. SAVE SCHEMA (`src/persistence/save.ts`)
+
+`localStorage` key `go.save.v1` holding:
+
+```ts
+interface SaveFile {
+  version: 1;
+  settings: Settings;              // audio, graphics, accessibility, bindings
+  season: SeasonSave | null;
+  tournament: TournamentSave | null;
+  customPlays: CustomPlay[];       // up to 18
+  records: { wins: number; losses: number; longestTd: number; ... };
+}
+```
+
+Reads are defensive: unknown/older versions fall back to defaults rather than throwing. Corrupt JSON
+is quarantined to `go.save.v1.corrupt` and defaults are used.
+
+## 17. TESTING INTERFACES
+
+- `simulateMatch(cfg): MatchResult` — headless, no rendering, returns box score + event log.
+- `runScenario(name): ScenarioResult` — deterministic setup → assertions.
+- `checkInvariants(world, match): Violation[]` — run every tick under test.
+- Fixed-seed replay: same `seed` + same scripted intents ⇒ identical event log hash.
+
+## 18. PERFORMANCE BUDGETS (1600×900, "High", moving gameplay)
+
+| metric | target | hard fail |
+|---|---|---|
+| frame time p50 | ≤ 9 ms | > 16.6 ms |
+| frame time p95 | ≤ 14 ms | > 22 ms |
+| draw calls | ≤ 180 | > 320 |
+| triangles | ≤ 420 k | > 900 k |
+| sim tick cost | ≤ 1.1 ms | > 3 ms |
+| per-frame allocation | ~0 in steady state | GC spike > 8 ms |
+| boot to menu | ≤ 2.5 s | > 6 s |
+
+No allocation in tick loops: reuse scratch vectors from `core/math.ts`, pool particles and events.
+
+## 19. ASSET GENERATION RULES
+
+100 % procedural. No binary art assets in the repo. Canvas-generated textures are built once at
+boot into an atlas and cached. Logos are generated as SVG strings from `data/logoGen.ts` and
+rasterized to canvas for 3D use. Everything that allocates GPU memory registers a `dispose()` with
+`SceneRegistry`.
+
+## 20. CLEANUP
+
+Every subsystem exposes `dispose()`. Leaving a match must free all geometry, materials, textures,
+render targets, audio nodes, and DOM listeners it created. `tools/smoke.ts` enters and leaves a
+match 5 times and asserts `renderer.info.memory` does not grow monotonically.
