@@ -34,13 +34,19 @@ export const DECEL_GROUND = 58;
 export const TURN_RATE_BASE = 8.2;        // rad/s at low speed
 export const TURN_RATE_SPRINT = 3.4;      // rad/s at top speed
 export const BACKPEDAL_FACTOR = 0.72;
+/**
+ * The ball carrier runs a little faster than the eleven — sorry, six — people chasing him.
+ * This is an arcade convention, not physics: without it seven pursuers erase every breakaway
+ * and the game has no explosive plays. Small enough that angles still beat speed.
+ */
+export const CARRIER_SPEED_BONUS = 1.06;
 
 // ── turbo ──────────────────────────────────────────────────────────────────
 export const TURBO_MAX = 100;
-export const TURBO_DRAIN = 38;            // per second held
+export const TURBO_DRAIN = 31;            // per second held (~3.2 s of sprint from full)
 export const TURBO_REGEN = 26;            // per second once unlocked
 export const TURBO_REGEN_DELAY_MIN = s(0.25);
-export const TURBO_REGEN_DELAY_MAX = s(1.05);
+export const TURBO_REGEN_DELAY_MAX = s(0.85);
 export const TURBO_COST = {
   SPIN: 20, STIFFARM: 15, HIGH_HURDLE: 25, DIVE: 18,
   POWER_TACKLE: 25, DIVE_TACKLE: 10, PUSH: 12, BULLET: 8, JUMP_PASS: 10,
@@ -51,6 +57,8 @@ export const MOVE_TICKS = {
   SPIN: s(0.52), HURDLE: s(0.58), HIGH_HURDLE: s(0.86), DIVE: s(0.75),
   STIFFARM: s(0.40), DIVE_TACKLE: s(0.62), POWER_TACKLE: s(0.50), TACKLE: s(0.34),
   GETUP: s(0.70), STUN: s(0.55), THROW: s(0.26), KICK: s(0.55), JUMP: s(0.62),
+  /** Recovery frames: a high hurdle lands helpless, a missed power tackle is committed. */
+  LANDING: s(0.18), WHIFF: s(0.20),
 } as const;
 
 export const SPIN_EVADE = 0.62;           // base chance a tackle attempt whiffs during a spin
@@ -66,9 +74,9 @@ export const TACKLE_RADIUS = 1.05;
 export const DIVE_TACKLE_RADIUS = 1.5;
 export const POWER_TACKLE_RADIUS = 1.25;
 export const BLOCK_RADIUS = 0.95;
-export const BREAK_TACKLE_BASE = 0.21;    // baseline chance to shrug a routine tackle
-export const FUMBLE_BASE = 0.018;
-export const FUMBLE_POWER_SCALE = 0.055;
+export const BREAK_TACKLE_BASE = 0.25;    // baseline chance to shrug a routine tackle
+export const FUMBLE_BASE = 0.012;
+export const FUMBLE_POWER_SCALE = 0.040;
 export const FUMBLE_SPIN_MULT = 2.0;
 export const FUMBLE_WEATHER_MULT = 1.45;
 export const BIG_HIT_POWER = 1.35;
@@ -81,7 +89,7 @@ export const CATCH_RADIUS_BASE = 1.35;
 export const CATCH_RADIUS_BY_KIND = { TOUCH: 1.55, NORMAL: 1.35, BULLET: 1.05, LATERAL: 1.5, PUMP: 0 } as const;
 export const CATCH_HANDS_SCALE = 0.006;   // per rating point over 50
 export const CATCH_WINDOW_TICKS = s(0.34);
-export const INT_BASE = 0.42;             // defender in position → chance to pick vs swat
+export const INT_BASE = 0.30;             // defender in position → chance to pick vs swat
 export const SWAT_ANGLE_BONUS = 0.25;
 export const CONTEST_PENALTY = 0.34;      // catch chance reduction when contested
 export const DROP_PRESSURE = 0.12;

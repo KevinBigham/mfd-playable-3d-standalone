@@ -102,7 +102,11 @@ export function setupPlay(w: World, setup: PlaySetup): void {
     a.routeHold = 0;
     a.targetButton = plan.target;
     a.x = setup.spotX + plan.align.x * mir * dir;
-    a.z = setup.losZ + plan.align.z * dir;
+    // Backed up against your own goal you line up ON the goal line, not behind it. Without this
+    // clamp a shotgun snap from the 1 starts the quarterback inside his own end zone and every
+    // tackle is a safety.
+    const rawZ = setup.losZ + plan.align.z * dir;
+    a.z = dir > 0 ? Math.max(rawZ, 0.4) : Math.min(rawZ, 99.6);
     a.homeX = a.x; a.homeZ = a.z;
     a.y = 0; a.vx = 0; a.vz = 0; a.vy = 0;
     a.facing = dir > 0 ? 0 : Math.PI;
@@ -417,23 +421,55 @@ export function detectDead(w: World): DeadReason | null {
 
   if (st.kind === 'held') {
     const a = w.athletes[st.carrier];
-    if (Math.abs(a.x) > FIELD_HALF_WIDTH) return 'OUT_OF_BOUNDS';
     const attackGoal = goalOf(a.side);
     const ownGoal = ownGoalOf(a.side);
     if (a.side === 0 ? a.z >= attackGoal : a.z <= attackGoal) return 'TOUCHDOWN';
-    if (a.side === 0 ? a.z <= ownGoal : a.z >= ownGoal) {
-      // A returner who fields a kick in his own end zone takes a touchback, not a safety.
-      // The kicking team going down in its own end zone is still a safety.
-      if (w.special !== null && a.side !== w.possession) return 'TOUCHBACK';
+
+    const inOwnEndZone = a.side === 0 ? a.z <= ownGoal : a.z >= ownGoal;
+    const oob = Math.abs(a.x) > FIELD_HALF_WIDTH;
+    // Standing in your own end zone is not a safety — being DOWN there is. And a player who
+    // GAINED possession in his own end zone (a returner fielding a kick, a defender picking off
+    // a goal-line throw) takes a touchback, not two points against his own team.
+    if (inOwnEndZone && (a.move === 'DOWN' || oob)) {
+      // Forgiving by design: a defender who picks the ball off inside his own five and gets
+      // carried back into the end zone takes a touchback. Only a team that already had the ball,
+      // or one that retreats there from real field position, concedes two points.
+      const ownGoalZ = a.side === 0 ? 0 : 100;
+      const gainedThere = Math.abs(w.gainOriginZ - ownGoalZ) <= 5;
+      if (a.side !== w.possession && gainedThere) return 'TOUCHBACK';
       return 'SAFETY';
     }
+    if (oob) return 'OUT_OF_BOUNDS';
     if (a.move === 'DOWN') return 'TACKLE';
     return null;
   }
 
   if (st.kind === 'loose') {
-    if (Math.abs(b.x) > FIELD_HALF_WIDTH || b.z < -10.5 || b.z > 110.5) return 'OUT_OF_BOUNDS';
-    if (st.ticks > s(4.5)) return 'FUMBLE_DEAD';
+    // Kick plays route through resolveKickPlay, which already knows what a ball in an end zone
+    // means for a return. Only scrimmage fumbles get the touchback/safety treatment here.
+    if (w.special !== null) {
+      if (Math.abs(b.x) > FIELD_HALF_WIDTH || b.z < -10.5 || b.z > 110.5) return 'OUT_OF_BOUNDS';
+      if (st.ticks > s(4.5)) return 'FUMBLE_DEAD';
+      return null;
+    }
+    const offGoal = goalOf(w.possession);
+    const ownGoal = ownGoalOf(w.possession);
+    const pastAttackLine = offGoal === 100 ? b.z > 110.5 : b.z < -10.5;
+    const pastOwnLine = ownGoal === 100 ? b.z > 110.5 : b.z < -10.5;
+    if (pastAttackLine) return 'TOUCHBACK';
+    if (pastOwnLine) return 'SAFETY';
+    const inOffEndZone = offGoal === 100 ? b.z > 100 : b.z < 0;
+    const inOwnEndZone = ownGoal === 100 ? b.z > 100 : b.z < 0;
+    if (Math.abs(b.x) > FIELD_HALF_WIDTH) {
+      if (inOffEndZone) return 'TOUCHBACK';
+      if (inOwnEndZone) return 'SAFETY';
+      return 'OUT_OF_BOUNDS';
+    }
+    if (st.ticks > s(4.5)) {
+      if (inOffEndZone) return 'TOUCHBACK';
+      if (inOwnEndZone) return 'SAFETY';
+      return 'FUMBLE_DEAD';
+    }
     return null;
   }
 

@@ -150,7 +150,9 @@ export const SCENARIOS: Scenario[] = [
     const car = m.world.athletes[OFF_START];
     giveBall(m.world, car.id);
     car.x = 0; car.z = -0.6;
-    runUntil(m, (x) => x.phase === 'KICKOFF_SETUP', s(120));
+    // A safety needs the carrier DOWN in his own end zone, not merely standing in it.
+    downCarrier(m);
+    runUntil(m, (x) => x.phase === 'KICKOFF_SETUP', s(180));
     return { pass: m.state.teams[1].score - before === 2 && countEvent(m, 'safety') === sBefore + 1, detail: `delta=${m.state.teams[1].score - before} safeties=+${countEvent(m, 'safety') - sBefore}` };
   }),
 
@@ -244,12 +246,17 @@ export const SCENARIOS: Scenario[] = [
     m.state.clockTicks = 3;
     runUntil(m, (x) => x.phase === 'LIVE', s(30));
     clearDefense(m, 0);
-    // Freeze the score, end the play in the field of play, let the clock expire.
-    m.state.teams[0].score = 21; m.state.teams[1].score = 21;
+    // Hold the score level while the clock runs out — anything either side scores in the
+    // meantime would make this a test of the AI rather than of the overtime rule.
     const car = m.world.athletes[OFF_START];
     giveBall(m.world, car.id);
     car.x = 0; car.z = 46; downCarrier(m);
-    runUntil(m, (x) => x.state.quarter > 4 || x.state.finished, s(240));
+    let guard = 0;
+    while (guard++ < s(240) && !(m.state.quarter > 4 || m.state.finished)) {
+      m.state.teams[0].score = 21; m.state.teams[1].score = 21;
+      m.tick();
+    }
+    m.state.teams[0].score = 21; m.state.teams[1].score = 21;
     return { pass: m.state.quarter > 4 && !m.state.finished, detail: `q=${m.state.quarter} finished=${m.state.finished} scores=${m.state.teams[0].score}-${m.state.teams[1].score}` };
   }),
 
@@ -259,11 +266,14 @@ export const SCENARIOS: Scenario[] = [
     m.state.clockTicks = 3;
     runUntil(m, (x) => x.phase === 'LIVE', s(30));
     clearDefense(m, 0);
-    m.state.teams[0].score = 28; m.state.teams[1].score = 14;
     const car = m.world.athletes[OFF_START];
     giveBall(m.world, car.id);
     car.x = 0; car.z = 46; downCarrier(m);
-    runUntil(m, (x) => x.state.finished, s(240));
+    let g2 = 0;
+    while (g2++ < s(240) && !m.state.finished) {
+      m.state.teams[0].score = 28; m.state.teams[1].score = 14;
+      m.tick();
+    }
     return { pass: m.state.finished && m.state.winner === 0, detail: `finished=${m.state.finished} winner=${String(m.state.winner)}` };
   }),
 

@@ -78,7 +78,7 @@ export function updateBlocking(w: World): void {
       // he is trying to reach. Without that second term a turbo rusher simply walks through a
       // block, which is what made every dropback a sack.
       const strength = (bl.def.ratings.power - target.def.ratings.power) / 100;
-      const push = (0.9 + strength) * 5.2 * FIXED_DT;
+      const push = (0.9 + strength) * 6.0 * FIXED_DT;
       const dx = target.x - bl.x, dz = target.z - bl.z;
       const d = Math.max(0.001, Math.hypot(dx, dz));
       target.x += (dx / d) * push; target.z += (dz / d) * push;
@@ -93,7 +93,7 @@ export function updateBlocking(w: World): void {
         const approach = target.vx * px + target.vz * pz;
         if (approach > 0) {
           // Leave a sliver so a strong rusher still creeps forward; anchoring is not a wall.
-          const keep = clamp01(0.16 + (target.def.ratings.power - bl.def.ratings.power) * 0.004);
+          const keep = clamp01(0.06 + (target.def.ratings.power - bl.def.ratings.power) * 0.0026);
           target.vx -= px * approach * (1 - keep);
           target.vz -= pz * approach * (1 - keep);
         }
@@ -101,8 +101,8 @@ export function updateBlocking(w: World): void {
 
       // Shed attempt. Blocks are meant to hold for roughly 1.5-3 s, which is the
       // window the pocket has to exist for the passing game to work at all.
-      const shedChance = clamp01(0.0035 + (target.def.ratings.power - bl.def.ratings.power) * 0.00030
-        + (target.turboHeld ? 0.0028 : 0) + (target.onFire ? 0.005 : 0));
+      const shedChance = clamp01(0.0022 + (target.def.ratings.power - bl.def.ratings.power) * 0.00022
+        + (target.turboHeld ? 0.0018 : 0) + (target.onFire ? 0.004 : 0));
       if (w.rng.chance(shedChance)) {
         releaseEngagement(w, bl);
         stun(bl, s(0.35));
@@ -162,13 +162,16 @@ export function updateTackling(w: World): TackleOutcome {
     const dd = dist(d.x, d.z, car.x, car.z);
     if (dd > radius + BODY_RADIUS) continue;
 
-    // Hurdles clear low tackle volumes.
+    // Hurdles clear a tackle whose reach is below the carrier's feet, and only that.
+    // A normal hurdle peaks at 0.95 yd, so it beats a dive tackle (0.55) and loses to a
+    // standing (1.0) or power (1.25) tackle. A high hurdle peaks at 1.85 and clears everything,
+    // which is what its 25 turbo and its helpless landing pay for.
     const tackleHeight = d.move === 'DIVE_TACKLE' ? 0.55 : d.move === 'POWER_TACKLE' ? 1.25 : 1.0;
-    if (car.y > HURDLE_CLEAR_HEIGHT && tackleHeight <= car.y) {
-      if (car.move === 'HIGH_HURDLE' || car.y >= HIGH_HURDLE_CLEAR * 0.5) {
-        w.bus.emit({ type: 'move', tick: w.tick, by: car.id, move: car.move === 'HIGH_HURDLE' ? 'HIGH_HURDLE' : 'HURDLE' });
-        continue;
-      }
+    if (car.y > tackleHeight) {
+      w.bus.emit({
+        type: 'move', tick: w.tick, by: car.id,
+        move: car.move === 'HIGH_HURDLE' ? 'HIGH_HURDLE' : 'HURDLE',
+      });
       continue;
     }
 

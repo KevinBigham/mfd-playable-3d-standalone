@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-const url = 'http://127.0.0.1:5201/probe-editor/index.html';
+const url = 'http://127.0.0.1:5202/probe-editor/index.html';
 const results = [];
 const check = (n, p, d='') => { results.push({n,p}); console.log(`${p?'PASS':'FAIL'}  ${n.padEnd(56)} ${d}`); };
 

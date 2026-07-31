@@ -164,8 +164,10 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
     if (dd < pressure) { pressure = dd; pressureX = d.x; }
   }
 
-  // Drop back first.
-  const targetZ = w.losZ - dir * dropDepth;
+  // Drop back first — but never behind your own goal line.
+  const ownGoal = a.side === 0 ? 0 : 100;
+  const rawDrop = w.losZ - dir * dropDepth;
+  const targetZ = dir > 0 ? Math.max(rawDrop, ownGoal + 0.6) : Math.min(rawDrop, ownGoal - 0.6);
   const backedUp = (a.z - targetZ) * dir <= 0.4;
 
   // Evaluate reads once the timing landmark passes.
@@ -177,7 +179,8 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
     const cand = bestReceiver(w, a, t >= secondaryTick ? 2 : 1, p);
     // Under pressure or late in the down, take what is there.
     const desperation = clamp01((t - secondaryTick) / s(1.4)) * 1.6 + (pressure < 3.4 ? 0.9 : 0);
-    const need = 2.1 - p.riskTolerance * 0.9 - desperation;
+    // Arcade passing: throw into windows a simulation would call covered.
+    const need = 1.05 - p.riskTolerance * 0.9 - desperation;
     if (cand.id >= 0 && cand.open > need) {
       out.held |= Action.ACTION;
       // Choose the matching target button so latency matches a human's.
@@ -191,13 +194,29 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
     }
   }
 
+  // Under real pressure, get rid of it. A quarterback who scrambles into a sack costs the drive
+  // three yards and a down; an incompletion costs the down only.
+  if (pressure < 3.4 && t > readyTick) {
+    const bail = bestReceiver(w, a, 2, p);
+    if (bail.id >= 0 && bail.open > -0.6) {
+      out.held |= Action.ACTION;
+      const idx = w.passTargets.indexOf(bail.id);
+      if (idx === 0) out.held |= Action.TARGET_L;
+      else if (idx === 1) out.held |= Action.TARGET_M;
+      else if (idx === 2) out.held |= Action.TARGET_R;
+      return;
+    }
+  }
+
   // Sack avoidance / scramble.
   if (pressure < 3.0) {
     const away = a.x - pressureX;
     out.moveX = clamp(away * 0.75, -1, 1);
     out.moveZ = dir * 0.3;
     out.held |= Action.TURBO;
-    if (t > s(3.2) && w.rng.chance(0.05)) out.held |= Action.ACTION; // throw it away
+    // Backed up near your own goal, eat nothing: get rid of it rather than take a safety.
+    const backedUp = Math.abs((a.side === 0 ? a.z : 100 - a.z)) < 12;
+    if ((t > s(2.4) || backedUp) && w.rng.chance(backedUp ? 0.16 : 0.08)) out.held |= Action.ACTION;
     return;
   }
 
@@ -255,7 +274,9 @@ function bestReceiver(w: World, qb: Athlete, depth: number, p: AiProfile): ReadR
     const noise = w.rng.spread(p.decisionNoise * 2.2);
     // Ride the hot hand: a receiver two catches into an Overdrive streak is worth forcing to.
     const hot = id === w.hotReceiver ? 0.55 + w.hotStreak * 0.45 : 0;
-    const open = nearest - inLane + noise + hot + clamp(dz, -4, 26) * 0.035;
+    // Push the ball downfield. Weighting openness alone made the quarterback take the shortest
+    // available completion every snap, which is correct simulation and terrible arcade football.
+    const open = nearest - inLane + noise + hot + clamp(dz, -4, 34) * 0.105;
     if (open > res.open) { res.id = id; res.open = open; res.deep = dz; res.tight = nearest < 3.4; }
   }
   return res;
@@ -289,6 +310,7 @@ function runToDaylight(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
   const dir = dirOf(a.side);
   const lane = bestLane(w, a, dir);
   out.moveX = lane.x; out.moveZ = lane.z;
+  void 0;
   // Early in a designed run, honour the called hole before improvising.
   if (a.route && a.routeIdx < a.route.length && w.playTicks < s(1.1) && w.handedOff) {
     routeSteer(w, a, steer);
@@ -298,8 +320,6 @@ function runToDaylight(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
       out.moveZ = out.moveZ * 0.4 + steer.z * 0.6;
     }
   }
-  out.held |= Action.TURBO;
-
   // Nearest threat → decide on a move.
   const defStart = a.side === w.athletes[OFF_START].side ? DEF_START : OFF_START;
   let near: Athlete | null = null; let nd = 99;
@@ -309,14 +329,22 @@ function runToDaylight(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
     const dd = dist(a.x, a.z, d.x, d.z);
     if (dd < nd) { nd = dd; near = d; }
   }
+
+  // Sprint into space, but bank a reserve when contact is imminent — a carrier who has emptied
+  // the meter has no spin, no stiff arm and no high hurdle exactly when he needs one.
+  const wantsMoveSoon = nd < 6.5;
+  if (!wantsMoveSoon || a.turbo > 34) out.held |= Action.TURBO;
+
   if (!near) return;
   const timing = ctx.profile.moveTiming;
-  if (nd < 2.6 && a.turbo > 30 && w.rng.chance(0.10 * timing + 0.02)) {
+  if (nd < 3.0 && w.rng.chance(0.14 * timing + 0.03)) {
     const bearing = heading(near.x - a.x, near.z - a.z);
     const rel = Math.abs(angDelta(a.facing, bearing));
-    if (near.move === 'DIVE_TACKLE' || rel > 1.0) out.held |= Action.JUMP;      // hurdle
-    else if (rel < 0.6 && w.rng.chance(0.5)) { out.held |= Action.TURBO | Action.ACTION; } // stiff arm
-    else out.held |= Action.SPECIAL;                                            // spin
+    if (near.move === 'DIVE_TACKLE') { out.held &= ~Action.TURBO; out.held |= Action.JUMP; }
+    else if (rel > 1.1 && a.turbo >= 25) out.held |= Action.TURBO | Action.JUMP;    // high hurdle
+    else if (rel < 0.65 && a.turbo >= 15 && w.rng.chance(0.55)) out.held |= Action.TURBO | Action.ACTION; // stiff arm
+    else if (a.turbo >= 20) out.held |= Action.SPECIAL;                             // spin
+    else { out.held &= ~Action.TURBO; out.held |= Action.JUMP; }                    // free hurdle
   }
   // Dive for the pylon / first down.
   const goal = goalOf(a.side);
@@ -418,8 +446,10 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
       if (!r) { holdZone(w, a, a.homeX, a.homeZ, out, ctx); break; }
       const disc = p.coverageDiscipline;
       // Defenders LAG the receiver — that lag is where separation on a break comes from.
-      const lag = (1 - disc) * 0.34;
-      const cushion = 0.9 + (1 - disc) * 2.4;
+      // A defender who tracks the receiver's exact position is uncoverable-by-design.
+      // The base lag is what separation on a break is made of; discipline only shrinks it.
+      const lag = 0.14 + (1 - disc) * 0.34;
+      const cushion = 1.2 + (1 - disc) * 2.4;
       const tx = r.x - r.vx * lag + w.rng.spread((1 - disc) * 1.6);
       const tz = r.z - r.vz * lag + dir * cushion;
       pursue(w, a, tx, tz, out, ctx, 1);
@@ -481,7 +511,12 @@ function pursue(w: World, a: Athlete, tx: number, tz: number, out: PlayerIntent,
   if (d < 0.25) { out.moveX = 0; out.moveZ = 0; return; }
   out.moveX = (dx / d) * urgency;
   out.moveZ = (dz / d) * urgency;
-  if (d > 2.4 && a.turbo > 12) out.held |= Action.TURBO;
+  // Defenders do not hold turbo the whole play. They burn it to close, and they keep a reserve
+  // for the tackle attempt — otherwise seven pursuers all sprinting erase every yard after
+  // catch and the game stops being explosive.
+  const closing = d > 2.4 && d < 22;
+  const reserve = d < 9 ? 8 : 30;
+  if (closing && a.turbo > reserve) out.held |= Action.TURBO;
 }
 
 function holdZone(w: World, a: Athlete, cx: number, cz: number, out: PlayerIntent, ctx: AiContext): void {

@@ -17,6 +17,8 @@ export function giveBall(w: World, id: AthleteId): void {
   w.ball.state = { kind: 'held', carrier: id };
   w.ball.possession = a.side;
   w.lastCarrier = id;
+  // Where possession was gained decides safety vs touchback later on.
+  w.gainOriginZ = a.z;
   w.ball.vx = 0; w.ball.vy = 0; w.ball.vz = 0;
   syncHeldBall(w);
 }

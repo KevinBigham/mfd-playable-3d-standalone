@@ -423,10 +423,15 @@ export class Match {
     this.setPhase('PRE_SNAP');
   }
 
+  private kickArmed = false;
+
   private startKickMeter(kind: 'FIELD_GOAL' | 'PUNT'): void {
     this.kickMeterActive = true;
     this.kickMeterTicks = 0;
     this.kickLaunched = false;
+    // The snap and the kick share a button. The meter must not accept the button that is
+    // already down from snapping — it has to see a release first, then a fresh press.
+    this.kickArmed = false;
     this.kickPlan = { kind, aim: 0, power: 0.75, quality: 0.5 };
   }
 
@@ -460,7 +465,7 @@ export class Match {
     for (const a of w.athletes) {
       const cover = a.side !== w.possession
         && a.assign !== null && a.assign.kind !== 'RUSH' && a.assign.kind !== 'CONTAIN';
-      a.reactionQueue = this.profile.reactionTicks + (cover ? s(0.30) : 0);
+      a.reactionQueue = this.profile.reactionTicks + (cover ? s(0.50) : 0);
     }
     this.setPhase(this.conversionTwoActive ? 'CONVERSION_LIVE' : 'LIVE');
   }
@@ -502,27 +507,31 @@ export class Match {
     const kicker = w.athletes[OFF_START];
 
     let pressed = false;
+    let timedOut = false;
     let aim = 0;
     if (this.isHuman(m.possession)) {
       for (const seat of this.seatsFor(m.possession)) {
         const it = this.seatIntent(seat);
         if (!it) continue;
         aim = clamp(it.moveX, -1, 1);
-        if (has(it.held, Action.ACTION) && this.kickMeterTicks > 6) pressed = true;
+        if (!has(it.held, Action.ACTION)) this.kickArmed = true;
+        if (this.kickArmed && has(it.pressed, Action.ACTION)) pressed = true;
       }
-      if (this.kickMeterTicks > period * 2) pressed = true;
+      if (this.kickMeterTicks > period * 2.5) { pressed = true; timedOut = true; }
     } else {
       const skill = clamp01(0.45 + kicker.def.ratings.accuracy / 160);
       const window = 0.06 + (1 - skill) * 0.30;
       if (v > 1 - window && this.kickMeterTicks > 8) pressed = true;
-      if (this.kickMeterTicks > period * 2) pressed = true;
+      if (this.kickMeterTicks > period * 2.5) { pressed = true; timedOut = true; }
       aim = 0;
     }
     if (!pressed) return;
 
     this.kickPlan.aim = aim;
-    this.kickPlan.quality = clamp01(v);
-    this.kickPlan.power = clamp01(0.55 + v * 0.45);
+    // A player who never presses gets a mediocre kick, not a shank off the instantaneous
+    // meter position — which was landing near zero and made the timeout a guaranteed miss.
+    this.kickPlan.quality = timedOut ? 0.45 : clamp01(v);
+    this.kickPlan.power = clamp01(0.55 + this.kickPlan.quality * 0.45);
     this.kickMeterActive = false;
     this.kickLaunched = true;
 
@@ -679,6 +688,18 @@ export class Match {
     // Kick plays hand the ball to the receiving team.
     if (w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT') {
       this.resolveKickPlay(o, reason, ballSide, spotZ, spotX);
+    } else if (reason === 'TOUCHBACK') {
+      // Either a turnover taken inside the recovering team's own end zone, or a loose ball out
+      // through the end zone the offence was attacking. Either way the DEFENCE takes over on 20.
+      const to: TeamSide = car ? car.side : other(m.possession);
+      o.turnover = true;
+      o.touchback = true;
+      o.possessionAfter = to;
+      o.turnoverKind = w.passThrown && !w.handedOff ? 'INT' : 'FUMBLE';
+      o.spotZ = touchbackSpot(to);
+      o.spotX = 0;
+      this.bus.emit({ type: 'turnover', tick: w.tick, to, kind: o.turnoverKind });
+      this.bus.emit({ type: 'touchback', tick: w.tick });
     } else if (changed && o.scoreKind === null) {
       o.turnover = true;
       o.possessionAfter = ballSide;

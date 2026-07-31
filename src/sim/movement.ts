@@ -4,7 +4,7 @@ import {
   FIXED_DT, SPEED_SKILL_BASE, SPEED_SKILL_TURBO, SPEED_LINE_BASE, SPEED_LINE_TURBO,
   SPEED_RATING_SCALE, ACCEL_GROUND, DECEL_GROUND, TURN_RATE_BASE, TURN_RATE_SPRINT,
   TURBO_MAX, TURBO_DRAIN, TURBO_REGEN, TURBO_REGEN_DELAY_MIN, TURBO_REGEN_DELAY_MAX,
-  TURBO_COST, MOVE_TICKS, DIVE_BOOST, FIELD_HALF_WIDTH, OVERDRIVE_SPEED,
+  TURBO_COST, MOVE_TICKS, DIVE_BOOST, FIELD_HALF_WIDTH, OVERDRIVE_SPEED, CARRIER_SPEED_BONUS,
 } from '../core/constants.ts';
 import { clamp, clamp01, angApproach, heading, lerp } from '../core/math.ts';
 import type { World } from './world.ts';
@@ -40,18 +40,36 @@ export function spendTurbo(a: Athlete, cost: number): boolean {
   return true;
 }
 
-/** Turbo bookkeeping; returns true when the athlete is actively sprinting this tick. */
+/**
+ * Turbo bookkeeping; returns true when the athlete is actively sprinting this tick.
+ *
+ * The regen delay is armed ONCE, on the tick sprinting stops — arming it every sprinting tick
+ * soft-locks the meter: it crosses the restart threshold, sprints for a single tick, re-arms a
+ * full-length lock, and never recovers. Restarting also needs a real reserve (hysteresis), so a
+ * held button cannot stutter in and out of sprint one tick at a time.
+ */
+const TURBO_RESTART = 26;   // a quarter tank, so an auto-restart is a real burst not a stutter
+const TURBO_HELD_REGEN = 0.6; // holding an empty button recharges slower — let go and it comes back
+
 function updateTurbo(a: Athlete, wantTurbo: boolean): boolean {
   if (a.onFire) { a.turbo = TURBO_MAX; a.turboHeld = wantTurbo; return wantTurbo; }
-  const sprinting = wantTurbo && a.turbo > 0.5;
+  const wasSprinting = a.turboHeld;
+  const threshold = wasSprinting ? 0.5 : TURBO_RESTART;
+  const sprinting = wantTurbo && a.turbo > threshold && a.turboLockTicks <= 0;
+
   if (sprinting) {
     a.turbo = Math.max(0, a.turbo - TURBO_DRAIN * FIXED_DT);
-    const drained = 1 - a.turbo / TURBO_MAX;
-    a.turboLockTicks = Math.round(lerp(TURBO_REGEN_DELAY_MIN, TURBO_REGEN_DELAY_MAX, drained));
-  } else if (a.turboLockTicks > 0) {
-    a.turboLockTicks--;
-  } else if (a.turbo < TURBO_MAX) {
-    a.turbo = Math.min(TURBO_MAX, a.turbo + TURBO_REGEN * FIXED_DT);
+  } else {
+    if (wasSprinting) {
+      // Just released, or just ran dry: the deeper the burn, the longer the wait.
+      const drained = 1 - a.turbo / TURBO_MAX;
+      a.turboLockTicks = Math.round(lerp(TURBO_REGEN_DELAY_MIN, TURBO_REGEN_DELAY_MAX, drained));
+    }
+    if (a.turboLockTicks > 0) a.turboLockTicks--;
+    else if (a.turbo < TURBO_MAX) {
+      const rate = TURBO_REGEN * (wantTurbo ? TURBO_HELD_REGEN : 1);
+      a.turbo = Math.min(TURBO_MAX, a.turbo + rate * FIXED_DT);
+    }
   }
   a.turboHeld = sprinting;
   return sprinting;
@@ -76,6 +94,7 @@ export function locomote(w: World, a: Athlete, desiredX: number, desiredZ: numbe
 
   const maxSpeed = (sprinting ? turboSpeed(a) : baseSpeed(a))
     * (a.onFire ? OVERDRIVE_SPEED : 1)
+    * (a.hasBall ? CARRIER_SPEED_BONUS : 1)
     * (a.engagedWith >= 0 ? 0.55 : 1)
     * (a.stunTicks > 0 ? 0.6 : 1);
 
@@ -185,8 +204,13 @@ export function tickMoveState(a: Athlete): void {
   if (a.moveTicks > 0) {
     a.moveTicks--;
     if (a.moveTicks === 0) {
+      // Committed moves have recovery. Without it a high hurdle is free invulnerability and a
+      // dive tackle is a spammable reach with no downside.
       if (a.move === 'DOWN') { a.move = 'GETUP'; a.moveTicks = MOVE_TICKS.GETUP; }
       else if (a.move === 'DIVE') { a.move = 'DOWN'; a.moveTicks = MOVE_TICKS.GETUP; a.y = 0; }
+      else if (a.move === 'DIVE_TACKLE') { a.move = 'DOWN'; a.moveTicks = MOVE_TICKS.GETUP; a.y = 0; }
+      else if (a.move === 'HIGH_HURDLE') { a.move = 'STUNNED'; a.moveTicks = MOVE_TICKS.LANDING; a.stunTicks = MOVE_TICKS.LANDING; a.y = 0; }
+      else if (a.move === 'POWER_TACKLE') { a.move = 'STUNNED'; a.moveTicks = MOVE_TICKS.WHIFF; a.stunTicks = MOVE_TICKS.WHIFF; }
       else { a.move = 'NORMAL'; a.y = 0; }
     }
   }
