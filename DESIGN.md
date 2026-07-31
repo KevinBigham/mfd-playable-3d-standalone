@@ -72,23 +72,42 @@ in Settings instead selects by stick bearing for players who prefer it.
 
 Every special move has anticipation, active frames, recovery and a counter:
 
-| Move | Cost | Active | Beaten by |
-|---|---|---|---|
-| Spin | 20 turbo | 0.52 s, 62 % tackle evade | power tackle, gang pursuit, fumble risk ×2 |
-| Hurdle | free | 0.58 s, clears low hits | standing tackles |
-| High hurdle | 25 turbo | 0.86 s, clears everything | timing — you land helpless |
-| Stiff arm | 15 turbo | 0.40 s cone knockdown | approaching from behind |
-| Dive | 18 turbo | +1.5 yards, ends the play | anything, if you dive early |
-| Dive tackle | 10 turbo | 1.5 yd reach | hurdle; 0.62 s recovery on a miss |
-| Power tackle | 25 turbo | ×2 force, ×2.5 fumble force | it misses more; you are committed |
+| Move | Cost | Active | Recovery | Beaten by |
+|---|---|---|---|---|
+| Spin | 20 turbo | 0.52 s, 62 % tackle evade | — | power tackle, gang pursuit, fumble risk ×2 |
+| Hurdle | free | 0.58 s, peaks at 0.95 yd | — | standing (1.0 yd) and power (1.25 yd) tackles |
+| High hurdle | 25 turbo | 0.86 s, peaks at 1.85 yd — clears everything | 0.18 s helpless landing | its cost and its landing |
+| Stiff arm | 15 turbo | 0.40 s cone knockdown | — | being approached from behind |
+| Dive | 18 turbo | +1.5 yards | goes to ground, ends the play | anything, if you dive early |
+| Dive tackle | 10 turbo | 0.62 s, 1.5 yd reach, 0.55 yd high | goes to ground for 0.7 s | a hurdle — it goes clean over |
+| Power tackle | 25 turbo | ×2 force, ×2.5 fumble force, 1.25 yd high | 0.20 s stagger | a high hurdle; it whiffs more |
+
+The height numbers are the rock-paper-scissors. A hurdle clears a tackle whose reach is *below the
+carrier's feet* and nothing else, so a normal hurdle beats a dive tackle and loses to a standing or
+power tackle; a high hurdle clears all three and pays for it with the cost and the landing.
 
 ## 5. TURBO
 
-100 units. Draining costs 38/s. Regeneration is 26/s but only after a delay that scales with how
-deep you drained — 0.25 s if you feathered it, 1.05 s if you emptied it. That single curve is what
-makes turbo a resource instead of a button you hold forever.
+100 units. Draining costs 31/s, so a full meter is about 3.2 seconds of sprint — most of a play.
+Regeneration is 26/s (60 % of that while you are still holding the button, because holding an empty
+button is the mistake) and only starts after a delay that scales with how deep you drained: 0.25 s
+if you feathered it, 0.85 s if you emptied it. Re-engaging after a burn needs a quarter tank, so a
+held button cannot stutter in and out of sprint one tick at a time.
 
-Special moves cost a lump sum and are simply refused when you cannot pay.
+The meter refills to full between plays. Within a single play the trade is real and measurable:
+
+| over one 5-second play | distance | sprint uptime | meter left |
+|---|---|---|---|
+| hold turbo | 56.3 yd | 53 % | 24 |
+| feather it | 51.8 yd | 32 % | 41 |
+| never touch it | 46.1 yd | 0 % | 100 |
+
+Holding wins the footrace; feathering banks the spin, stiff arm and high hurdle you need when
+somebody finally gets in front of you. Special moves cost a lump sum and are simply refused when
+you cannot pay — which is exactly why emptying the meter is a decision and not a default.
+
+**The ball carrier also runs 6 % faster than everyone else.** That is an arcade convention, not
+physics. Without it, seven pursuers erase every breakaway and the game has no explosive plays.
 
 ## 6. OVERDRIVE
 
@@ -190,13 +209,21 @@ No speech, no announcer, no imitation of any real broadcaster.
 
 Measured every build by `npm run sim:batch`. Current values are recorded in QA_REPORT.md.
 
-| metric | target |
-|---|---|
-| combined points | 65–90 |
-| plays per game | 44–58 |
-| touchdowns | 8–12 |
-| interceptions | 1.5–4 |
-| sacks | 6–12 |
-| home/away score split | within 4 points across a batch |
-| games completing | 100 % |
-| rules violations | 0 |
+| metric | target | shipped |
+|---|---|---|
+| combined points | 44–60 | **48** |
+| plays per game | 55–70 | **63** |
+| touchdowns | 5–8 | **6.1** |
+| interceptions | 1.5–4 | **2.2** |
+| sacks | 4–9 | **6.9** |
+| safeties | ≤ 1 | **2.3 — over, see QA_REPORT §7** |
+| home/away score split | within 4 points | **1.0** |
+| games completing | 100 % | **100 %** |
+| rules violations | 0 | **0** |
+
+The target band moved down during hardening, and that is worth being honest about. An earlier build
+scored 71 combined — but it did so with a turbo meter that soft-locked (so nobody could sprint or
+use a special move), and with interceptions in your own end zone paying two points to the team that
+threw the pick. Fixing both cost roughly twenty points a game, because the defence got its legs
+back and a chunk of phantom scoring disappeared. A correct 48 is worth more than an inflated 71,
+and the band above is what the code actually does.

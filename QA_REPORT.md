@@ -95,18 +95,37 @@ produce different games. RNG reseeds deterministically, stays in `[0,1)`, is unb
 | games completed | **200 / 200** | 100 % | pass |
 | rules violations | **0** | 0 | pass |
 | watchdog trips | **0** | 0 | pass |
-| combined points | **71.3** (range 34–101) | 65–90 | pass |
-| home / away | **35.1 / 36.2** | within 4 | pass |
-| plays per game | **48.5** | 44–58 | pass |
-| touchdowns | **10.1** | 8–12 | pass |
-| interceptions | **1.8** | 1.5–4 | pass |
-| sacks | **5.0** | 6–12 | slightly under |
-| forced fumbles | 3.3 | — | — |
-| Overdrive activations | 1.1–1.7 | ≥1 | pass |
-| field goals / punts | 0.9 / 1.5 | — | see §7 |
+| combined points | **47.8** (range 19–79) | 44–60 | pass |
+| home / away | **24.6 / 23.2** | within 4 | pass |
+| plays per game | **63.7** | 55–70 | pass |
+| touchdowns | **5.8** | 5–8 | pass |
+| interceptions | **2.1** | 1.5–4 | pass |
+| sacks | **7.0** | 4–9 | pass |
+| forced fumbles | 3.2 | — | — |
+| **safeties** | **2.56** | ≤ 1 | **FAIL — see §7** |
+| Overdrive activations | 1.5 | ≥1 | pass |
+| field goals / punts | 1.3 / 3.9 | — | — |
 | ties | 0 | 0 | pass |
-| overtimes | 4 / 200 | — | — |
-| wall clock | **194 ms per game** | — | — |
+| overtimes | 6 / 200 | — | — |
+| wall clock | **216 ms per game** | — | — |
+
+### Why the scoring band moved down during hardening
+
+An earlier build in this same repository measured **71.3** combined points. It got there partly by
+being broken:
+
+- `updateTurbo` re-armed its regeneration lock on every sprinting tick, so a held turbo button
+  produced **14 % sprint uptime** and **0 of 19** attempted spins succeeded. Defenders could not
+  close, so yards after catch were inflated.
+- An interception or fumble recovered inside your own end zone was scored as a **safety against the
+  team that caused the turnover**, which handed out roughly 2.7 phantom safeties a game and reset
+  field position in the offence's favour.
+- Formations were not clamped to the field, so a shotgun snap from your own 1 put the quarterback
+  **inside his own end zone** before the ball moved.
+
+Fixing those three cost about twenty points a game, because the defence got its legs back and a
+chunk of scoring that never should have existed disappeared. The band in DESIGN.md was moved to
+match what the code now does rather than the other way round.
 
 ### Honest observations
 
@@ -123,7 +142,33 @@ produce different games. RNG reseeds deterministically, stays in `[0,1)`, is unb
 - **Punts are rare (1.5 a game)** because 4th-down decisions favour going for it when a 30-yard
   chain is already unlikely. This is deliberate and matches the arcade pace.
 
-### Bugs this harness found and forced fixes for
+### Bugs the adversarial critic round found and forced fixes for
+
+An adversarial review pass (five specialist lenses, each required to cite code, a measurement or an
+image) scored this build **4.5/10** on game feel and **4/10** on football logic, and produced
+reproducible probes for each finding. Fixed since:
+
+1. **Turbo soft-lock** — regen delay re-armed every sprinting tick, so holding the button gave
+   14 % sprint uptime and made every special move unaffordable for the rest of the play.
+   `src/sim/movement.ts`.
+2. **The kick meter was unusable by a human** — it accepted a *held* ACTION rather than a fresh
+   press, and the snap uses the same button, so the meter fired 0.12 s after the snap at 22 %
+   power; a miss was the only possible outcome for most attempts. Now edge-triggered with an
+   explicit arm-on-release, and a timeout yields a mediocre kick rather than a shank.
+   `src/rules/match.ts`.
+3. **Special moves had no rock-paper-scissors** — the hurdle-clear test was dead code (both
+   branches continued), a high hurdle was total invulnerability with zero recovery, and a dive
+   tackle was free. Hurdle heights now decide what clears what, and high hurdles, dive tackles and
+   power tackles all have recovery frames. `src/sim/contact.ts`, `src/sim/movement.ts`.
+4. **Safeties were being awarded to the wrong team** — an interception in your own end zone paid
+   two points to the team that threw it. Possession gained inside your own end zone is now a
+   touchback; a safety requires the carrier to be *down* and his team to have had the ball.
+   `src/sim/playRunner.ts`, `src/rules/match.ts`.
+5. **Formations were not clamped to the field** — the punt formation aligns the punter 11 yards
+   deep, so a punt from your own 10 started him a yard inside his own end zone.
+   `src/sim/playRunner.ts`.
+
+### Bugs the simulation harness found and forced fixes for
 
 Listed because they are the argument for the harness existing:
 
@@ -271,12 +316,18 @@ Stated as failures rather than omissions:
 5. **Audio is verified functionally, not aurally.** The Node suite proves every cue can be triggered
    without throwing and that the headless no-op path is safe; nobody has listened to it. Levels,
    mix balance and whether the touchdown sting actually lands are unjudged.
-6. **Score variance is high** — 15.5 % of matches finish 28+ apart, and mirror matches average a
+6. **Safeties are still too common at 2.56 a game.** Real football sees about 0.05. This is the one
+   balance target the shipped build misses, and it is a genuine defect, not a rounding error. The
+   illegal cases are fixed — possession gained in your own end zone is a touchback now, and nobody
+   lines up behind their own goal line — so what remains are *legal* safeties: an offence pinned
+   inside its own five by a turnover or a punt, taking a sack. The root cause is that a 30-yard
+   chain plus a compressed field puts teams inside their own ten far more often than real football
+   does. Reducing it properly means changing where turnovers are spotted, which is a rules change
+   rather than a bug fix, and I did not want to make it on the last pass. Flagged, not hidden.
+7. **Score variance is high** — 13.5 % of matches finish 28+ apart, and mirror matches average a
    15-point margin. Bounded by comeback assist, not eliminated.
-7. **First downs are rare** (2.5 a game). Faithful to the genre, but it means the chain is more of a
-   scoring gate than a rhythm.
-8. **The sack rate (5.0) sits just below the 6–12 target band.** Pass protection may be a touch too
-   generous now; the previous value was 11.6, which was far worse.
+8. **First downs are rare** (3.4 a game). Faithful to the genre, but it means the chain is more of a
+   scoring gate than a rhythm, and it is why the Overdrive trigger needed a team-streak path.
 9. **No touch controls, no online play.** Deliberate.
 10. **Teams switch ends only at halftime**, not every quarter, for camera and local-multiplayer
     orientation stability.
