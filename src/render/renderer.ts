@@ -9,6 +9,7 @@ import { GameCamera } from './camera.ts';
 import { Effects } from './effects.ts';
 import { buildBall, buildMarkers, makeNumberSprite, type Markers } from './props.ts';
 import { buildEnvironment, type Environment } from './env/index.ts';
+import type { ReplayView } from './replay.ts';
 import type { World } from '../sim/world.ts';
 import { carrier, dirOf } from '../sim/world.ts';
 import { clamp, clamp01, lerp, angLerp } from '../core/math.ts';
@@ -268,6 +269,42 @@ export class GameRenderer {
       mk.reticle.visible = false;
     }
     void match;
+  }
+
+  /** Pose everything from a recorded replay frame. Never touches simulation state. */
+  syncReplay(view: ReplayView, dt: number): void {
+    if (this.disposed || !this.effects) return;
+    const shown = new Set<AthleteRig>();
+    for (let i = 0; i < view.athletes.length; i++) {
+      const a = view.athletes[i];
+      const rig = this.rigs[a.side]?.get(a.jersey);
+      if (!rig) continue;
+      shown.add(rig);
+      rig.root.visible = true;
+      rig.root.position.set(a.x, a.y, a.z);
+      rig.root.rotation.y = a.facing;
+      sample.state = a.state;
+      sample.phase = a.phase;
+      sample.speed01 = 0.5;
+      sample.lean = 0;
+      sample.fire = 0;
+      sample.t = this.animT[i] += dt;
+      poseAthlete(rig, sample);
+    }
+    for (const side of [0, 1] as TeamSide[]) {
+      for (const rig of this.rigs[side].values()) if (!shown.has(rig)) rig.root.visible = false;
+    }
+    this.ball.position.set(view.ball.x, view.ball.y, view.ball.z);
+    this.ball.visible = true;
+    for (const r of this.markers.rings) r.visible = false;
+    for (const sp of this.numberSprites) sp.visible = false;
+    this.markers.carrierMark.visible = false;
+    for (const t of this.markers.targets) t.visible = false;
+    this.markers.reticle.visible = false;
+    // Slow orbit around the action for the clip.
+    this.gameCamera.replayShot(view.ball.x, view.ball.z, dt);
+    this.env?.update(dt, this.gameCamera.camera.position);
+    this.effects.update(dt);
   }
 
   setCrowdEnergy(v: number): void { this.env?.crowd.setExcitement(clamp01(v)); }

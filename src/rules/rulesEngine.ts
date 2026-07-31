@@ -1,7 +1,9 @@
 import type { DeadReason, MatchState, TeamSide, TeamStats } from '../core/types.ts';
 import {
   FIRST_DOWN_YARDS, DOWNS, TOUCHBACK_Z, KICKOFF_FROM_Z, TWO_POINT_Z, ENDZONE_DEPTH,
-  OVERDRIVE_CATCH_STREAK, OVERDRIVE_SACK_STREAK, OVERDRIVE_MAX_TICKS, OVERTIME_PERIODS,
+  OVERDRIVE_CATCH_STREAK, OVERDRIVE_TEAM_STREAK, OVERDRIVE_SACK_STREAK, OVERDRIVE_MAX_TICKS,
+  OVERDRIVE_PERFECT_TICKS,
+  OVERTIME_PERIODS,
 } from '../core/constants.ts';
 import { clamp } from '../core/math.ts';
 
@@ -27,8 +29,8 @@ export function createMatchState(quarterTicks: number): MatchState {
     clockTicks: quarterTicks, quarterTicks, playClockTicks: 0,
     possession: 0, down: 1, losZ: 25, firstDownZ: 55,
     teams: [
-      { score: 0, timeouts: 0, overdrive: false, overdriveTicks: 0, catchStreakReceiver: -1, catchStreak: 0, sackStreak: 0, stats: emptyStats() },
-      { score: 0, timeouts: 0, overdrive: false, overdriveTicks: 0, catchStreakReceiver: -1, catchStreak: 0, sackStreak: 0, stats: emptyStats() },
+      { score: 0, timeouts: 0, overdrive: false, overdriveTicks: 0, catchStreakReceiver: -1, catchStreak: 0, teamCatchStreak: 0, sackStreak: 0, stats: emptyStats() },
+      { score: 0, timeouts: 0, overdrive: false, overdriveTicks: 0, catchStreakReceiver: -1, catchStreak: 0, teamCatchStreak: 0, sackStreak: 0, stats: emptyStats() },
     ],
     lastDead: null, pendingScore: null, conversionChoice: null,
     kickoffReceiving: 0, secondHalfReceiver: 1, overtimePeriod: 0,
@@ -170,14 +172,20 @@ export function safetyFreeKickSpot(conceding: TeamSide): number {
 
 export interface OverdriveResult { started: boolean; cause: 'CATCH' | 'SACK' | null }
 
-export function noteCatch(m: MatchState, side: TeamSide, receiverId: number): OverdriveResult {
+export function noteCatch(m: MatchState, side: TeamSide, receiverNumber: number): OverdriveResult {
   const t = m.teams[side];
-  if (t.catchStreakReceiver === receiverId) t.catchStreak++;
-  else { t.catchStreakReceiver = receiverId; t.catchStreak = 1; }
+  if (t.catchStreakReceiver === receiverNumber) t.catchStreak++;
+  else { t.catchStreakReceiver = receiverNumber; t.catchStreak = 1; }
+  t.teamCatchStreak++;
   m.teams[other(side)].sackStreak = 0;
-  if (!t.overdrive && t.catchStreak >= OVERDRIVE_CATCH_STREAK) {
-    t.overdrive = true; t.overdriveTicks = OVERDRIVE_MAX_TICKS; t.stats.overdrives++;
-    t.catchStreak = 0; t.catchStreakReceiver = -1;
+  const byReceiver = t.catchStreak >= OVERDRIVE_CATCH_STREAK;
+  const byDrive = t.teamCatchStreak >= OVERDRIVE_TEAM_STREAK;
+  if (!t.overdrive && (byReceiver || byDrive)) {
+    t.overdrive = true;
+    // A perfect chain — every one of the three to the same receiver — burns longer.
+    t.overdriveTicks = byReceiver ? OVERDRIVE_PERFECT_TICKS : OVERDRIVE_MAX_TICKS;
+    t.stats.overdrives++;
+    t.catchStreak = 0; t.catchStreakReceiver = -1; t.teamCatchStreak = 0;
     return { started: true, cause: 'CATCH' };
   }
   return { started: false, cause: null };
@@ -187,7 +195,7 @@ export function noteSack(m: MatchState, defenseSide: TeamSide): OverdriveResult 
   const t = m.teams[defenseSide];
   t.sackStreak++;
   const offense = m.teams[other(defenseSide)];
-  offense.catchStreak = 0; offense.catchStreakReceiver = -1;
+  offense.catchStreak = 0; offense.catchStreakReceiver = -1; offense.teamCatchStreak = 0;
   if (!t.overdrive && t.sackStreak >= OVERDRIVE_SACK_STREAK) {
     t.overdrive = true; t.overdriveTicks = OVERDRIVE_MAX_TICKS; t.stats.overdrives++;
     t.sackStreak = 0;
@@ -199,6 +207,7 @@ export function noteSack(m: MatchState, defenseSide: TeamSide): OverdriveResult 
 export function breakStreaks(m: MatchState, side: TeamSide): void {
   m.teams[side].catchStreak = 0;
   m.teams[side].catchStreakReceiver = -1;
+  m.teams[side].teamCatchStreak = 0;
 }
 
 /** The opponent extinguishes an active Overdrive by converting a first down or a sack. */

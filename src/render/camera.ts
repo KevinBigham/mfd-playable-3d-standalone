@@ -162,6 +162,25 @@ export class GameCamera {
     }
   }
 
+  /** Low, slow, slightly orbiting angle used for replay clips. */
+  replayShot(x: number, z: number, dt: number): void {
+    this.mode = 'REPLAY';
+    this.replayT += dt;
+    const ang = this.replayT * 0.55;
+    const r = 17;
+    this.posX = damp(this.posX, x + Math.sin(ang) * r, 5, dt);
+    this.posZ = damp(this.posZ, z + Math.cos(ang) * r * this.lastDir, 5, dt);
+    this.posY = damp(this.posY, 6.5, 5, dt);
+    this.lookX = damp(this.lookX, x, 7, dt);
+    this.lookY = damp(this.lookY, 1.6, 7, dt);
+    this.lookZ = damp(this.lookZ, z, 7, dt);
+    this.fov = damp(this.fov, 44, 6, dt);
+    this.apply(dt);
+  }
+
+  resetReplay(): void { this.replayT = 0; }
+  private replayT = 0;
+
   get focusX(): number { return this.lookX; }
   get focusZ(): number { return this.lookZ; }
 }

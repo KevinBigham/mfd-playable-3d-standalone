@@ -253,7 +253,9 @@ function bestReceiver(w: World, qb: Athlete, depth: number, p: AiProfile): ReadR
       if (dist(d.x, d.z, lx, lz) < 2.0 && t > 0.32 && t < 0.9 && dist(d.x, d.z, qb.x, qb.z) > 5) inLane += 1.3;
     }
     const noise = w.rng.spread(p.decisionNoise * 2.2);
-    const open = nearest - inLane + noise + clamp(dz, -4, 26) * 0.035;
+    // Ride the hot hand: a receiver two catches into an Overdrive streak is worth forcing to.
+    const hot = id === w.hotReceiver ? 0.55 + w.hotStreak * 0.45 : 0;
+    const open = nearest - inLane + noise + hot + clamp(dz, -4, 26) * 0.035;
     if (open > res.open) { res.id = id; res.open = open; res.deep = dz; res.tight = nearest < 3.4; }
   }
   return res;

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   createMatchState, applyOutcome, blankOutcome, computeFirstDown, distanceToGo, isAndGoal,
   touchbackSpot, kickoffSpot, conversionSpot, validateMatchState, noteCatch, noteSack,
-  extinguish, winnerOf, matchShouldEnd, other,
+  extinguish, winnerOf, matchShouldEnd, other, breakStreaks,
 } from '../src/rules/rulesEngine.ts';
 import type { TeamSide } from '../src/core/types.ts';
 import { FIRST_DOWN_YARDS } from '../src/core/constants.ts';
@@ -91,11 +91,30 @@ describe('overdrive', () => {
     expect(m.teams[0].overdrive).toBe(true);
   });
 
-  it('a different receiver restarts the chain', () => {
+  it('a different receiver restarts the same-receiver chain but keeps the team chain', () => {
     const m = createMatchState(Q);
     noteCatch(m, 0, 5); noteCatch(m, 0, 6);
     expect(m.teams[0].catchStreak).toBe(1);
+    expect(m.teams[0].teamCatchStreak).toBe(2);
     expect(m.teams[0].overdrive).toBe(false);
+  });
+
+  it('three straight completions to different receivers still lights it, but shorter', () => {
+    const perfect = createMatchState(Q);
+    noteCatch(perfect, 0, 5); noteCatch(perfect, 0, 5); noteCatch(perfect, 0, 5);
+    const mixed = createMatchState(Q);
+    noteCatch(mixed, 0, 5); noteCatch(mixed, 0, 6); noteCatch(mixed, 0, 7);
+    expect(perfect.teams[0].overdrive).toBe(true);
+    expect(mixed.teams[0].overdrive).toBe(true);
+    expect(perfect.teams[0].overdriveTicks).toBeGreaterThan(mixed.teams[0].overdriveTicks);
+  });
+
+  it('an incompletion wipes both chains', () => {
+    const m = createMatchState(Q);
+    noteCatch(m, 0, 5); noteCatch(m, 0, 6);
+    breakStreaks(m, 0);
+    expect(m.teams[0].catchStreak).toBe(0);
+    expect(m.teams[0].teamCatchStreak).toBe(0);
   });
 
   it('two straight sacks light the defence, and the opponent can put it out', () => {

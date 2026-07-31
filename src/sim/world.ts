@@ -64,6 +64,9 @@ export interface World {
   kickPending: null | { kind: 'FIELD_GOAL' | 'EXTRA_POINT' | 'PUNT' | 'KICKOFF' | 'ONSIDE'; good: boolean; distance: number };
   /** Practice/dev: freeze the defense. */
   freezeDefense: boolean;
+  /** Receiver with a live Overdrive catch streak (mirrors MatchState), or -1. */
+  hotReceiver: AthleteId;
+  hotStreak: number;
   /** Athlete slated to take a handoff/pitch on this play, or -1. */
   handoffTarget: AthleteId;
   /** Tick (relative to the snap) when the exchange should happen. */
@@ -131,7 +134,7 @@ export function createWorld(
     scoreLocked: false, lastCatcher: -1, lastHitPower: 0,
     switchRequests: [], qbTarget: -1, passTargets: [-1, -1, -1],
     lateHits: false, kickPending: null, freezeDefense: false,
-    handoffTarget: -1, handoffTick: 0,
+    hotReceiver: -1, hotStreak: 0, handoffTarget: -1, handoffTick: 0,
   };
 }
 

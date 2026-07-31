@@ -56,7 +56,7 @@ export function updateBlocking(w: World): void {
       releaseEngagement(w, bl); target = null;
     }
     if (!target) {
-      let best: Athlete | null = null; let bestD = 4.6;
+      let best: Athlete | null = null; let bestD = 5.2;
       for (let j = 0; j < 7; j++) {
         const d = w.athletes[DEF_START + j];
         if (d.blockedBy >= 0 && d.blockedBy !== bl.id) continue;
@@ -64,7 +64,7 @@ export function updateBlocking(w: World): void {
         const dd = dist(bl.x, bl.z, d.x, d.z);
         if (dd < bestD) { bestD = dd; best = d; }
       }
-      if (best && bestD < BLOCK_RADIUS * 1.7) {
+      if (best && bestD < BLOCK_RADIUS * 2.6) {
         bl.engagedWith = best.id; best.blockedBy = bl.id;
         target = best;
         w.bus.emit({ type: 'block.win', tick: w.tick, by: bl.id, on: best.id, pancake: false });
@@ -72,13 +72,30 @@ export function updateBlocking(w: World): void {
     }
 
     if (target) {
-      // Sustained block: push the rusher backward relative to the blocker's facing.
+      // Sustained block: push the rusher back AND cancel most of his approach toward whoever
+      // he is trying to reach. Without that second term a turbo rusher simply walks through a
+      // block, which is what made every dropback a sack.
       const strength = (bl.def.ratings.power - target.def.ratings.power) / 100;
-      const push = (0.9 + strength) * 4.4 * FIXED_DT;
+      const push = (0.9 + strength) * 5.2 * FIXED_DT;
       const dx = target.x - bl.x, dz = target.z - bl.z;
       const d = Math.max(0.001, Math.hypot(dx, dz));
       target.x += (dx / d) * push; target.z += (dz / d) * push;
-      target.vx *= 0.86; target.vz *= 0.86;
+      target.vx *= 0.62; target.vz *= 0.62;
+
+      const car = carrier(w);
+      const protectee = car && car.side === bl.side ? car : w.athletes[w.qbId];
+      let px = protectee.x - target.x, pz = protectee.z - target.z;
+      const pd = Math.hypot(px, pz);
+      if (pd > 0.01) {
+        px /= pd; pz /= pd;
+        const approach = target.vx * px + target.vz * pz;
+        if (approach > 0) {
+          // Leave a sliver so a strong rusher still creeps forward; anchoring is not a wall.
+          const keep = clamp01(0.16 + (target.def.ratings.power - bl.def.ratings.power) * 0.004);
+          target.vx -= px * approach * (1 - keep);
+          target.vz -= pz * approach * (1 - keep);
+        }
+      }
 
       // Shed attempt. Blocks are meant to hold for roughly 1.5-3 s, which is the
       // window the pocket has to exist for the passing game to work at all.

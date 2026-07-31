@@ -311,8 +311,11 @@ export interface TeamMatchState {
   timeouts: number;                  // unused (no timeouts) — kept for stat parity
   overdrive: boolean;
   overdriveTicks: number;
+  /** Jersey number of the receiver on a live streak, or -1. */
   catchStreakReceiver: AthleteId | -1;
   catchStreak: number;
+  /** Consecutive completions to anyone on this team. */
+  teamCatchStreak: number;
   sackStreak: number;
   stats: TeamStats;
 }

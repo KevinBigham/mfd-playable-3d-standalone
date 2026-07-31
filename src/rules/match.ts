@@ -418,6 +418,7 @@ export class Match {
       this.tendency[m.possession].note(off);
       setupPlay(w, { offense: off, defense: def, losZ: m.losZ, spotX: 0, possession: m.possession, mirrored: this.mirrorOffense });
     }
+    this.applyOverdriveFlags();
     m.playClockTicks = s(PLAY_CLOCK_SECONDS);
     this.setPhase('PRE_SNAP');
   }
@@ -544,9 +545,11 @@ export class Match {
           const a = w.athletes[e.by];
           if (a.side === m.possession) {
             m.teams[m.possession].stats.passComp++;
-            const res = noteCatch(m, m.possession, e.by);
+            // Track the streak by JERSEY NUMBER: athlete ids are play slots and get
+            // rebound to different people every snap.
+            const res = noteCatch(m, m.possession, a.def.number);
+            this.applyOverdriveFlags();
             if (res.started) {
-              this.applyOverdriveFlags();
               this.bus.emit({ type: 'overdrive.start', tick: w.tick, side: m.possession, cause: 'CATCH' });
             } else if (m.teams[m.possession].catchStreak > 0) {
               this.bus.emit({ type: 'overdrive.charge', tick: w.tick, side: m.possession, progress: m.teams[m.possession].catchStreak / 3 });
@@ -569,6 +572,16 @@ export class Match {
   private applyOverdriveFlags(): void {
     const w = this.world; const m = this.state;
     for (const a of w.athletes) a.onFire = m.teams[a.side].overdrive;
+    const off = m.teams[m.possession];
+    w.hotStreak = off.catchStreak;
+    w.hotReceiver = -1;
+    if (off.catchStreak > 0) {
+      for (let i = 0; i < 7; i++) {
+        const cand = w.athletes[i];
+        if (cand.side === m.possession && cand.def.number === off.catchStreakReceiver
+            && cand.targetButton !== null) { w.hotReceiver = cand.id; break; }
+      }
+    }
   }
 
   // ── play resolution ──────────────────────────────────────────────────────

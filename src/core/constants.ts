@@ -119,9 +119,12 @@ export const QUARTER_BREAK_TICKS = s(2.2);
 export const OVERTIME_PERIODS = 3;
 
 // ── overdrive (momentum) ───────────────────────────────────────────────────
+/** Three straight completions light it. All three to the SAME receiver lights it for longer. */
+export const OVERDRIVE_TEAM_STREAK = 3;
 export const OVERDRIVE_CATCH_STREAK = 3;
 export const OVERDRIVE_SACK_STREAK = 2;
-export const OVERDRIVE_MAX_TICKS = s(48);      // hard ceiling so it can't dominate
+export const OVERDRIVE_MAX_TICKS = s(36);          // normal duration
+export const OVERDRIVE_PERFECT_TICKS = s(52);      // same receiver three times running
 export const OVERDRIVE_SPEED = 1.11;
 export const OVERDRIVE_BREAK_TACKLE = 1.45;
 export const OVERDRIVE_CATCH = 1.16;

@@ -10,6 +10,7 @@ import type { Screen, ScreenContext } from '../ui/uiKit.ts';
 import { el } from '../ui/uiKit.ts';
 import { Hud } from '../ui/hud.ts';
 import { clamp, clamp01 } from '../core/math.ts';
+import { ReplayBuffer, ReplayPlayer, makeReplayView } from '../render/replay.ts';
 
 export interface PerfSample { p50: number; p95: number; p99: number; worst: number; frames: number }
 
@@ -39,6 +40,11 @@ export class Game {
   onMatchEnd: ((m: Match) => void) | null = null;
   matchTeams: [TeamDef, TeamDef] | null = null;
   matchStadium: StadiumDef | null = null;
+  private replayBuf = new ReplayBuffer();
+  private replayPlayer = new ReplayPlayer();
+  private replayView = makeReplayView();
+  private replayBanner: HTMLDivElement;
+  private replayPending: string | null = null;
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     this.settings = getSave().settings;
@@ -59,6 +65,12 @@ export class Game {
     this.hudRoot.id = 'hud';
     uiRoot.appendChild(this.hudRoot);
     this.hud = new Hud(this.hudRoot);
+
+    this.replayBanner = el('div');
+    this.replayBanner.style.cssText = 'position:absolute;top:8%;left:50%;transform:translateX(-50%) skewX(-9deg);'
+      + 'font:700 34px Impact,sans-serif;letter-spacing:.2em;color:#ffd23f;text-shadow:0 4px 0 #000;'
+      + 'display:none;pointer-events:none;z-index:5';
+    uiRoot.appendChild(this.replayBanner);
 
     this.audio = createAudio();
     this.applySettings();
@@ -172,6 +184,10 @@ export class Game {
   }
 
   endMatch(): void {
+    this.replayPlayer.stop();
+    this.replayBuf.clear();
+    this.replayBanner.style.display = 'none';
+    this.replayPending = null;
     if (!this.match) return;
     this.audio.director.detach();
     this.match.dispose();
@@ -185,6 +201,9 @@ export class Game {
     this.renderer.handleEvent(e);
     this.audio.director.handle(e);
     this.hud.handleEvent(e);
+    if (e.type === 'touchdown') this.replayPending = 'TOUCHDOWN';
+    else if (e.type === 'interception') this.replayPending = 'INTERCEPTION';
+    else if (e.type === 'fumble') this.replayPending = 'FUMBLE';
     if (e.type === 'match.end' && this.match) this.onMatchEnd?.(this.match);
   }
 
@@ -214,6 +233,21 @@ export class Game {
     this.input.poll();
 
     const m = this.match;
+
+    // Replay playback owns the frame while it runs; the simulation is paused, not touched.
+    if (this.replayPlayer.active && m) {
+      const idx = this.replayPlayer.advance(dt);
+      if (idx >= 0 && this.replayBuf.read(idx, this.replayView)) {
+        this.renderer.syncReplay(this.replayView, dt);
+        this.renderer.render();
+        this.current?.update?.(dt);
+        this.input.clearEdges();
+        return;
+      }
+      this.replayPlayer.stop();
+      this.replayBanner.style.display = 'none';
+    }
+
     if (m && this.inMatch && !this.paused) {
       this.accumulator += dt;
       let steps = 0;
@@ -226,6 +260,16 @@ export class Game {
       const alpha = clamp01(this.accumulator / FIXED_DT);
       const celebrating = m.phase === 'SCORE_RESOLVE' || m.phase === 'FINAL';
       this.renderer.sync(m.world, m.state, alpha, dt, celebrating);
+      if (m.world.playPhase === 'LIVE') this.replayBuf.capture(m.world, dt);
+      // Fire the clip once the whistle has blown, not mid-play.
+      if (this.replayPending && (m.phase === 'SCORE_RESOLVE' || m.phase === 'PLAY_CALL')
+          && this.replayBuf.ready) {
+        this.renderer.gameCamera.resetReplay();
+        this.replayPlayer.start(this.replayBuf.length, this.replayPending);
+        this.replayBanner.textContent = `▶ ${this.replayPending}`;
+        this.replayBanner.style.display = 'block';
+        this.replayPending = null;
+      }
       this.hud.update(dt);
       this.renderer.render();
     } else if (m && this.inMatch && this.paused) {

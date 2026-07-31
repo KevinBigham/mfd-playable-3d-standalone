@@ -96,10 +96,15 @@ The momentum mechanic. Original name, original presentation — heat shimmer, an
 crowd surge and a HUD pulse. No copied flame art.
 
 **Earned by:**
-- the same receiver catching **three consecutive completions**, or
+- **three consecutive completions** by the offence — and if all three went to the *same* receiver,
+  that is a **perfect chain** and it burns for 52 s instead of 36 s; or
 - a defence recording **two consecutive sacks**.
 
-**While lit (max 48 s):** turbo pinned full, +11 % speed, +45 % tackle breaking, +16 % catching,
+The split trigger is deliberate. Three straight completions is reachable on a normal scoring drive,
+so players actually meet the mechanic; the perfect chain is the version worth chasing, and it is
+the one the defence can see coming because the streak counter names the hot receiver in the HUD.
+
+**While lit:** turbo pinned full, +11 % speed, +45 % tackle breaking, +16 % catching,
 +18 % pressure, +12 % accuracy.
 
 **Lost by:** the opponent converting a first down against you, the opponent sacking your passer, or
