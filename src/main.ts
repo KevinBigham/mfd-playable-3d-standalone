@@ -7,6 +7,8 @@ import {
 import { MatchScreen } from './ui/screens/matchScreen.ts';
 import { TournamentScreen } from './ui/screens/tournament.ts';
 import { SeasonScreen } from './ui/screens/season.ts';
+import { PracticeScreen } from './ui/screens/practice.ts';
+import { PlayEditorScreen } from './ui/screens/playEditor.ts';
 import { TEAMS, getStadium } from './data/index.ts';
 
 function boot(): void {
@@ -27,7 +29,8 @@ function boot(): void {
     new TitleScreen(game), new MainMenuScreen(game), new QuickPlayScreen(game),
     new MatchScreen(game), new PauseScreen(game), new SettingsScreen(game),
     new ControlsScreen(game), new FinalScreen(game), new CreditsScreen(),
-    new TournamentScreen(game), new SeasonScreen(game),
+    new TournamentScreen(game), new SeasonScreen(game), new PracticeScreen(game),
+    new PlayEditorScreen(game),
   ]) game.register(s);
 
   game.go('title');
