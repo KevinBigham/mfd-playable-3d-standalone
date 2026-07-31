@@ -1,83 +1,93 @@
 #!/usr/bin/env tsx
 /**
- * Repeatable visual review set. Drives a deterministic CPU-vs-CPU match and screenshots the
- * moments that matter. `npm run capture`
+ * Repeatable visual review set. `npm run capture`
+ *
+ * Drives the simulation programmatically between shots: this container has no GPU, so waiting
+ * for the real-time loop to reach an interesting moment would take many minutes per frame.
+ * The rendering path is identical either way — only the pacing differs.
  */
 import { startServer, stopServer, launch, probe, screenshot, screenshotDom } from './browser.ts';
+import type { Page } from 'playwright';
 import { mkdirSync } from 'node:fs';
 
 const OUT = 'docs/captures';
 mkdirSync(OUT, { recursive: true });
 
+async function toPhase(page: Page, phase: string, maxTicks = 6000): Promise<string> {
+  return page.evaluate(({ phase, maxTicks }) => {
+    const g = (window as any).GO; const m = g.match;
+    if (!m) return 'NONE';
+    let t = 0;
+    while (t < maxTicks && m.state.phase !== phase) { m.tick(); t++; }
+    return m.state.phase;
+  }, { phase, maxTicks });
+}
+async function advance(page: Page, ticks: number): Promise<void> {
+  await page.evaluate((n) => { const m = (window as any).GO.match; if (m) for (let i = 0; i < n; i++) m.tick(); }, ticks);
+}
+async function startMatch(page: Page, weather: string, seed: number): Promise<void> {
+  await page.evaluate(({ weather, seed }) => {
+    (window as any).GO.reset('match', {
+      config: {
+        seed, quarterSeconds: 120, difficulty: 'ALLSTAR', weather,
+        seats: [{ side: 0, active: false }, { side: 1, active: false },
+          { side: 0, active: false }, { side: 1, active: false }],
+      },
+      returnScreen: 'mainMenu',
+    });
+  }, { weather, seed });
+  await page.waitForTimeout(2600);
+}
+
 async function main(): Promise<void> {
   const url = await startServer(4175);
-  const h = await launch(url, { width: 1600, height: 900 });
+  const h = await launch(url, { width: 1440, height: 810 });
   const { page } = h;
   const shots: string[] = [];
-  const shot = async (name: string, dom = false) => {
-    if (dom) await screenshotDom(page, `${OUT}/${name}.png`);
-    else await screenshot(page, `${OUT}/${name}.png`);
-    shots.push(name);
-    console.log(`  captured ${name}`);
+  const shot = async (n: string, dom = false) => {
+    if (dom) await screenshotDom(page, `${OUT}/${n}.png`);
+    else await screenshot(page, `${OUT}/${n}.png`);
+    shots.push(n);
+    console.log(`  ${n}`);
   };
 
   try {
     await page.waitForTimeout(900);
-    await shot('r01-title', true);
-    await page.evaluate(() => (window as unknown as { GO: any }).GO.reset('mainMenu'));
-    await page.waitForTimeout(500); await shot('r02-main-menu', true);
-    await page.evaluate(() => (window as unknown as { GO: any }).GO.reset('quickPlay'));
-    await page.waitForTimeout(500);
-    await page.keyboard.press('KeyS'); await page.keyboard.press('KeyS');
-    await page.keyboard.press('KeyS'); await page.keyboard.press('KeyS');
+    await shot('01-title', true);
+    for (const [screen, name] of [['mainMenu', '02-main-menu'], ['quickPlay', '03-players'],
+      ['settings', '05-settings'], ['controls', '06-controls'], ['credits', '07-credits'],
+      ['tournament', '08-tournament'], ['season', '09-season'], ['practice', '10-practice'],
+      ['playEditor', '11-play-editor']] as const) {
+      await page.evaluate((s) => (window as any).GO.reset(s), screen);
+      await page.waitForTimeout(700);
+      await shot(name, true);
+    }
+    // Team select is a sub-step of quick play.
+    await page.evaluate(() => (window as any).GO.reset('quickPlay'));
+    await page.waitForTimeout(600);
+    for (let i = 0; i < 4; i++) await page.keyboard.press('KeyS');
     await page.keyboard.press('Space');
-    await page.waitForTimeout(700); await shot('r03-team-select', true);
-    await page.evaluate(() => (window as unknown as { GO: any }).GO.reset('settings'));
-    await page.waitForTimeout(400); await shot('r04-settings', true);
-    await page.evaluate(() => (window as unknown as { GO: any }).GO.reset('controls'));
-    await page.waitForTimeout(400); await shot('r05-controls', true);
+    await page.waitForTimeout(800);
+    await shot('04-team-select', true);
 
-    // Deterministic CPU-vs-CPU match; grab the moments as they happen.
-    for (const [weather, tag] of [['CLEAR', 'clear'], ['RAIN', 'rain'], ['SNOW', 'snow']] as const) {
-      await page.evaluate((w) => {
-        const g = (window as unknown as { GO: any }).GO;
-        g.reset('match', {
-          config: {
-            seed: 909090, quarterSeconds: 120, difficulty: 'ALLSTAR', weather: w,
-            seats: [{ side: 0, active: false }, { side: 1, active: false },
-              { side: 0, active: false }, { side: 1, active: false }],
-          },
-          returnScreen: 'mainMenu',
-        });
-      }, weather);
-      await page.waitForTimeout(2200);
-
-      const want = new Set(['PRE_SNAP', 'LIVE', 'SCORE_RESOLVE']);
-      const got = new Set<string>();
-      const t0 = Date.now();
-      let liveShots = 0;
-      while (Date.now() - t0 < 40000 && (got.size < want.size || liveShots < 4)) {
-        const p = await probe(page);
-        if (p.phase === 'PRE_SNAP' && !got.has('PRE_SNAP')) { got.add('PRE_SNAP'); await shot(`r10-${tag}-presnap`); }
-        else if (p.phase === 'SCORE_RESOLVE' && !got.has('SCORE_RESOLVE')) { got.add('SCORE_RESOLVE'); await shot(`r13-${tag}-touchdown`); }
-        else if (p.phase === 'LIVE') {
-          got.add('LIVE');
-          if (liveShots < 4) { await shot(`r1${2 + liveShots}-${tag}-live-${liveShots}`); liveShots++; }
-        }
-        await page.waitForTimeout(320);
-      }
+    for (const [weather, tag, seed] of [['CLEAR', 'clear', 909090], ['RAIN', 'rain', 4242], ['SNOW', 'snow', 777]] as const) {
+      await startMatch(page, weather, seed);
+      await toPhase(page, 'KICKOFF_LIVE');
+      await advance(page, 60); await page.waitForTimeout(600); await shot(`20-${tag}-kickoff`);
+      await toPhase(page, 'PRE_SNAP');
+      await page.waitForTimeout(700); await shot(`21-${tag}-presnap`, true);
+      await toPhase(page, 'LIVE');
+      for (let i = 0; i < 3; i++) { await advance(page, 20); await page.waitForTimeout(550); await shot(`22-${tag}-live-${i}`); }
+      // Run forward to a score and grab the celebration.
+      await toPhase(page, 'SCORE_RESOLVE', 12000);
+      await page.waitForTimeout(600); await shot(`23-${tag}-score`, true);
       if (tag === 'clear') {
-        // Let it run to a final and capture the stats screen.
-        const t1 = Date.now();
-        while (Date.now() - t1 < 200000) {
-          const p = await probe(page);
-          if (p.screen === 'final' || p.phase === 'FINAL') break;
-          await page.waitForTimeout(500);
-        }
-        await page.waitForTimeout(2500);
-        await shot('r20-final-stats', true);
+        await page.evaluate(() => { const m = (window as any).GO.match; let t = 0; while (m && !m.state.finished && t < 60 * 60 * 25) { m.tick(); t++; } });
+        await page.waitForTimeout(3200);
+        await shot('30-final-stats', true);
       }
     }
+    console.log('console errors:', JSON.stringify(h.errors.slice(0, 4)));
   } finally {
     await h.close();
     stopServer();

@@ -20,17 +20,22 @@ function check(name, pass, detail = '') { results.push({name, pass, detail}); co
 try {
   await waitUp();
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader','--enable-unsafe-swiftshader','--no-sandbox'] });
+
+  // Warm vite's dependency optimiser on a throwaway page: a cold load forces a
+  // full reload halfway through, which destroys the execution context mid-test.
+  const warm = await browser.newPage();
+  await warm.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await warm.waitForFunction(() => !!window.GO, null, { timeout: 120000 });
+  await warm.waitForTimeout(4000);
+  await warm.close();
+
   const page = await browser.newPage({ viewport: { width: 1600, height: 950 } });
   const errors = [];
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
-  await page.goto(url, { waitUntil: 'networkidle', timeout: 120000 });
-  await page.waitForFunction(() => !!window.GO, null, { timeout: 90000 });
-  await page.waitForTimeout(600);
-  // Vite's dependency optimiser can force one full reload; get past it before driving anything.
-  await page.reload({ waitUntil: 'networkidle', timeout: 120000 });
-  await page.waitForFunction(() => !!window.GO, null, { timeout: 90000 });
-  await page.waitForTimeout(2500);
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await page.waitForFunction(() => !!window.GO, null, { timeout: 120000 });
+  await page.waitForTimeout(2000);
 
   // ── play editor ──
   await page.evaluate(() => window.GO.go('playEditor'));

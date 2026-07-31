@@ -77,7 +77,9 @@ export async function launch(url: string, opts: { width?: number; height?: numbe
   });
   page.on('pageerror', (e: Error) => errors.push(`pageerror: ${e.message}`));
   await page.goto(url, { waitUntil: 'load', timeout: 60000 });
-  await page.waitForFunction(() => (window as unknown as { GO?: unknown }).GO !== undefined, { timeout: 120000 });
+  // NOTE: waitForFunction's second parameter is the ARG, not the options — passing options
+  // there silently falls back to the 30 s default, which this container cannot always meet.
+  await page.waitForFunction(() => (window as unknown as { GO?: unknown }).GO !== undefined, undefined, { timeout: 150000 });
   return {
     browser, page, errors, warnings,
     async close() { await browser.close(); },
@@ -116,10 +118,19 @@ export async function screenshot(page: Page, path: string): Promise<void> {
   } catch { /* ignore */ }
 }
 
-/** Full-page screenshot including the DOM interface. Only safe when the game loop is idle. */
+/**
+ * Full-page screenshot including the DOM interface. Playwright waits for a stable frame, which
+ * a running rAF loop never produces — so stop the loop, shoot, and start it again.
+ */
 export async function screenshotDom(page: Page, path: string): Promise<void> {
-  try { await page.screenshot({ path, type: 'png', timeout: 8000, animations: 'disabled' }); }
+  await page.evaluate(() => {
+    const g = (window as any).GO;
+    if (g) { try { g.renderer.render(); } catch { /* menu frame */ } g.stop(); }
+  });
+  await page.waitForTimeout(200);
+  try { await page.screenshot({ path, type: 'png', timeout: 20000 }); }
   catch { await screenshot(page, path); }
+  await page.evaluate(() => { const g = (window as any).GO; if (g) g.start(); });
 }
 
 /** Drive the game from the title screen into a live human-vs-CPU match. */
