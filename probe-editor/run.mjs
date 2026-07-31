@@ -24,13 +24,13 @@ try {
   const errors = [];
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
-  await page.goto(url, { waitUntil: 'networkidle' });
+  await page.goto(url, { waitUntil: 'networkidle', timeout: 120000 });
   await page.waitForFunction(() => !!window.GO, null, { timeout: 90000 });
   await page.waitForTimeout(600);
   // Vite's dependency optimiser can force one full reload; get past it before driving anything.
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'networkidle', timeout: 120000 });
   await page.waitForFunction(() => !!window.GO, null, { timeout: 90000 });
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(2500);
 
   // ── play editor ──
   await page.evaluate(() => window.GO.go('playEditor'));
@@ -131,7 +131,6 @@ try {
   });
   check('every assignment kind renders a readable label', kinds.length >= 6 && !kinds.join('|').includes('BLITZ'), kinds.join(','));
 
-  await page.screenshot({ path: '/tmp/editor.png' });
 
   // ── practice ──
   await page.evaluate(() => window.GO.reset('practice'));
@@ -190,7 +189,6 @@ try {
   const ran = await page.evaluate(() => ({ tick: window.GO.match.world.tick, phase: window.GO.match.state.phase, finished: window.GO.match.state.finished }));
   check('the drill keeps running plays without stalling', ran.tick > 200 && !ran.finished, JSON.stringify(ran));
 
-  await page.screenshot({ path: '/tmp/practice.png' });
 
   // EXIT the drill with HIDE_PLAY (H).
   await page.evaluate(async () => {
@@ -242,9 +240,9 @@ try {
   });
   await page.waitForTimeout(600);
   // Vite's dependency optimiser can force one full reload; get past it before driving anything.
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'networkidle', timeout: 120000 });
   await page.waitForFunction(() => !!window.GO, null, { timeout: 90000 });
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(2500);
   check('EXIT returns to the play editor', await page.evaluate(() => window.GO.currentScreen === 'playEditor'));
   check('unsaved edits survive the round trip',
     await page.evaluate((n) => document.querySelector('#ui-root input')?.value === n, nameBefore), nameBefore);

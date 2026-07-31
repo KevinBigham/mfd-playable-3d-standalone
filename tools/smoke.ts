@@ -70,27 +70,41 @@ async function main(): Promise<void> {
     });
     check('settings persist to local storage', persisted === 0.42, `cameraShake=${persisted}`);
 
-    // Start a real match
+    // Start a real match at the lowest preset — the container is software-rendered.
+    await page.evaluate(() => { const g = (window as any).GO; g.settings.quality = 'LOW'; g.applySettings(); });
     await enterQuickMatch(page, { quarterSeconds: 60 });
     p = await probe(page);
     check('human-vs-CPU match starts', p.phase !== 'NONE', `phase=${p.phase}`);
 
-    // Exercise the real input path through the render loop for a few seconds first: this is
-    // what proves keyboard -> intent -> sim actually works in the browser.
-    const seenPhases = new Set<string>();
-    let sawLive = false; let sawSnap = false;
-    const t0 = Date.now();
-    while (Date.now() - t0 < 30000) {
-      const s = await probe(page);
-      seenPhases.add(s.phase);
-      if (s.phase === 'LIVE') sawLive = true;
-      if (s.phase === 'PRE_SNAP' || s.phase === 'KICKOFF_LIVE') sawSnap = true;
-      await page.keyboard.down('Space'); await page.waitForTimeout(70); await page.keyboard.up('Space');
-      await page.keyboard.down('KeyW'); await page.keyboard.down('ShiftLeft');
-      await page.waitForTimeout(220);
-      await page.keyboard.down('KeyI'); await page.waitForTimeout(50); await page.keyboard.up('KeyI');
-      await page.keyboard.up('KeyW'); await page.keyboard.up('ShiftLeft');
-    }
+    // Prove the input path directly rather than by watching the clock: this container has no
+    // GPU, so the render loop runs at a fraction of a frame per second and real-time play would
+    // take many minutes to leave the opening kickoff.
+    await page.keyboard.down('KeyW');
+    await page.keyboard.down('ShiftLeft');
+    await page.keyboard.down('KeyI');
+    await page.waitForTimeout(600);
+    const intent = await page.evaluate(() => {
+      const g = (window as any).GO;
+      g.input.poll();
+      const it = g.input.intentFor(0);
+      return it ? { moveZ: it.moveZ, held: it.held } : null;
+    });
+    await page.keyboard.up('KeyW');
+    await page.keyboard.up('ShiftLeft');
+    await page.keyboard.up('KeyI');
+    // TURBO = bit 0, TARGET_M = bit 4.
+    check('keyboard reaches the input layer as actions',
+      !!intent && intent.moveZ > 0.9 && (intent.held & 1) !== 0 && (intent.held & (1 << 4)) !== 0,
+      JSON.stringify(intent));
+    const bound = await page.evaluate(() => {
+      const g = (window as any).GO;
+      const m = g.match;
+      if (!m) return -1;
+      for (let i = 0; i < 200 && !m.world.athletes.some((a: any) => a.controlledBySeat === 0); i++) m.tick();
+      const a = m.world.athletes.find((x: any) => x.controlledBySeat === 0);
+      return a ? a.id : -1;
+    });
+    check('seat 1 is bound to an athlete on the field', bound >= 0, `athlete=${bound}`);
     // Then drive the match to a final result. This container falls back to software
     // rasterisation, so real-time play would take many minutes of wall clock; the simulation
     // is the same code either way.
@@ -107,11 +121,6 @@ async function main(): Promise<void> {
       `${finished.home}-${finished.away} in ${finished.ticks} ticks, watchdogs=${finished.watchdogs}`);
     await page.waitForTimeout(3000);
     const end = await probe(page);
-    // Software rasterisation in this container runs the render loop at a few frames a second,
-    // so real-time play only reaches the opening kickoff inside the input window. What this
-    // check proves is that keyboard input drives the match at all.
-    check('keyboard input drives the live match', sawLive || sawSnap || seenPhases.size > 1,
-      `phases=${[...seenPhases].join(',')}`);
     check('match reaches the final screen', end.phase === 'FINAL' || end.screen === 'final',
       `phase=${end.phase} screen=${end.screen} score=${end.home}-${end.away}`);
     check('final score is sane', finished.home >= 0 && finished.away >= 0 && finished.home + finished.away < 200,

@@ -36,7 +36,9 @@ export async function startServer(port = 4173): Promise<string> {
     return process.env.GO_SERVER;
   }
   const url = `http://127.0.0.1:${port}/`;
-  server = spawn('./node_modules/.bin/vite', ['preview', '--port', String(port), '--strictPort'], {
+  // A plain static server over dist/ is all this needs, and it is far more robust in a
+  // sandbox than spawning a dev server. `base: './'` in vite.config makes dist/ self-contained.
+  server = spawn('python3', ['-m', 'http.server', String(port), '--bind', '127.0.0.1', '--directory', 'dist'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
     env: { ...process.env },

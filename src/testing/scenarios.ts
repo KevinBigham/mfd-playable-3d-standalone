@@ -3,7 +3,7 @@ import { Match, defaultMatchConfig } from '../rules/match.ts';
 import { getTeam, TEAM_IDS } from '../data/index.ts';
 import { giveBall, dropLoose, killBall } from '../sim/ball.ts';
 import { OFF_START, DEF_START, carrier } from '../sim/world.ts';
-import { computeFirstDown, dirOf, goalOf, noteCatch } from '../rules/rulesEngine.ts';
+import { computeFirstDown, dirOf, goalOf, noteCatch, breakStreaks } from '../rules/rulesEngine.ts';
 import { s } from '../core/constants.ts';
 
 export interface ScenarioResult { name: string; pass: boolean; detail: string; ticks: number }
@@ -209,8 +209,17 @@ export const SCENARIOS: Scenario[] = [
     m.submitOffense(null, 'PUNT');
     m.submitDefense(m.defensePlays[0]);
     runUntil(m, (x) => countEvent(x, 'punt') > before, s(60));
-    runUntil(m, (x) => x.phase === 'PLAY_CALL' || x.phase === 'SCORE_RESOLVE', s(120));
-    return { pass: countEvent(m, 'punt') === before + 1 && m.state.possession === 1, detail: `punts=+${countEvent(m, 'punt') - before} poss=${m.state.possession} los=${m.state.losZ.toFixed(1)}` };
+    // A punt is a hang time plus a full return — give it the same room the sim does.
+    runUntil(m, (x) => x.phase === 'PLAY_CALL' || x.phase === 'SCORE_RESOLVE', s(600));
+    const last = (m.bus.log ?? []).filter((e) => e.type === 'play.end').pop() as { reason?: string } | undefined;
+    // A punt legitimately ends either with the receiving team taking over, or with the
+    // receiving team taking it back to the house.
+    const flipped = m.state.possession === 1;
+    const returnedForSix = last?.reason === 'TOUCHDOWN' && m.state.teams[1].score > 0;
+    return {
+      pass: countEvent(m, 'punt') === before + 1 && (flipped || returnedForSix),
+      detail: `punts=+${countEvent(m, 'punt') - before} poss=${m.state.possession} reason=${last?.reason ?? '?'} away=${m.state.teams[1].score}`,
+    };
   }),
 
   scenario('quarter expiry advances the quarter', (m) => {
@@ -268,13 +277,25 @@ export const SCENARIOS: Scenario[] = [
     return { pass: !mid && res.started && t.overdrive, detail: `after2=${mid} started=${res.started} overdrive=${t.overdrive}` };
   }),
 
-  scenario('overdrive resets when the streak breaks', (m) => {
+  scenario('a different receiver resets the same-receiver chain', (m) => {
     const t = m.state.teams[0];
-    t.catchStreak = 0; t.catchStreakReceiver = -1; t.overdrive = false;
+    t.catchStreak = 0; t.catchStreakReceiver = -1; t.teamCatchStreak = 0; t.overdrive = false;
     noteCatch(m.state, 0 as TeamSide, 3);
-    noteCatch(m.state, 0 as TeamSide, 4);   // different receiver resets the chain
-    const started = noteCatch(m.state, 0 as TeamSide, 4).started;
-    return { pass: !started && !t.overdrive && t.catchStreak === 2, detail: `streak=${t.catchStreak} overdrive=${t.overdrive}` };
+    noteCatch(m.state, 0 as TeamSide, 4);   // different receiver restarts the personal chain
+    const personalReset = t.catchStreak === 1 && t.catchStreakReceiver === 4;
+    return { pass: personalReset && !t.overdrive && t.teamCatchStreak === 2,
+      detail: `personal=${t.catchStreak} team=${t.teamCatchStreak} overdrive=${t.overdrive}` };
+  }),
+
+  scenario('an incompletion wipes both overdrive chains', (m) => {
+    const t = m.state.teams[0];
+    t.catchStreak = 0; t.catchStreakReceiver = -1; t.teamCatchStreak = 0; t.overdrive = false;
+    noteCatch(m.state, 0 as TeamSide, 3);
+    noteCatch(m.state, 0 as TeamSide, 4);
+    breakStreaks(m.state, 0 as TeamSide);
+    const started = noteCatch(m.state, 0 as TeamSide, 5).started;
+    return { pass: !started && t.catchStreak === 1 && t.teamCatchStreak === 1,
+      detail: `personal=${t.catchStreak} team=${t.teamCatchStreak}` };
   }),
 
   scenario('ball never has two owners', (m) => {

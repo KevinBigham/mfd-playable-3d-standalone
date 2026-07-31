@@ -52,7 +52,9 @@ export function updateBlocking(w: World): void {
     if (bl.move === 'DOWN' || bl.move === 'GETUP') { releaseEngagement(w, bl); continue; }
 
     let target = bl.engagedWith >= 0 ? w.athletes[bl.engagedWith] : null;
-    if (target && (dist(bl.x, bl.z, target.x, target.z) > BLOCK_RADIUS * 2.1 || target.move === 'DOWN')) {
+    // Hysteresis: the release radius must be wider than the engage radius or blockers
+    // thrash between engaged and free every tick.
+    if (target && (dist(bl.x, bl.z, target.x, target.z) > BLOCK_RADIUS * 3.4 || target.move === 'DOWN')) {
       releaseEngagement(w, bl); target = null;
     }
     if (!target) {
