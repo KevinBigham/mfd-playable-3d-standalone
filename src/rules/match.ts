@@ -154,7 +154,7 @@ export class Match {
       if (onOffense) {
         const car = carrier(w);
         const primary = car && car.side === side ? car.id : w.athletes[OFF_START].id;
-        w.athletes[primary].controlledBySeat = seats[0];
+        w.athletes[primary].controlledBySeat = seats[0] as 0 | 1 | 2 | 3;
         if (seats.length > 1) {
           // Teammate drives a skill player who is not the carrier.
           let pick = -1;
@@ -166,7 +166,7 @@ export class Match {
             pick = cand.id;
             if (cand.targetButton === 2) break;
           }
-          if (pick >= 0) w.athletes[pick].controlledBySeat = seats[1];
+          if (pick >= 0) w.athletes[pick].controlledBySeat = seats[1] as 0 | 1 | 2 | 3;
         }
       } else {
         const used = new Set<number>();
@@ -177,7 +177,7 @@ export class Match {
             id = this.pickDefender(side, used);
             this.seatDefender[seat] = id;
           }
-          if (id >= 0) { used.add(id); w.athletes[id].controlledBySeat = seat; }
+          if (id >= 0) { used.add(id); w.athletes[id].controlledBySeat = seat as 0 | 1 | 2 | 3; }
         }
       }
     }

@@ -5,7 +5,9 @@
   "type": "module",
   "description": "GRIDIRON OVERDRIVE — an original 7-on-7 arcade football game for the browser.",
   "license": "MIT",
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.build.json && vite build",
@@ -26,6 +28,7 @@
     "three": "^0.169.0"
   },
   "devDependencies": {
+    "@types/node": "^26.1.2",
     "@types/three": "^0.169.0",
     "playwright": "^1.48.0",
     "tsx": "^4.19.0",

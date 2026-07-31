@@ -78,6 +78,8 @@ export class Game {
       root: this.uiRoot,
       input: this.input,
       go: (n, p) => this.go(n, p),
+      replace: (n, p) => this.replace(n, p),
+      reset: (n, p) => this.reset(n, p),
       back: () => this.back(),
       sound: (k) => {
         if (k === 'move') this.audio.sfx.menuMove();
@@ -154,7 +156,7 @@ export class Game {
     const away = getTeam(config.away);
     const stadium = getStadium(config.stadium || home.stadium);
     const seatIntent = (seat: number): PlayerIntent | null => this.input.intentFor(seat);
-    const m = new Match({ config, home, away, seatIntent, customPlays: undefined });
+    const m = new Match({ config, home, away, seatIntent, customOffense: undefined });
     this.match = m;
     this.matchTeams = [home, away];
     this.matchStadium = stadium;
@@ -237,6 +239,8 @@ export class Game {
     this.current?.update?.(dt);
     this.input.clearEdges();
   }
+
+  perfReset(): void { this.frameTimes.length = 0; }
 
   perf(): PerfSample {
     const a = [...this.frameTimes].sort((x, y) => x - y);

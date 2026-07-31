@@ -155,7 +155,7 @@ export class PlaySelect {
       let label = '';
       if (showSpecial && i === SPECIAL_SLOT - 1 && p.page === 2) { play = null; label = 'PUNT'; }
       if (play) {
-        cell.innerHTML = playDiagramSvg(play, { mirrored: p.mirrored });
+        cell.innerHTML = playDiagramSvg(play);
         label = play.name;
       } else if (!label) {
         label = '—';

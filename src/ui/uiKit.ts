@@ -103,6 +103,10 @@ export interface ScreenContext {
   root: HTMLElement;
   input: InputManager;
   go(name: string, params?: unknown): void;
+  /** Replace the current screen (does not grow the stack). */
+  replace(name: string, params?: unknown): void;
+  /** Clear the stack and start fresh at `name`. */
+  reset(name: string, params?: unknown): void;
   back(): void;
   sound(kind: 'move' | 'select' | 'back' | 'error'): void;
 }

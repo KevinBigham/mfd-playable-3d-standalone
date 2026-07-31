@@ -335,8 +335,9 @@ export class AudioEngine {
     if (!strip) return null;
 
     const budgeted = opts?.budget !== false;
-    if (budgeted && this.budgetCount >= MAX_VOICES) this.stealOldest(true);
-    if (this.live.length >= HARD_VOICE_CAP) this.stealOldest(false);
+    if (budgeted && this.budgetCount >= MAX_VOICES) this.stealOldest(true, false);
+    // The hard cap is a safety valve, so it may take a shielded voice.
+    if (this.live.length >= HARD_VOICE_CAP) this.stealOldest(false, true);
 
     const v = this.pool.pop() ?? new Voice(ac);
     const now = ac.currentTime;
@@ -369,12 +370,12 @@ export class AudioEngine {
     return v;
   }
 
-  private stealOldest(budgetedOnly: boolean): void {
+  private stealOldest(budgetedOnly: boolean, ignoreShield: boolean): void {
     let idx = -1;
     let oldest = Infinity;
     for (let i = 0; i < this.live.length; i++) {
       const v = this.live[i];
-      if (v.shielded) continue;
+      if (v.shielded && !ignoreShield) continue;
       if (budgetedOnly && !v.budgeted) continue;
       if (v.startedAt < oldest) { oldest = v.startedAt; idx = i; }
     }
