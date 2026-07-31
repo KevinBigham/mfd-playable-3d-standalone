@@ -10,7 +10,7 @@
 
 import type { StadiumDef } from '../core/types.ts';
 
-export const STADIUMS: readonly StadiumDef[] = [
+export const STADIUMS: StadiumDef[] = [
   // ── Foundry Conference homes ─────────────────────────────────────────────
   {
     id: 'forgeworks-yard',

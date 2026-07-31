@@ -6,11 +6,12 @@ import type { World } from '../sim/world.ts';
 import { OFF_START, DEF_START, dirOf, goalOf, carrier } from '../sim/world.ts';
 import { routeSteer } from '../sim/playRunner.ts';
 import { baseSpeed, turboSpeed } from '../sim/movement.ts';
-import { ballLead } from '../sim/catching.ts';
+import { ballLead, ballArrival } from '../sim/catching.ts';
 import type { AiProfile } from './difficulty.ts';
 
 const steer = { x: 0, z: 0, turbo: false };
 const leadPt = { x: 0, z: 0 };
+const arrival = { x: 0, z: 0, eta: 0 };
 
 export interface AiContext {
   profile: AiProfile;
@@ -33,6 +34,15 @@ export class AiController {
     if (onOffense) { offenseAI(w, a, out, this.ctx); return; }
     defenseAI(w, a, out, this.ctx);
   }
+}
+
+/** Simple steering helper: head toward a world point at the given urgency. */
+function driveTo(a: Athlete, tx: number, tz: number, out: PlayerIntent, urgency: number): void {
+  const dx = tx - a.x, dz = tz - a.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 0.2) { out.moveX = 0; out.moveZ = 0; return; }
+  out.moveX = (dx / d) * urgency;
+  out.moveZ = (dz / d) * urgency;
 }
 
 function presnap(w: World, a: Athlete, out: PlayerIntent): void {
@@ -58,23 +68,29 @@ function offenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
   const dir = dirOf(a.side);
 
   if (a.role === 'LINE') {
-    // Pick up the nearest threat to the QB and stay between it and the passer.
-    const qb = w.athletes[w.qbId];
+    // Protect whoever has the ball: the passer in the pocket, the runner downfield.
+    const car = carrier(w);
+    const protectee = car && car.side === a.side ? car : w.athletes[w.qbId];
+    const runBlocking = !!car && car.id !== w.qbId;
     let threat: Athlete | null = null; let best = 1e9;
     for (let i = 0; i < 7; i++) {
       const d = w.athletes[DEF_START + i];
       if (d.move === 'DOWN') continue;
       if (d.blockedBy >= 0 && d.blockedBy !== a.id) continue;
-      const score = dist(d.x, d.z, qb.x, qb.z) + dist(d.x, d.z, a.x, a.z) * 0.6;
+      const toCarrier = dist(d.x, d.z, protectee.x, protectee.z);
+      const toMe = dist(d.x, d.z, a.x, a.z);
+      const score = toCarrier * (runBlocking ? 1.0 : 1.25) + toMe * 0.7;
       if (score < best) { best = score; threat = d; }
     }
-    const anchorX = a.homeX, anchorZ = a.homeZ + dir * 0.6;
-    let tx = anchorX, tz = anchorZ;
     if (threat) {
-      tx = threat.x * 0.72 + qb.x * 0.28;
-      tz = threat.z * 0.72 + qb.z * 0.28;
+      // Sit on the ball-carrier side of the defender so he has to go through the block.
+      const mix = runBlocking ? 0.55 : 0.72;
+      driveTo(a, threat.x * mix + protectee.x * (1 - mix), threat.z * mix + protectee.z * (1 - mix), out, 1);
+      if (runBlocking) out.held |= Action.TURBO;
+    } else {
+      driveTo(a, protectee.x, protectee.z + dir * 2.5, out, 0.9);
+      if (runBlocking) out.held |= Action.TURBO;
     }
-    driveTo(a, tx, tz, out, 1);
     return;
   }
 
@@ -87,15 +103,16 @@ function offenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
   const st = w.ball.state;
   if (st.kind === 'inAir' && st.passKind !== 'LATERAL') {
     if (a.reactionQueue > 0) { a.reactionQueue--; }
-    else {
-      ballLead(w, 0.12, leadPt);
-      const d = dist(a.x, a.z, leadPt.x, leadPt.z);
-      if (d < 16) {
-        out.moveX = (leadPt.x - a.x) / Math.max(0.001, d);
-        out.moveZ = (leadPt.z - a.z) / Math.max(0.001, d);
+    else if (ballArrival(w, arrival)) {
+      const d = dist(a.x, a.z, arrival.x, arrival.z);
+      if (d < 26) {
+        out.moveX = (arrival.x - a.x) / Math.max(0.001, d);
+        out.moveZ = (arrival.z - a.z) / Math.max(0.001, d);
         out.held |= Action.TURBO;
-        if (d < 2.6 && w.ball.y > 2.0 && w.rng.chance(0.35)) out.held |= Action.JUMP;
-        else if (d < 2.2 && w.ball.y < 1.1 && w.rng.chance(0.25 * ctx.profile.catchFocus)) out.held |= Action.DIVE;
+        if (arrival.eta < 0.34 && d < 3.0) {
+          if (w.ball.y > 2.1 && w.rng.chance(0.4)) out.held |= Action.JUMP;
+          else if (d > 1.4 && w.rng.chance(0.35 * ctx.profile.catchFocus)) out.held |= Action.DIVE;
+        }
       }
     }
   } else if (w.ball.state.kind === 'loose') {
@@ -119,7 +136,14 @@ function offenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
 
 function carrierAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
   const dir = dirOf(a.side);
-  const isQb = a.id === w.qbId && !w.passThrown && (a.z - w.losZ) * dir < 1.0 && w.special === null;
+  // Waiting to hand off: ride the mesh point, do not start reading routes.
+  if (a.id === w.qbId && w.handoffTarget >= 0 && !w.handedOff && w.special === null) {
+    const back = w.athletes[w.handoffTarget];
+    driveTo(a, back.x, back.z, out, 0.55);
+    return;
+  }
+  const isQb = a.id === w.qbId && !w.passThrown && !w.handedOff
+    && (a.z - w.losZ) * dir < 1.0 && w.special === null;
   if (isQb) { quarterbackAI(w, a, out, ctx); return; }
   runToDaylight(w, a, out, ctx);
 }
@@ -147,11 +171,14 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
   // Evaluate reads once the timing landmark passes.
   const primaryTick = play ? play.timing.primary : s(1.0);
   const secondaryTick = play ? play.timing.secondary : s(1.8);
-  const readyTick = Math.max(s(0.45), primaryTick - p.reactionTicks);
+  const readyTick = Math.max(s(0.35), primaryTick - p.reactionTicks);
 
   if (t > readyTick) {
     const cand = bestReceiver(w, a, t >= secondaryTick ? 2 : 1, p);
-    if (cand.id >= 0 && cand.open > (pressure < 3.2 ? 1.5 : 2.6) - p.riskTolerance * 1.1) {
+    // Under pressure or late in the down, take what is there.
+    const desperation = clamp01((t - secondaryTick) / s(1.4)) * 1.6 + (pressure < 3.4 ? 0.9 : 0);
+    const need = 2.1 - p.riskTolerance * 0.9 - desperation;
+    if (cand.id >= 0 && cand.open > need) {
       out.held |= Action.ACTION;
       // Choose the matching target button so latency matches a human's.
       const idx = w.passTargets.indexOf(cand.id);
@@ -165,12 +192,12 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
   }
 
   // Sack avoidance / scramble.
-  if (pressure < 2.6) {
+  if (pressure < 3.0) {
     const away = a.x - pressureX;
-    out.moveX = clamp(away * 0.6, -1, 1);
-    out.moveZ = dir * 0.25;
+    out.moveX = clamp(away * 0.75, -1, 1);
+    out.moveZ = dir * 0.3;
     out.held |= Action.TURBO;
-    if (t > s(2.6) && w.rng.chance(0.03)) out.held |= Action.ACTION; // throw it away-ish
+    if (t > s(3.2) && w.rng.chance(0.05)) out.held |= Action.ACTION; // throw it away
     return;
   }
 
@@ -219,10 +246,11 @@ function bestReceiver(w: World, qb: Athlete, depth: number, p: AiProfile): ReadR
       const d = w.athletes[DEF_START + i];
       if (d.move === 'DOWN') continue;
       nearest = Math.min(nearest, dist(r.x, r.z, d.x, d.z));
-      // Defender sitting in the throwing lane.
+      // Defender sitting in the throwing lane — only counts once the ball has cleared
+      // the rush, otherwise every pass rusher would veto every throw.
       const t = clamp01(((d.x - qb.x) * (r.x - qb.x) + (d.z - qb.z) * (r.z - qb.z)) / Math.max(1, range * range));
       const lx = qb.x + (r.x - qb.x) * t, lz = qb.z + (r.z - qb.z) * t;
-      if (dist(d.x, d.z, lx, lz) < 2.2 && t > 0.15 && t < 0.9) inLane += 1.6;
+      if (dist(d.x, d.z, lx, lz) < 2.0 && t > 0.32 && t < 0.9 && dist(d.x, d.z, qb.x, qb.z) > 5) inLane += 1.3;
     }
     const noise = w.rng.spread(p.decisionNoise * 2.2);
     const open = nearest - inLane + noise + clamp(dz, -4, 26) * 0.035;
@@ -247,7 +275,9 @@ function bestLane(w: World, a: Athlete, dir: number): { x: number; z: number } {
       nearest = Math.min(nearest, dist(px, pz, d.x, d.z));
     }
     const progress = (pz - a.z) * dir;
-    const score = nearest * 1.4 + progress * 1.1 - Math.abs(px) * 0.03;
+    // Forward progress is the point; open space only matters if it is downhill.
+    const score = nearest * 1.15 + progress * 2.0 - Math.abs(px) * 0.05
+      + (progress < 0 ? progress * 2.5 : 0);
     if (score > bestScore) { bestScore = score; bestX = hx; bestZ = hz; }
   }
   return { x: bestX, z: bestZ };
@@ -257,6 +287,15 @@ function runToDaylight(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
   const dir = dirOf(a.side);
   const lane = bestLane(w, a, dir);
   out.moveX = lane.x; out.moveZ = lane.z;
+  // Early in a designed run, honour the called hole before improvising.
+  if (a.route && a.routeIdx < a.route.length && w.playTicks < s(1.1) && w.handedOff) {
+    routeSteer(w, a, steer);
+    const m = Math.hypot(steer.x, steer.z);
+    if (m > 0.05) {
+      out.moveX = out.moveX * 0.4 + steer.x * 0.6;
+      out.moveZ = out.moveZ * 0.4 + steer.z * 0.6;
+    }
+  }
   out.held |= Action.TURBO;
 
   // Nearest threat → decide on a move.
@@ -300,13 +339,12 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
   // Ball in the air — converge after a believable recognition delay.
   if (st.kind === 'inAir' && st.passKind !== 'LATERAL') {
     if (a.reactionQueue > 0) { a.reactionQueue--; }
-    else {
-      ballLead(w, 0.14, leadPt);
-      const d = dist(a.x, a.z, leadPt.x, leadPt.z);
-      if (d < 20) {
-        pursue(w, a, leadPt.x, leadPt.z, out, ctx, 1);
-        if (d < 2.8 && w.rng.chance(0.25 + p.catchFocus * 0.35)) {
-          out.held |= (w.ball.y > 2.0 ? Action.JUMP : Action.JUMP);
+    else if (ballArrival(w, arrival)) {
+      const d = dist(a.x, a.z, arrival.x, arrival.z);
+      if (d < 22) {
+        pursue(w, a, arrival.x, arrival.z, out, ctx, 1);
+        if (arrival.eta < 0.3 && d < 3.0 && w.rng.chance(0.3 + p.catchFocus * 0.4)) {
+          out.held |= Action.JUMP;
         }
         return;
       }
@@ -323,11 +361,23 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
     }
   }
 
-  // Live carrier: pursue, unless still in coverage discipline window.
+  // Live carrier: pursue, unless still inside the coverage-discipline window.
   if (car && car.side === offSide) {
-    const pastLos = (car.z - w.losZ) * dir > 1.2 || w.handedOff || w.passThrown;
-    const isQbScramble = car.id === w.qbId && !w.passThrown;
-    if (pastLos || isQbScramble || a.assign?.kind === 'RUSH' || a.assign?.kind === 'CONTAIN' || a.assign?.kind === 'SPY') {
+    // Coverage needs a beat to diagnose a run — that beat is the running lane.
+    if (a.reactionQueue > 0 && a.assign?.kind !== 'RUSH' && a.assign?.kind !== 'CONTAIN'
+        && a.assign?.kind !== 'SPY' && a.assign?.kind !== 'BLITZ_DELAY') {
+      a.reactionQueue--;
+    }
+    const recognised = a.reactionQueue <= 0;
+    const carrierIsRunner = (car.id !== w.qbId || w.handedOff) && recognised;
+    const brokeContainment = (car.z - w.losZ) * dir > 1.2 && recognised;
+    // A QB who is still in the pocket is the rushers' problem, not the coverage's.
+    const scrambleRecognised = car.id === w.qbId && !w.passThrown
+      && (brokeContainment || w.playTicks > s(2.6));
+    const pursueNow = carrierIsRunner || brokeContainment || w.passThrown || scrambleRecognised
+      || a.assign?.kind === 'RUSH' || a.assign?.kind === 'BLITZ_DELAY'
+      || a.assign?.kind === 'CONTAIN' || a.assign?.kind === 'SPY';
+    if (pursueNow) {
       pursueCarrier(w, a, car, out, ctx);
       return;
     }
@@ -360,12 +410,16 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
       break;
     }
     case 'MAN': {
-      const r = w.athletes[OFF_START + assign.slot];
+      // assign.slot is a pass-target index (0 = leftmost eligible), not a roster index.
+      const id = w.passTargets[assign.slot] ?? -1;
+      const r = id >= 0 ? w.athletes[id] : null;
       if (!r) { holdZone(w, a, a.homeX, a.homeZ, out, ctx); break; }
       const disc = p.coverageDiscipline;
-      const lead = 0.14 + (1 - disc) * 0.10;
-      const tx = r.x + r.vx * lead + w.rng.spread((1 - disc) * 1.4);
-      const tz = r.z + r.vz * lead + dir * 1.4;
+      // Defenders LAG the receiver — that lag is where separation on a break comes from.
+      const lag = (1 - disc) * 0.34;
+      const cushion = 0.9 + (1 - disc) * 2.4;
+      const tx = r.x - r.vx * lag + w.rng.spread((1 - disc) * 1.6);
+      const tz = r.z - r.vz * lag + dir * cushion;
       pursue(w, a, tx, tz, out, ctx, 1);
       if (dist(a.x, a.z, r.x, r.z) < 1.5 && w.playTicks < s(1.0) && w.rng.chance(0.02)) {
         out.held |= Action.TURBO | Action.SPECIAL; // jam
@@ -384,8 +438,10 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
         if (d < bestD) { bestD = d; threat = r; }
       }
       if (threat) {
-        const disc = p.coverageDiscipline;
-        pursue(w, a, lerp(cx, threat.x, disc), lerp(cz, threat.z + dir * 1.2, disc), out, ctx, 1);
+        // Zone defenders drive on the threat but stay anchored to the landmark until
+        // the ball is actually in the air.
+        const drive = w.ball.state.kind === 'inAir' ? 0.95 : p.coverageDiscipline * 0.6;
+        pursue(w, a, lerp(cx, threat.x, drive), lerp(cz, threat.z + dir * 1.4, drive), out, ctx, 1);
       } else {
         holdZone(w, a, cx, cz, out, ctx);
       }

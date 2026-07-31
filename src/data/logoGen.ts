@@ -62,14 +62,14 @@ function emChevron(p: Pal): string {
 
 function emRaptor(p: Pal): string {
   return [
-    // Head in profile: domed crown, hooked beak, pointed jaw.
-    `<path d="M28 72 C30 44 48 24 74 26 C86 30 90 38 92 48 L114 54 L94 68 L84 73 L70 96 L54 74 Z" fill="${p.secondary}"/>`,
+    // Head in profile: faceted crown, hooked beak, raked jaw.
+    `<path d="M26 68 L38 40 L62 24 L88 32 L93 47 L114 54 L95 69 L86 76 L60 90 L44 70 Z" fill="${p.secondary}"/>`,
     // Beak.
-    `<path d="M92 48 L114 54 L94 68 Z" fill="${p.accent}"/>`,
+    `<path d="M93 47 L114 54 L95 69 Z" fill="${p.accent}"/>`,
     // Brow slash cut clean through to the badge, eye set into it.
-    `<path d="M46 46 L80 39 L84 54 L50 61 Z" fill="${p.primary}"/>`,
-    `<circle cx="66" cy="50" r="5.5" fill="${p.accent}"/>`,
-    `<circle cx="92" cy="55" r="2.4" fill="${p.primary}"/>`,
+    `<path d="M44 45 L82 37 L86 53 L48 60 Z" fill="${p.primary}"/>`,
+    `<circle cx="64" cy="48" r="6" fill="${p.accent}"/>`,
+    `<circle cx="93" cy="55" r="2.4" fill="${p.primary}"/>`,
   ].join('');
 }
 

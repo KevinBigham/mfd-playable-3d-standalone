@@ -31,6 +31,46 @@ export interface PlaySetup {
   mirrored?: boolean;
 }
 
+/**
+ * Bind roster people to play slots by ROLE, not by index.
+ * Playbook files order offensive slots [QB, LINE, LINE, LINE, skill, skill, skill];
+ * rosters are stored [QB, skill, skill, skill, OL, OL, OL, front, front, front, DB…].
+ * Without this remap, linemen would run routes with receiver bodies.
+ */
+function bindRoster(w: World, setup: PlaySetup): void {
+  const offRoster = w.teams[setup.possession].roster;
+  const defRoster = w.teams[setup.possession === 0 ? 1 : 0].roster;
+  const skillPool = [1, 2, 3];
+  const linePool = [4, 5, 6];
+  let sI = 0, lI = 0;
+  const kicker = w.special === 'PUNT' || w.special === 'FIELD_GOAL' || w.special === 'EXTRA_POINT'
+    || w.special === 'KICKOFF' || w.special === 'ONSIDE';
+  for (let i = 0; i < 7; i++) {
+    const a = w.athletes[OFF_START + i];
+    const plan = setup.offense.players[i];
+    let idx: number;
+    if (plan.role === 'LINE') idx = linePool[Math.min(lI++, 2)];
+    else if (plan.role === 'QB') idx = kicker ? 14 : 0;
+    else idx = skillPool[Math.min(sI++, 2)];
+    a.def = offRoster[idx] ?? offRoster[0];
+  }
+  // Defence: rushers and contain come from the front, coverage from the secondary.
+  const front = [7, 8, 9];
+  const backs = [10, 11, 12, 13];
+  let fI = 0, bI = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = w.athletes[DEF_START + i];
+    const kind = setup.defense.players[i].assign.kind;
+    const isFront = kind === 'RUSH' || kind === 'CONTAIN' || kind === 'BLITZ_DELAY';
+    let idx: number;
+    if (isFront && fI < 3) idx = front[fI++];
+    else if (!isFront && bI < 4) idx = backs[bI++];
+    else if (fI < 3) idx = front[fI++];
+    else idx = backs[Math.min(bI++, 3)];
+    d.def = defRoster[idx] ?? defRoster[7] ?? defRoster[0];
+  }
+}
+
 export function setupPlay(w: World, setup: PlaySetup): void {
   const dir = dirOf(setup.possession);
   const mir = setup.mirrored ? -1 : 1;
@@ -51,6 +91,7 @@ export function setupPlay(w: World, setup: PlaySetup): void {
   clearAllEngagements(w);
 
   const targets: AthleteId[] = [-1, -1, -1];
+  bindRoster(w, setup);
 
   for (let i = 0; i < 7; i++) {
     const a = w.athletes[OFF_START + i];
@@ -90,6 +131,19 @@ export function setupPlay(w: World, setup: PlaySetup): void {
     d.hasBall = false;
   }
 
+  // A route whose first action is CARRY marks the handoff/pitch man.
+  w.handoffTarget = -1;
+  w.handoffTick = s(0.28);
+  for (let i = 0; i < 7; i++) {
+    const plan = setup.offense.players[i];
+    const idx = plan.route.findIndex((n) => n.action === 'CARRY');
+    if (idx >= 0) {
+      w.handoffTarget = w.athletes[OFF_START + i].id;
+      w.handoffTick = s(idx === 0 ? 0.30 : 0.55);
+      break;
+    }
+  }
+
   w.passTargets = [targets[0], targets[1], targets[2]];
   w.qbTarget = targets[1] >= 0 ? targets[1] : targets[0];
   giveBall(w, w.qbId);
@@ -116,9 +170,15 @@ export function estimateFlight(fromX: number, fromZ: number, toX: number, toZ: n
 }
 
 export function throwTo(w: World, qb: Athlete, receiver: Athlete, kind: PassKind, aimErrorYd = 0): void {
-  const rough = estimateFlight(qb.x, qb.z, receiver.x, receiver.z, kind);
-  let tx = receiver.x + receiver.vx * rough * LEAD_TIME_SCALE;
-  let tz = receiver.z + receiver.vz * rough * LEAD_TIME_SCALE;
+  // Solve the lead point: the ball has to arrive where the receiver WILL be, and the
+  // flight time depends on that point, so iterate to a fixed point.
+  let tx = receiver.x;
+  let tz = receiver.z;
+  for (let i = 0; i < 3; i++) {
+    const ft = estimateFlight(qb.x, qb.z, tx, tz, kind);
+    tx = receiver.x + receiver.vx * ft * LEAD_TIME_SCALE;
+    tz = receiver.z + receiver.vz * ft * LEAD_TIME_SCALE;
+  }
   const acc = qb.def.ratings.accuracy * (qb.onFire ? OVERDRIVE_ACCURACY : 1);
   const baseErr = clamp(1.9 - acc / 70, 0.05, 2.2) + aimErrorYd;
   tx += w.rng.spread(baseErr);
@@ -265,6 +325,31 @@ export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
   void car;
 }
 
+/** Exchange the ball to the designated back — a handoff up close, a pitch when further out. */
+export function tryHandoff(w: World): void {
+  if (w.handoffTarget < 0 || w.handedOff || w.passThrown) return;
+  if (w.playTicks < w.handoffTick) return;
+  const st = w.ball.state;
+  if (st.kind !== 'held' || st.carrier !== w.qbId) { w.handoffTarget = -1; return; }
+  const qb = w.athletes[w.qbId];
+  const back = w.athletes[w.handoffTarget];
+  if (back.move === 'DOWN') { w.handoffTarget = -1; return; }
+  const d = dist(qb.x, qb.z, back.x, back.z);
+  if (d > 9) {
+    if (w.playTicks > w.handoffTick + s(0.7)) w.handoffTarget = -1;
+    return;
+  }
+  if (d > 3.2) {
+    releasePass(w, qb.id, back.id, back.x + back.vx * 0.22, back.z + back.vz * 0.22, 'LATERAL');
+    w.bus.emit({ type: 'lateral', tick: w.tick, from: qb.id, to: back.id });
+  } else {
+    giveBall(w, back.id);
+    w.bus.emit({ type: 'handoff', tick: w.tick, to: back.id });
+  }
+  w.handedOff = true;
+  w.handoffTarget = -1;
+}
+
 export function pickOpenReceiver(w: World, qb: Athlete): AthleteId {
   let best = -1; let bestScore = -Infinity;
   const dir = dirOf(qb.side);
@@ -325,11 +410,13 @@ export function detectDead(w: World): DeadReason | null {
     if (Math.abs(a.x) > FIELD_HALF_WIDTH) return 'OUT_OF_BOUNDS';
     const attackGoal = goalOf(a.side);
     const ownGoal = ownGoalOf(a.side);
-    if (a.side === 0 ? a.z >= attackGoal : a.z <= attackGoal) {
-      return w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT'
-        ? 'TOUCHDOWN' : 'TOUCHDOWN';
+    if (a.side === 0 ? a.z >= attackGoal : a.z <= attackGoal) return 'TOUCHDOWN';
+    if (a.side === 0 ? a.z <= ownGoal : a.z >= ownGoal) {
+      // A returner who fields a kick in his own end zone takes a touchback, not a safety.
+      // The kicking team going down in its own end zone is still a safety.
+      if (w.special !== null && a.side !== w.possession) return 'TOUCHBACK';
+      return 'SAFETY';
     }
-    if (a.side === 0 ? a.z <= ownGoal : a.z >= ownGoal) return 'SAFETY';
     if (a.move === 'DOWN') return 'TACKLE';
     return null;
   }
@@ -345,6 +432,9 @@ export function detectDead(w: World): DeadReason | null {
     if (Math.abs(b.x) > FIELD_HALF_WIDTH + 2) return 'INCOMPLETE';
     return null;
   }
+
+  // A forward pass that was dropped or batted down kills the ball outright.
+  if (st.kind === 'dead' && w.playPhase === 'LIVE') return 'INCOMPLETE';
 
   if (st.kind === 'kicked') {
     if (st.kickKind === 'FIELD_GOAL' || st.kickKind === 'EXTRA_POINT') {
@@ -385,6 +475,8 @@ export function stepPlay(w: World, controllers: (Controller | null)[]): DeadReas
   if (w.playPhase === 'LIVE' || w.playPhase === 'PRESNAP') {
     for (let i = 0; i < w.athletes.length; i++) applyActions(w, w.athletes[i], w.intents[i]);
   }
+
+  if (w.playPhase === 'LIVE') tryHandoff(w);
 
   for (let i = 0; i < w.athletes.length; i++) {
     const a = w.athletes[i];

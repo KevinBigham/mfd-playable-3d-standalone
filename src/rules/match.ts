@@ -8,6 +8,7 @@ import {
   FIXED_DT, TICK_HZ, s, DEAD_BALL_TICKS, POST_PLAY_TICKS, SCORE_CELEBRATION_TICKS,
   QUARTER_BREAK_TICKS, PLAY_CALL_SECONDS, PLAY_CLOCK_SECONDS, PAT_MAKE_BASE, PAT_DISTANCE,
   FG_METER_PERIOD, PUNT_POWER_PERIOD, TOUCHBACK_Z, FIELD_HALF_WIDTH, OVERTIME_PERIODS,
+  CLOCK_SCALE,
   DEFAULT_QUARTER_SECONDS,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist } from '../core/math.ts';
@@ -90,6 +91,7 @@ export class Match {
   private violations: Violation[] = [];
   private watchdogFired = 0;
   private conversionTwoActive = false;
+  private conversionActive = false;
   private freeKickAfterSafety = false;
 
   constructor(opts: MatchOptions) {
@@ -220,6 +222,25 @@ export class Match {
   private setPhase(p: MatchPhase): void {
     this.state.phase = p;
     this.state.phaseTicks = 0;
+    this.enterPhase(p);
+  }
+
+  /** One-shot initialisation on entering a phase. Runs before any external submission. */
+  private enterPhase(p: MatchPhase): void {
+    const m = this.state;
+    if (p === 'PLAY_CALL') {
+      this.pendingOffense = null; this.pendingDefense = null; this.pendingSpecial = null;
+      this.offenseLocked = false; this.defenseLocked = false;
+      this.mirrorOffense = false;
+      this.world.special = null;
+      if (!this.isHuman(m.possession)) this.autoPickOffense();
+      if (!this.isHuman(other(m.possession))) this.autoPickDefense();
+    } else if (p === 'CONVERSION_CALL') {
+      this.pendingConversion = null;
+      if (!this.isHuman(m.possession)) {
+        this.pendingConversion = chooseConversion(m, m.possession, this.rng, this.profile);
+      }
+    }
   }
 
   get phase(): MatchPhase { return this.state.phase; }
@@ -314,6 +335,8 @@ export class Match {
     this.freeKickAfterSafety = false;
     m.possession = kicking;
     m.down = 1;
+    m.losZ = spot;
+    m.firstDownZ = computeFirstDown(spot, kicking);
     assignUnits(w, kicking, true);
     this.applyOverdriveFlags();
     w.special = 'KICKOFF';
@@ -329,16 +352,7 @@ export class Match {
   // ── play call ────────────────────────────────────────────────────────────
 
   private tickPlayCall(): void {
-    const m = this.state; const w = this.world;
-    if (m.phaseTicks === 1) {
-      this.pendingOffense = null; this.pendingDefense = null; this.pendingSpecial = null;
-      this.offenseLocked = false; this.defenseLocked = false;
-      this.mirrorOffense = false;
-      w.special = null;
-      // Auto-pick for CPU sides.
-      if (!this.isHuman(m.possession)) this.autoPickOffense();
-      if (!this.isHuman(other(m.possession))) this.autoPickDefense();
-    }
+    const m = this.state;
     if (this.offenseLocked && this.defenseLocked) { this.beginPlay(); return; }
     if (m.phaseTicks > s(PLAY_CALL_SECONDS)) this.forcePlayCall();
   }
@@ -440,7 +454,13 @@ export class Match {
   private doSnap(): void {
     const w = this.world;
     snap(w);
-    for (const a of w.athletes) a.reactionQueue = this.profile.reactionTicks;
+    // Coverage defenders need longer to diagnose a run than to react to a throw;
+    // that difference is what makes designed runs viable at all.
+    for (const a of w.athletes) {
+      const cover = a.side !== w.possession
+        && a.assign !== null && a.assign.kind !== 'RUSH' && a.assign.kind !== 'CONTAIN';
+      a.reactionQueue = this.profile.reactionTicks + (cover ? s(0.30) : 0);
+    }
     this.setPhase(this.conversionTwoActive ? 'CONVERSION_LIVE' : 'LIVE');
   }
 
@@ -465,7 +485,8 @@ export class Match {
 
     // Clock only runs while the ball is live.
     if (w.playPhase === 'LIVE' && !this.conversionTwoActive && m.phase !== 'CONVERSION_LIVE') {
-      m.clockTicks = Math.max(0, m.clockTicks - 1);
+      this.clockRemainder += CLOCK_SCALE;
+      while (this.clockRemainder >= 1) { m.clockTicks = Math.max(0, m.clockTicks - 1); this.clockRemainder -= 1; }
     }
     m.teams[m.possession].stats.possessionTicks++;
 
@@ -607,7 +628,9 @@ export class Match {
         o.yards = changed ? 0 : (spotZ - m.losZ) * dir;
         if (car) {
           const st = m.teams[ballSide].stats;
-          if (w.passThrown && !changed) st.passTd++; else st.rushTd++;
+          if (w.special !== null) { /* return TD — not a scrimmage stat */ }
+          else if (w.passThrown && !changed) st.passTd++;
+          else st.rushTd++;
           this.bus.emit({ type: 'touchdown', tick: w.tick, side: ballSide, by: car.id, yards: Math.round(o.yards) });
         }
         break;
@@ -619,10 +642,12 @@ export class Match {
         this.bus.emit({ type: 'safety', tick: w.tick, against: ballSide });
         break;
       case 'FIELD_GOAL_GOOD':
+        if (this.conversionActive) break;   // a PAT is resolved by the conversion path
         o.scoringSide = m.possession; o.scoreKind = 'FG';
         this.bus.emit({ type: 'fieldGoal.result', tick: w.tick, side: m.possession, good: true, distance: fieldGoalDistance(w, m.possession) });
         break;
       case 'FIELD_GOAL_MISS': {
+        if (this.conversionActive) break;
         const back = m.losZ - dir * 7;
         const spot = dir > 0 ? Math.min(back, 100 - TOUCHBACK_Z) : Math.max(back, TOUCHBACK_Z);
         o.turnover = true; o.turnoverKind = 'MISSED_FG';
@@ -658,16 +683,18 @@ export class Match {
       if (Math.abs(o.spotX) > FIELD_HALF_WIDTH) o.spotX = Math.sign(o.spotX) * (FIELD_HALF_WIDTH - 1.2);
     }
 
-    // Stats: rushing vs passing yardage.
-    if (!o.turnover && o.scoreKind !== 'SAFETY' && reason !== 'INCOMPLETE') {
+    // Stats: rushing vs passing yardage. A sack is not a rushing attempt.
+    const wasSack = !w.passThrown && !w.handedOff && w.special === null && car !== null
+      && car.id === w.qbId && (spotZ - m.losZ) * dir < -0.5
+      && (reason === 'TACKLE' || reason === 'SAFETY');
+    if (!o.turnover && o.scoreKind !== 'SAFETY' && reason !== 'INCOMPLETE' && !wasSack) {
       const st = m.teams[m.possession].stats;
       if (w.passThrown) st.passYds += Math.round(o.yards);
       else if (w.special === null) { st.rushAtt++; st.rushYds += Math.round(o.yards); }
     }
 
     // Sack bookkeeping / Overdrive.
-    if (!w.passThrown && !w.handedOff && w.special === null && car && car.id === w.qbId
-        && reason === 'TACKLE' && (spotZ - m.losZ) * dir < -0.5) {
+    if (wasSack && reason === 'TACKLE' && car) {
       const def = other(m.possession);
       m.teams[def].stats.sacks++;
       this.bus.emit({ type: 'sack', tick: w.tick, by: -1, on: car.id, yards: Math.round(o.yards) });
@@ -689,8 +716,8 @@ export class Match {
     this.bus.emit({ type: 'play.end', tick: w.tick, reason, spotZ: o.spotZ, yards: Math.round(o.yards) });
     this.lastOutcome = o;
 
-    // Conversion plays resolve separately.
-    if (m.phase === 'DEAD_BALL' && this.conversionTwoActive) {
+    // Conversion plays never touch the down/score machinery — a PAT is not a field goal.
+    if (m.phase === 'DEAD_BALL' && this.conversionActive) {
       this.setPhase('CONVERSION_RESOLVE');
       return;
     }
@@ -720,36 +747,44 @@ export class Match {
       return;
     }
     if (reason === 'SAFETY') { o.scoringSide = other(ballSide); o.scoreKind = 'SAFETY'; return; }
+    if (reason === 'TOUCHBACK') {
+      o.possessionAfter = receiving;
+      o.touchback = true;
+      o.spotZ = touchbackSpot(receiving);
+      o.spotX = 0;
+      o.turnover = true;
+      o.turnoverKind = w.special === 'PUNT' ? 'PUNT' : null;
+      this.bus.emit({ type: 'touchback', tick: w.tick });
+      return;
+    }
 
-    // Who ended up with it?
-    const recovered: TeamSide = ballSide;
+    // Only an actual carrier can claim a kicked ball. An untouched ball belongs to the
+    // receiving team wherever it stopped — otherwise a punt that nobody fields would
+    // silently stay with the kicking team.
+    const car = carrier(w);
+    const recovered: TeamSide = car ? car.side : receiving;
     const isOnside = w.special === 'ONSIDE';
     const isPunt = w.special === 'PUNT';
 
-    let spot = spotZ;
-    const recvDir = dirOf(recovered);
-    // Ball in the end zone or out the back → touchback.
-    const inRecvEndzone = recovered === 0 ? spot <= 0 : spot >= 100;
+    let spot = car ? car.z : w.ball.z;
+    // Ball dead in the receiving team's own end zone (or through it) → touchback.
+    const inRecvEndzone = recovered === 0 ? spot <= 0.01 : spot >= 99.99;
     if (inRecvEndzone && !isOnside) {
       o.touchback = true;
       spot = touchbackSpot(recovered);
       this.bus.emit({ type: 'touchback', tick: w.tick });
     }
-    if (reason === 'OUT_OF_BOUNDS' && Math.abs(w.ball.x) > FIELD_HALF_WIDTH && isPunt) {
-      spot = clampSpot(w.ball.z);
-    }
 
     o.possessionAfter = recovered;
     o.spotZ = clampSpot(spot);
-    o.spotX = clamp(spotX, -FIELD_HALF_WIDTH + 2, FIELD_HALF_WIDTH - 2);
-    o.turnover = true;                 // forces the possession assignment path
+    o.spotX = clamp(car ? car.x : w.ball.x, -FIELD_HALF_WIDTH + 2, FIELD_HALF_WIDTH - 2);
+    o.turnover = true;                 // forces the possession-assignment path
     o.turnoverKind = isPunt ? 'PUNT' : null;
     if (recovered === kicking) {
-      // Onside recovery or muffed punt recovered by the kicking team.
-      o.possessionAfter = kicking;
+      // Onside recovery, or the kicking team fell on a muffed return.
       this.bus.emit({ type: 'turnover', tick: w.tick, to: kicking, kind: 'FUMBLE' });
     }
-    void recvDir;
+    void spotX; void ballSide;
   }
 
   private advanceAfterPlay(): void {
@@ -774,6 +809,9 @@ export class Match {
     if (!ps) { this.setPhase('PLAY_CALL'); return; }
     if (ps.kind === 'TD') {
       m.possession = ps.side;
+      m.down = 1;
+      m.losZ = conversionSpot(ps.side, false);
+      m.firstDownZ = computeFirstDown(m.losZ, ps.side);
       this.pendingConversion = null;
       this.setPhase('CONVERSION_CALL');
       return;
@@ -804,9 +842,6 @@ export class Match {
 
   private tickConversionCall(): void {
     const m = this.state;
-    if (m.phaseTicks === 1 && !this.isHuman(m.possession)) {
-      this.pendingConversion = chooseConversion(m, m.possession, this.rng, this.profile);
-    }
     if (m.phaseTicks > s(6) && !this.pendingConversion) this.pendingConversion = 'KICK';
     if (!this.pendingConversion) return;
 
@@ -816,12 +851,15 @@ export class Match {
       const good = this.rng.chance(PAT_MAKE_BASE);
       assignUnits(w, m.possession, true);
       const spot = conversionSpot(m.possession, false);
+      m.losZ = spot;
+      m.firstDownZ = computeFirstDown(spot, m.possession);
       w.special = 'FIELD_GOAL';
       setupPlay(w, { offense: FG_OFFENSE, defense: FG_DEFENSE, losZ: spot, spotX: 0, possession: m.possession });
       const kicker = w.athletes[OFF_START];
       w.playPhase = 'LIVE';
       launchExtraPoint(w, kicker, good);
       this.conversionTwoActive = false;
+      this.conversionActive = true;
       this.patGood = good;
       this.setPhase('CONVERSION_LIVE');
       void PAT_DISTANCE;
@@ -831,9 +869,12 @@ export class Match {
       const off = chooseOffensePlay(this.offensePlays.filter((p) => p.shortYardage > 0.35), sit, this.profile, this.rng);
       const def = chooseDefensePlay(this.defensePlays, sit, this.tendency[m.possession], this.profile, this.rng);
       const spot = conversionSpot(m.possession, true);
+      m.losZ = spot;
+      m.firstDownZ = computeFirstDown(spot, m.possession);
       w.special = null;
       setupPlay(w, { offense: off ?? this.offensePlays[0], defense: def, losZ: spot, spotX: 0, possession: m.possession });
       this.conversionTwoActive = true;
+      this.conversionActive = true;
       m.down = 1;
       this.setPhase('PRE_SNAP');
     }
@@ -841,6 +882,7 @@ export class Match {
   }
 
   private patGood = false;
+  private clockRemainder = 0;
 
   private tickConversionResolve(): void {
     const m = this.state; const w = this.world;
@@ -856,6 +898,7 @@ export class Match {
         this.bus.emit({ type: 'twoPoint', tick: w.tick, side: m.possession, good: !!scored });
       }
       this.conversionTwoActive = false;
+      this.conversionActive = false;
       m.conversionChoice = null;
       killBall(w);
     }
@@ -923,6 +966,15 @@ export class Match {
   private get suddenDeath(): boolean { return this.state.overtimePeriod >= OVERTIME_PERIODS; }
 
   // ── helpers for UI/tests ─────────────────────────────────────────────────
+
+  /** Test hook: re-run the CPU play-call for the state the harness just installed. */
+  forcePlayCallForTest(): void {
+    this.pendingOffense = null; this.pendingDefense = null; this.pendingSpecial = null;
+    this.offenseLocked = false; this.defenseLocked = false;
+    this.world.special = null;
+    if (!this.isHuman(this.state.possession)) this.autoPickOffense();
+    if (!this.isHuman(other(this.state.possession))) this.autoPickDefense();
+  }
 
   checkInvariants(): Violation[] {
     const v = validateMatchState(this.state);

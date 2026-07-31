@@ -66,7 +66,7 @@ export const TACKLE_RADIUS = 1.05;
 export const DIVE_TACKLE_RADIUS = 1.5;
 export const POWER_TACKLE_RADIUS = 1.25;
 export const BLOCK_RADIUS = 0.95;
-export const BREAK_TACKLE_BASE = 0.16;    // baseline chance to shrug a routine tackle
+export const BREAK_TACKLE_BASE = 0.21;    // baseline chance to shrug a routine tackle
 export const FUMBLE_BASE = 0.018;
 export const FUMBLE_POWER_SCALE = 0.055;
 export const FUMBLE_SPIN_MULT = 2.0;
@@ -103,8 +103,12 @@ export const TWO_POINT_Z = 5;             // spot for the 2-pt try relative to g
 // ── clock ──────────────────────────────────────────────────────────────────
 export const QUARTER_OPTIONS = [60, 120, 180, 240, 360];
 export const DEFAULT_QUARTER_SECONDS = 120;
-/** Game clock runs this much faster than real time during live play. */
-export const CLOCK_SCALE = 1.0;
+/**
+ * The game clock runs faster than real time during live play. With the clock stopped
+ * between every snap, 1.0 would produce ~120 plays a game; 2.6 lands on the ~50-play,
+ * 10-12 minute arcade rhythm we are aiming for.
+ */
+export const CLOCK_SCALE = 2.6;
 export const PLAY_CLOCK_SECONDS = 10;
 export const PLAY_CALL_SECONDS = 12;
 export const DEAD_BALL_TICKS = s(0.55);

@@ -100,7 +100,7 @@ const SPECS: readonly TeamSpec[] = [
     id: 'nyx-city-nocturnes',
     city: 'Nyx City', name: 'Nocturnes', abbr: 'NYX',
     style: 'COVERAGE', logo: 'visor', stadium: 'umbra-park',
-    blurb: 'Every window closes. Throw it and you gift-wrap it.',
+    blurb: 'Nothing ever comes open. Force it and you gift-wrap a pick.',
     power: { passing: 69, running: 58, line: 70, coverage: 90, special: 74 },
     primary: '#16102E', secondary: '#6C4CE0', accent: '#D9C9FF', ink: '#F1ECFF', endzone: '#100B22',
   },
@@ -196,7 +196,7 @@ const SPECS: readonly TeamSpec[] = [
   },
 ];
 
-export const TEAMS: readonly TeamDef[] = SPECS.map(build);
+export const TEAMS: TeamDef[] = SPECS.map(build);
 
 export const TEAM_IDS: string[] = TEAMS.map((t) => t.id);
 

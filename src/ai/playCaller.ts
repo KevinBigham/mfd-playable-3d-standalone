@@ -56,14 +56,19 @@ export function chooseFourthDown(sit: Situation, profile: AiProfile, rng: Rng): 
   const { toGo, yardsToGoal, scoreDiff, clockSeconds, quarter } = sit;
   const desperate = (quarter >= 4 && scoreDiff < 0 && clockSeconds < 45) || (scoreDiff < -14 && quarter >= 4);
   if (desperate) return yardsToGoal < 34 && toGo > 12 ? 'FIELD_GOAL' : 'GO';
-  if (yardsToGoal <= 43) {
-    // In field-goal range (kick is from ~7 yards behind the LOS, max 50).
-    if (toGo <= 6 && yardsToGoal <= 12) return rng.chance(0.55 + profile.riskTolerance * 0.2) ? 'GO' : 'FIELD_GOAL';
+  // The kick is taken from ~7 yards behind the LOS and 50 yards is the ceiling,
+  // so anything past the opponent's 36 is out of range.
+  const kickDistance = yardsToGoal + 7;
+  const inRange = kickDistance <= 46;
+  if (yardsToGoal <= 14 && toGo <= 10) return rng.chance(0.62 + profile.riskTolerance * 0.2) ? 'GO' : 'FIELD_GOAL';
+  if (inRange) {
+    // Short of the goal line a fourth-and-short is still often worth taking.
+    if (toGo <= 8 && rng.chance(0.40 + profile.riskTolerance * 0.2)) return 'GO';
     return 'FIELD_GOAL';
   }
-  if (toGo <= 5 && yardsToGoal < 62) return rng.chance(0.55) ? 'GO' : 'PUNT';
-  if (yardsToGoal > 78) return 'PUNT';
-  return rng.chance(0.12 + profile.riskTolerance * 0.15) ? 'GO' : 'PUNT';
+  if (toGo <= 6 && yardsToGoal < 60) return rng.chance(0.5) ? 'GO' : 'PUNT';
+  if (yardsToGoal > 74) return 'PUNT';
+  return rng.chance(0.14 + profile.riskTolerance * 0.16) ? 'GO' : 'PUNT';
 }
 
 export function shouldOnsideKick(m: MatchState, kicking: TeamSide, rng: Rng): boolean {
@@ -91,9 +96,15 @@ function scoreOffensePlay(p: OffensePlay, sit: Situation, profile: AiProfile, rn
   const isDeep = p.deepShot;
   const isQuick = p.tags.includes('QUICK') || p.tags.includes('SCREEN');
 
-  // Distance fit: how far this concept typically travels vs what's needed.
-  const conceptYards = isRun ? 8 : isQuick ? 9 : isDeep > 0.5 ? 32 : 18;
-  score -= Math.abs(conceptYards - clamp(toGo, 4, 34)) * 0.10;
+  // Distance fit. On early downs a thirty-yard chain is a budget, not a demand —
+  // you only need your share. On third and fourth down you need all of it now.
+  const downsLeft = Math.max(1, 5 - down);
+  const needed = down <= 2 ? clamp(toGo / downsLeft, 5, 34) : clamp(toGo, 5, 34);
+  const conceptYards = isRun ? 9 : isQuick ? 10 : isDeep > 0.5 ? 30 : 17;
+  const diff = conceptYards - needed;
+  // Coming up short is much worse than picking up a few extra.
+  score -= diff < 0 ? -diff * 0.155 : diff * 0.042;
+  if (down === 1) score += isDeep * 0.55;
 
   if (down === 1) score += isRun ? 1.1 : 0.6;
   if (down === 2 && toGo > 20) score += isDeep * 1.4;

@@ -38,21 +38,31 @@ export function fieldGoalMakeChance(w: World, side: TeamSide, plan: KickPlan, ki
   return clamp01(range * skill * plan.quality * wind * 1.35);
 }
 
+const G = 32; // yd/s^2
+
+/** Solve a ballistic launch that covers `travel` yards in `hang` seconds. */
+function ballistic(travel: number, hang: number): { vy: number; vz: number } {
+  return { vy: (G * hang) / 2, vz: travel / hang };
+}
+
 export function launchFieldGoal(w: World, kicker: Athlete, plan: KickPlan, good: boolean): void {
   const dir = dirOf(kicker.side);
   const dz = fieldGoalDistance(w, kicker.side);
-  const speed = Math.sqrt(Math.max(120, dz * 12));
-  const off = good ? w.rng.spread(2.4) : (w.rng.chance(0.5) ? 1 : -1) * w.rng.range(4.5, 11);
-  const vy = lerp(11, 17, clamp01(dz / 55));
-  launchKick(w, kicker.id, 'FIELD_GOAL',
-    (plan.aim * 3 + off), vy, dir * speed * 1.15);
+  // Aim past the posts so the ball is still climbing/level as it crosses.
+  const travel = dz + 12;
+  const hang = clamp(1.15 + dz * 0.022, 1.15, 2.3);
+  const { vy, vz } = ballistic(travel, hang);
+  const off = good ? w.rng.spread(1.6) : (w.rng.chance(0.5) ? 1 : -1) * w.rng.range(5.5, 12);
+  launchKick(w, kicker.id, 'FIELD_GOAL', plan.aim * 2.5 + off, vy, dir * vz);
   const st = w.ball.state;
   if (st.kind === 'kicked') st.goodThroughUprights = good;
 }
 
 export function launchExtraPoint(w: World, kicker: Athlete, good: boolean): void {
   const dir = dirOf(kicker.side);
-  launchKick(w, kicker.id, 'EXTRA_POINT', good ? w.rng.spread(1.5) : w.rng.range(6, 12) * (w.rng.chance(0.5) ? 1 : -1), 15, dir * 26);
+  const { vy, vz } = ballistic(26, 1.35);
+  const off = good ? w.rng.spread(1.2) : (w.rng.chance(0.5) ? 1 : -1) * w.rng.range(6, 12);
+  launchKick(w, kicker.id, 'EXTRA_POINT', off, vy, dir * vz);
   const st = w.ball.state;
   if (st.kind === 'kicked') st.goodThroughUprights = good;
 }
@@ -60,22 +70,29 @@ export function launchExtraPoint(w: World, kicker: Athlete, good: boolean): void
 export function launchPunt(w: World, kicker: Athlete, plan: KickPlan): number {
   const dir = dirOf(kicker.side);
   const power = lerp(0.55, 1.0, plan.power);
-  const dist = lerp(26, 58, power) * (0.85 + kicker.def.ratings.accuracy / 400);
-  const hang = lerp(11, 18, plan.quality);
-  launchKick(w, kicker.id, 'PUNT', plan.aim * 7 + w.conditions.windX * 0.5, hang, dir * dist * 0.72);
-  return dist;
+  const distance = lerp(28, 52, power) * (0.88 + kicker.def.ratings.accuracy / 500);
+  // Hang time is the whole point of a punt: it is what lets coverage arrive.
+  const hang = lerp(2.0, 2.85, plan.quality);
+  const { vy, vz } = ballistic(distance, hang);
+  launchKick(w, kicker.id, 'PUNT', plan.aim * 6 + w.conditions.windX * 0.4, vy, dir * vz);
+  return distance;
 }
 
 export function launchKickoff(w: World, kicker: Athlete, onside: boolean): void {
   const dir = dirOf(kicker.side);
   if (onside) {
-    launchKick(w, kicker.id, 'ONSIDE', w.rng.spread(6), 7.5, dir * ONSIDE_YARDS * 1.05);
+    const { vy, vz } = ballistic(ONSIDE_YARDS, 1.0);
+    launchKick(w, kicker.id, 'ONSIDE', w.rng.spread(5), vy * 0.75, dir * vz * 1.35);
     return;
   }
   const targetZ = w.rng.range(KICKOFF_TARGET_MIN, KICKOFF_TARGET_MAX);
   const goal = goalOf(kicker.side);
-  const travel = Math.abs(goal - targetZ - w.losZ);
-  launchKick(w, kicker.id, 'KICKOFF', w.rng.spread(5), 17.5, dir * travel * 0.62);
+  // Land `targetZ` yards short of the goal line, on the correct side of the field.
+  const landing = goal - dir * targetZ;
+  const travel = Math.abs(landing - w.losZ);
+  const hang = 2.75 + w.rng.range(-0.15, 0.2);
+  const { vy, vz } = ballistic(travel, hang);
+  launchKick(w, kicker.id, 'KICKOFF', w.rng.spread(4), vy, dir * vz);
 }
 
 /** Did a kicked ball pass through the uprights of `side`'s target goal? */

@@ -6,7 +6,7 @@ import {
 import { clamp, clamp01, dist } from '../core/math.ts';
 import type { World } from './world.ts';
 import { OFF_START, DEF_START } from './world.ts';
-import { giveBall, dropLoose } from './ball.ts';
+import { giveBall, dropLoose, killBall } from './ball.ts';
 import { knockDown, startJump } from './movement.ts';
 
 const STAND_REACH = 2.35;
@@ -77,18 +77,14 @@ export function resolveAirBall(w: World): boolean {
       w.bus.emit({ type: 'crowd.swell', tick: w.tick, power: 1, side: winner.side });
       return true;
     }
-    // Swat: ball is knocked down (incomplete unless a receiver is right there).
-    const tip = w.rng.chance(0.22);
-    if (tip) {
-      dropLoose(w, winner.id, w.rng.spread(6), 5.5, w.rng.spread(6), false);
-      w.bus.emit({ type: 'swat', tick: w.tick, by: winner.id });
-      return true;
-    }
+    // Swat: a batted-down forward pass is incomplete, not a live ball.
     w.bus.emit({ type: 'swat', tick: w.tick, by: winner.id });
-    dropLoose(w, winner.id, 0, 1.2, 0, false);
-    // Rules will read the loose ball from a forward pass as incomplete.
-    (w.ball.state as { kind: 'loose'; fromFumble: boolean }).fromFumble = false;
-    w.ball.vy = 1.5;
+    if (st.passKind === 'LATERAL') {
+      dropLoose(w, winner.id, w.rng.spread(5), 4.5, w.rng.spread(5), false);
+    } else {
+      killBall(w);
+      w.ball.x = b.x; w.ball.y = 0.3; w.ball.z = b.z;
+    }
     return true;
   }
 
@@ -110,6 +106,10 @@ export function resolveAirBall(w: World): boolean {
     giveBall(w, winner.id);
     w.lastCatcher = winner.id;
     w.lastPassAirYards = Math.abs(w.ball.z - st.sz);
+    if (st.passKind === 'LATERAL') {
+      w.bus.emit({ type: 'lateral', tick: w.tick, from: st.from, to: winner.id });
+      return true;
+    }
     w.bus.emit({ type: 'catch', tick: w.tick, by: winner.id, contested, diving, yards });
     w.bus.emit({ type: 'crowd.swell', tick: w.tick, power: contested ? 0.9 : 0.5, side: winner.side });
     if (contested) {
@@ -121,7 +121,12 @@ export function resolveAirBall(w: World): boolean {
   }
 
   w.bus.emit({ type: 'drop', tick: w.tick, by: winner.id });
-  dropLoose(w, winner.id, w.rng.spread(3), 3.0, w.rng.spread(3), false);
+  if (st.passKind === 'LATERAL') {
+    dropLoose(w, winner.id, w.rng.spread(3), 3.0, w.rng.spread(3), false);
+  } else {
+    killBall(w);
+    w.ball.x = b.x; w.ball.y = 0.3; w.ball.z = b.z;
+  }
   return true;
 }
 
@@ -161,6 +166,27 @@ export function ballLead(w: World, t: number, out: { x: number; z: number }): vo
     out.x = b.x + b.vx * t;
     out.z = b.z + b.vz * t;
   }
+}
+
+/**
+ * Where the pass will actually come down. Receivers and defenders must run HERE,
+ * not to where the ball currently is, or nobody ever arrives in time.
+ */
+export function ballArrival(w: World, out: { x: number; z: number; eta: number }): boolean {
+  const st = w.ball.state;
+  if (st.kind === 'inAir') {
+    out.x = st.tx; out.z = st.tz; out.eta = Math.max(0, st.flightTime - st.t);
+    return true;
+  }
+  if (st.kind === 'kicked' || st.kind === 'loose') {
+    // Simple ballistic landing estimate.
+    const b = w.ball;
+    const vy = b.vy;
+    const t = Math.max(0, (vy + Math.sqrt(Math.max(0, vy * vy + 64 * Math.max(0, b.y - 0.4)))) / 32);
+    out.x = b.x + b.vx * t; out.z = b.z + b.vz * t; out.eta = t;
+    return true;
+  }
+  return false;
 }
 
 export { startJump, clamp };

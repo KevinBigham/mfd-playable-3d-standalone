@@ -64,6 +64,10 @@ export interface World {
   kickPending: null | { kind: 'FIELD_GOAL' | 'EXTRA_POINT' | 'PUNT' | 'KICKOFF' | 'ONSIDE'; good: boolean; distance: number };
   /** Practice/dev: freeze the defense. */
   freezeDefense: boolean;
+  /** Athlete slated to take a handoff/pitch on this play, or -1. */
+  handoffTarget: AthleteId;
+  /** Tick (relative to the snap) when the exchange should happen. */
+  handoffTick: number;
 }
 
 export function dirOf(side: TeamSide): number { return side === 0 ? 1 : -1; }
@@ -127,6 +131,7 @@ export function createWorld(
     scoreLocked: false, lastCatcher: -1, lastHitPower: 0,
     switchRequests: [], qbTarget: -1, passTargets: [-1, -1, -1],
     lateHits: false, kickPending: null, freezeDefense: false,
+    handoffTarget: -1, handoffTick: 0,
   };
 }
 

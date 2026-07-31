@@ -80,9 +80,10 @@ export function updateBlocking(w: World): void {
       target.x += (dx / d) * push; target.z += (dz / d) * push;
       target.vx *= 0.86; target.vz *= 0.86;
 
-      // Shed attempt.
-      const shedChance = clamp01(0.006 + (target.def.ratings.power - bl.def.ratings.power) * 0.00042
-        + (target.turboHeld ? 0.004 : 0) + (target.onFire ? 0.006 : 0));
+      // Shed attempt. Blocks are meant to hold for roughly 1.5-3 s, which is the
+      // window the pocket has to exist for the passing game to work at all.
+      const shedChance = clamp01(0.0035 + (target.def.ratings.power - bl.def.ratings.power) * 0.00030
+        + (target.turboHeld ? 0.0028 : 0) + (target.onFire ? 0.005 : 0));
       if (w.rng.chance(shedChance)) {
         releaseEngagement(w, bl);
         stun(bl, s(0.35));

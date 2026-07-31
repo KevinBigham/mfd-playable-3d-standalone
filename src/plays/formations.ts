@@ -181,6 +181,50 @@ export const SPLIT_BACKS: Formation = {
   ],
 };
 
+// ── special-teams alignments ───────────────────────────────────────────────
+//
+// Shaped exactly like scrimmage formations (1 deep man + 3 LINE + 3 eligible)
+// so the play runner never needs a second code path. The "QB" slot is the
+// punter/kicker/holder.
+
+/** Punt look. Punter 11 yards deep, gunners split to the numbers. */
+export const PUNT_SHOW: Formation = {
+  name: 'PUNT_SHOW',
+  slots: [
+    o('QB', 0, -11.0),
+    ...trio(2.6),
+    o('SLOT', -20.0, 0.2),
+    o('BACK', -1.0, -5.0),
+    o('SLOT', 20.0, 0.2),
+  ],
+};
+
+/** Place-kick look. Holder at 7, kicker deep behind him, wings sealing the edge. */
+export const KICK_SHOW: Formation = {
+  name: 'KICK_SHOW',
+  slots: [
+    o('QB', -0.6, -7.0),
+    ...trio(2.0),
+    o('SLOT', -5.0, -0.4),
+    o('BACK', 0.9, -9.6),
+    o('SLOT', 5.0, -0.4),
+  ],
+};
+
+/** Kickoff coverage: kicker deep, six cover men strung across the width. */
+export const KICKOFF_SHOW: Formation = {
+  name: 'KICKOFF_SHOW',
+  slots: [
+    o('QB', 0, -7.0),
+    o('LINE', -13.0, -0.4),
+    o('LINE', 0, -0.6),
+    o('LINE', 13.0, -0.4),
+    o('WIDE', -21.0, 0),
+    o('SLOT', 7.0, -0.3),
+    o('WIDE', 21.0, 0),
+  ],
+};
+
 export const OFFENSE_FORMATIONS: Record<string, Formation> = {
   PRO_SET,
   SPREAD,
@@ -191,7 +235,16 @@ export const OFFENSE_FORMATIONS: Record<string, Formation> = {
   EMPTY,
   GOALLINE,
   SPLIT_BACKS,
+  PUNT_SHOW,
+  KICK_SHOW,
+  KICKOFF_SHOW,
 };
+
+/** The nine scrimmage formations, excluding special teams. */
+export const BASE_OFFENSE_FORMATIONS: Formation[] = [
+  PRO_SET, SPREAD, TRIPS_RIGHT, TRIPS_LEFT, SHOTGUN_SPREAD,
+  I_HEAVY, EMPTY, GOALLINE, SPLIT_BACKS,
+];
 
 // ── defensive formations ───────────────────────────────────────────────────
 //
@@ -226,8 +279,8 @@ export const DIME_5: DefFormation = {
 };
 
 /** Three interior heavies, two plugging linebackers, corner and post safety. */
-export const BEAR_3: DefFormation = {
-  name: 'BEAR_3',
+export const MAUL_3: DefFormation = {
+  name: 'MAUL_3',
   slots: [
     d('DL', -2.6, 0.9),
     d('DL', 0, 0.9),
@@ -281,13 +334,58 @@ export const EDGE_HEAVY: DefFormation = {
   ],
 };
 
+/** Punt return: jam the gunners, build a wall, one man deep. */
+export const PUNT_RETURN_SHOW: DefFormation = {
+  name: 'PUNT_RETURN_SHOW',
+  slots: [
+    d('DL', -3.0, 0.9),
+    d('DL', 3.0, 0.9),
+    d('LB', -12.0, 1.2),
+    d('LB', 12.0, 1.2),
+    d('CB', -6.5, 9.0),
+    d('CB', 6.5, 9.0),
+    d('S', 0, 42.0),
+  ],
+};
+
+/** Kick return: front wall, second wave, deep returner. */
+export const KICK_RETURN_SHOW: DefFormation = {
+  name: 'KICK_RETURN_SHOW',
+  slots: [
+    d('LB', -9.0, 12.0),
+    d('LB', 9.0, 12.0),
+    d('CB', -18.0, 20.0),
+    d('CB', 18.0, 20.0),
+    d('S', -5.0, 34.0),
+    d('S', 5.0, 34.0),
+    d('S', 0, 60.0),
+  ],
+};
+
+/** Everybody at the block point. */
+export const BLOCK_SHOW: DefFormation = {
+  name: 'BLOCK_SHOW',
+  slots: [
+    d('DL', -4.5, 0.9),
+    d('DL', -1.5, 0.9),
+    d('DL', 1.5, 0.9),
+    d('DL', 4.5, 0.9),
+    d('LB', -7.8, 1.2),
+    d('LB', 7.8, 1.2),
+    d('S', 0, 6.0),
+  ],
+};
+
 export const DEFENSE_FORMATIONS: Record<string, DefFormation> = {
   NICKEL_4,
   DIME_5,
-  BEAR_3,
+  MAUL_3,
   GOALLINE_D,
   PREVENT,
   EDGE_HEAVY,
+  PUNT_RETURN_SHOW,
+  KICK_RETURN_SHOW,
+  BLOCK_SHOW,
 };
 
 // ── lookups ────────────────────────────────────────────────────────────────

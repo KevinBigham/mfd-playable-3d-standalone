@@ -199,7 +199,7 @@ const GUT_PUNCH: DefensePlay = {
   id: 'd-gut-punch',
   name: 'Gut Punch',
   slot: 8,
-  formation: 'BEAR_3',
+  formation: 'MAUL_3',
   tags: ['INTERIOR', 'ZONE'],
   players: [
     p(-2.6, 0.9, rush(-0.35)),

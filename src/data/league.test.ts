@@ -295,6 +295,27 @@ describe('rosters', () => {
     }
   });
 
+  it('lets team power actually shape the athletes', () => {
+    const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+    const olPower = (t: TeamDef): number => mean([4, 5, 6].map((i) => t.roster[i].ratings.power));
+    const cbCover = (t: TeamDef): number => mean([10, 11].map((i) => t.roster[i].ratings.coverage));
+    const sortBy = (k: 'line' | 'coverage' | 'passing'): TeamDef[] =>
+      [...TEAMS].sort((a, b) => a.power[k] - b.power[k]);
+
+    const byLine = sortBy('line');
+    expect(olPower(byLine[15])).toBeGreaterThan(olPower(byLine[0]) + 12);
+    const byCov = sortBy('coverage');
+    expect(cbCover(byCov[15])).toBeGreaterThan(cbCover(byCov[0]) + 12);
+    const byPass = sortBy('passing');
+    expect(byPass[15].roster[0].ratings.arm).toBeGreaterThan(byPass[0].roster[0].ratings.arm + 10);
+
+    // Distinct identities must survive the rating curve rather than collapsing on the cap.
+    expect(new Set(TEAMS.map((t) => Math.round(olPower(t)))).size).toBeGreaterThanOrEqual(8);
+    const all: number[] = [];
+    for (const t of TEAMS) for (const p of t.roster) all.push(...Object.values(p.ratings));
+    expect(all.filter((v) => v >= 97).length / all.length).toBeLessThan(0.01);
+  });
+
   it('is deterministic for a given seed', () => {
     const a = makeRoster('probe', 'BALANCED', new Rng(hashSeed('probe')));
     const b = makeRoster('probe', 'BALANCED', new Rng(hashSeed('probe')));
@@ -365,7 +386,7 @@ describe('logos', () => {
     expect(LOGO_KEYS.length).toBe(16);
   });
 
-  it('emits a standalone svg document carrying the team colours', () => {
+  it('emits a standalone svg carrying the team colours', () => {
     for (const t of TEAMS) {
       const svg = teamLogoSvg(t);
       expect(svg.startsWith('<svg ')).toBe(true);

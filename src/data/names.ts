@@ -111,7 +111,11 @@ const NUMBER_BANDS: Record<RosterRole, readonly Band[]> = {
 function pickNumber(role: RosterRole, rng: Rng, used: Set<number>): number {
   const bands = NUMBER_BANDS[role];
   for (let attempt = 0; attempt < 24; attempt++) {
-    const band = bands[attempt < 16 ? 0 : Math.min(attempt - 16, bands.length - 1)];
+    // Positions with two plausible bands use both, so a league of receivers is not
+    // uniformly in the eighties.
+    const band = attempt < 16 && bands.length > 1
+      ? (rng.chance(0.6) ? bands[0] : bands[1])
+      : bands[Math.min(attempt < 16 ? 0 : attempt - 16, bands.length - 1)];
     const n = rng.int(band[0], band[1]);
     if (!used.has(n)) { used.add(n); return n; }
   }
@@ -132,19 +136,37 @@ function ratings(
   return { speed, power, hands, agility, arm, accuracy, coverage, awareness };
 }
 
-/** Positional archetype before style, team power, and noise are applied. */
+/**
+ * Positional archetype before style, team power, and noise are applied.
+ * Deliberately set below the 97 ceiling: style and team power add up to ~15 points on a
+ * position's signature rating, and the headroom is what makes those identities visible.
+ */
 const BASE: Record<RosterRole, Ratings> = {
-  QB: ratings(62, 55, 55, 66, 84, 82, 42, 80),
-  WR: ratings(88, 52, 84, 85, 42, 40, 48, 72),
-  RB: ratings(84, 74, 68, 86, 44, 40, 46, 70),
-  TE: ratings(72, 78, 79, 66, 42, 40, 50, 73),
-  OL: ratings(55, 90, 42, 52, 40, 40, 40, 66),
-  DL: ratings(66, 89, 48, 62, 40, 40, 44, 68),
-  LB: ratings(76, 80, 56, 72, 40, 40, 66, 76),
-  CB: ratings(90, 52, 66, 88, 40, 40, 87, 76),
-  S: ratings(84, 68, 64, 78, 40, 40, 80, 80),
-  K: ratings(58, 56, 50, 55, 64, 88, 40, 62),
+  QB: ratings(62, 55, 55, 66, 80, 78, 42, 76),
+  WR: ratings(84, 52, 80, 82, 42, 40, 48, 70),
+  RB: ratings(81, 71, 66, 82, 44, 40, 46, 68),
+  TE: ratings(71, 75, 75, 65, 42, 40, 50, 71),
+  OL: ratings(55, 84, 42, 52, 40, 40, 40, 65),
+  DL: ratings(65, 83, 48, 61, 40, 40, 44, 66),
+  LB: ratings(74, 77, 56, 71, 40, 40, 63, 73),
+  CB: ratings(85, 52, 64, 84, 40, 40, 82, 73),
+  S: ratings(80, 66, 62, 76, 40, 40, 76, 77),
+  K: ratings(58, 56, 50, 55, 62, 84, 40, 60),
 };
+
+/**
+ * Above `SOFT_CEIL`, bonuses bend asymptotically toward `HARD_CEIL` instead of stacking.
+ * Ordering is preserved and nothing ever pins to the cap, so an elite team cannot pile
+ * style + power + a star roll into a flat wall of identical maxima — the ceiling stops
+ * being a place where distinct teams collide. Genuine outliers still reach the mid-90s.
+ */
+const SOFT_CEIL = 86;
+const HARD_CEIL = 97;
+const CEIL_SCALE = 11;
+function softCeil(v: number): number {
+  if (v <= SOFT_CEIL) return v;
+  return HARD_CEIL - (HARD_CEIL - SOFT_CEIL) * Math.exp(-(v - SOFT_CEIL) / CEIL_SCALE);
+}
 
 const KEYS: readonly (keyof Ratings)[] = [
   'speed', 'power', 'hands', 'agility', 'arm', 'accuracy', 'coverage', 'awareness',
@@ -238,7 +260,7 @@ function buildRatings(
   const out = {} as Ratings;
   for (const k of KEYS) {
     const raw = base[k] + (sm[k] ?? 0) + (pm[k] ?? 0) + star + rng.spread(v);
-    out[k] = Math.round(clamp(raw, 40, 97));
+    out[k] = Math.round(clamp(softCeil(raw), 40, 97));
   }
   return out;
 }
