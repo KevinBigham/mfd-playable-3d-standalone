@@ -1,6 +1,6 @@
 import type {
   AthleteId, DeadReason, DefensePlay, MatchConfig, MatchPhase, MatchResult, MatchState,
-  OffensePlay, PlayerIntent, TeamDef, TeamSide,
+  OffensePlay, PlayerIntent, SurfaceKind, TeamDef, TeamSide,
 } from '../core/types.ts';
 import { Rng } from '../core/rng.ts';
 import { EventBus } from '../core/events.ts';
@@ -39,6 +39,7 @@ import {
 import { OFFENSE_PLAYS } from '../plays/offense.ts';
 import { DEFENSE_PLAYS } from '../plays/defense.ts';
 import { Action, has } from '../input/actions.ts';
+import { getStadium } from '../data/stadiums.ts';
 
 /** Phases whose handlers call `stepPlay` and therefore advance the world themselves. */
 const STEPPING_PHASES: ReadonlySet<string> = new Set([
@@ -104,9 +105,14 @@ export class Match {
     this.bus = opts.bus ?? new EventBus();
     this.rng = new Rng(opts.config.seed);
     this.seatIntent = opts.seatIntent ?? (() => null);
+    // The venue owns the playing surface. This used to be hardcoded to GRASS, which meant
+    // `StadiumDef.surface` never reached the simulation OR the renderer: traction was always
+    // grass traction and every ground rendered as grass, whatever it said on the tin.
+    let surface: SurfaceKind = 'GRASS';
+    try { surface = getStadium(opts.config.stadium).surface; } catch { /* unknown id → grass */ }
     const conditions = makeConditions(
       opts.config.weather,
-      'GRASS',
+      surface,
       new Rng(opts.config.seed ^ 0x5eed),
     );
     this.world = createWorld(opts.home, opts.away, conditions, this.rng, this.bus);

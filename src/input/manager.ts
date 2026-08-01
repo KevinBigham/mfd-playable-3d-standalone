@@ -39,16 +39,23 @@ export class InputManager {
   private disposers: Array<() => void> = [];
   /** Anything at all pressed this frame (used to unlock audio). */
   anyActivity = false;
+  /** Keys that saw a keydown since the last poll, whether or not they are still down. */
+  private tapped = new Set<string>();
   onGamepadChange: ((pads: number[]) => void) | null = null;
 
   attach(target: Window = window): void {
     const down = (e: KeyboardEvent) => {
       if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
       this.keys.add(e.code);
+      // Latch it as well. A key that is pressed AND released between two polls never appears in
+      // `keys` when a poll finally runs, so without this a quick tap simply does not exist —
+      // and the slower the frame, the more often that happens. It is the kind of bug that
+      // reads as "the game ignored me", and it gets worse exactly when the machine is busy.
+      this.tapped.add(e.code);
       this.anyActivity = true;
     };
     const up = (e: KeyboardEvent) => { this.keys.delete(e.code); };
-    const blur = () => { this.keys.clear(); };
+    const blur = () => { this.keys.clear(); this.tapped.clear(); };
     const padConnect = () => { this.refreshPads(); };
     target.addEventListener('keydown', down as EventListener);
     target.addEventListener('keyup', up as EventListener);
@@ -65,7 +72,12 @@ export class InputManager {
     this.refreshPads();
   }
 
-  dispose(): void { for (const d of this.disposers) d(); this.disposers.length = 0; this.keys.clear(); }
+  dispose(): void {
+    for (const d of this.disposers) d();
+    this.disposers.length = 0;
+    this.keys.clear();
+    this.tapped.clear();
+  }
 
   setBinding(seat: 0 | 1, b: KeyboardBinding): void { this.bindings[seat] = { ...b }; }
   getBinding(seat: 0 | 1): KeyboardBinding { return { ...this.bindings[seat] }; }
@@ -115,6 +127,13 @@ export class InputManager {
           if (!name) continue;
           held |= ACTION_BY_NAME[name];
         }
+        // A tap that began and ended inside this frame counts as held for exactly this frame,
+        // so it produces one press edge now and one release edge next poll.
+        for (const code of this.tapped) {
+          const name = b[code] as ActionName | undefined;
+          if (!name) continue;
+          held |= ACTION_BY_NAME[name];
+        }
         if (held & Action.UP) mz += 1;
         if (held & Action.DOWN) mz -= 1;
         if (held & Action.LEFT) mx -= 1;
@@ -159,6 +178,7 @@ export class InputManager {
       this.prevMenuHeld[seat] = menuHeld;
       if (held) this.anyActivity = true;
     }
+    this.tapped.clear();
   }
 
   intentFor(seat: number): PlayerIntent | null {

@@ -289,7 +289,7 @@ export class GameRenderer {
         this.gameCamera.impulse(e.power);
         this.post?.impulse(e.power);
         this.effects.burst(e.at.x, 0.2, e.at.z, clamp01(e.power), 'TURF');
-        if (e.power > 0.55) this.effects.ring(e.at.x, 0, e.at.z, 2 + e.power * 2.4, 0xfff0b0);
+        this.effects.ring(e.at.x, 0, e.at.z, 2 + e.power * 2.4, 0xfff0b0);
         break;
       case 'bigHit':
         this.flash(0.35);
@@ -419,7 +419,9 @@ export class GameRenderer {
       void dir;
     }
 
-    this.effects.update(dt);
+    // Effects observe the world directly so they can react to cuts, foot-plants and turbo
+    // without the renderer having to forward a dozen separate signals.
+    this.effects.update(dt, world, alpha);
     this.gameCamera.update(world, dt, celebrating);
     this.lastDt = dt;
   }
@@ -561,11 +563,20 @@ export class GameRenderer {
     this.render();
   }
 
-  info(): { calls: number; triangles: number; textures: number; geometries: number } {
+  /**
+   * Scene complexity, for the budget checks. With the post chain on, `renderer.info.render`
+   * describes the last thing drawn — a single fullscreen triangle — so the figures come from the
+   * snapshot the composite takes right after the scene pass instead.
+   */
+  info(): { calls: number; triangles: number; textures: number; geometries: number; postPasses: number } {
     const i = this.renderer.info;
+    const post = this.post;
     return {
-      calls: i.render.calls, triangles: i.render.triangles,
-      textures: i.memory.textures, geometries: i.memory.geometries,
+      calls: post ? post.sceneCalls : i.render.calls,
+      triangles: post ? post.sceneTriangles : i.render.triangles,
+      textures: i.memory.textures,
+      geometries: i.memory.geometries,
+      postPasses: post ? (this.quality.tier === 'LOW' ? 4 : 6) : 0,
     };
   }
 

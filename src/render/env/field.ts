@@ -1,21 +1,35 @@
 import * as THREE from 'three';
-import type { Conditions, StadiumDef, TeamDef } from '../../core/types.ts';
+import type { Conditions, StadiumDef, TeamDef, SurfaceKind, WeatherKind } from '../../core/types.ts';
 import type { SceneRegistry, QualitySettings } from '../registry.ts';
-import { fieldMarkingsTexture, turfTexture, SURFACE_LOOK } from './textures.ts';
+import { fieldMarkingsTexture, turfTexture, turfMicroTexture, fieldWearTexture, SURFACE_LOOK } from './textures.ts';
 import { GeoBatch, chamferBox } from './geo.ts';
+import { SURF, applySurfaceShader, makeRimUniforms, type RimUniforms } from '../surfaces.ts';
+import { rimUniforms } from '../athleteRig.ts';
 
 /**
  * The playing surface and everything painted, planted or parked on it.
  *
- * The 120 × 53.33 yd surface is ONE mesh with ONE material: a tiling turf detail map and the
- * single field-markings colour map are combined inside the shader, so every yard line, number,
- * hash and end-zone wordmark costs zero extra draw calls.
+ * The 120 × 53.33 yd surface is ONE mesh with ONE material: a tiling turf detail map, a tiling
+ * micro-relief map, a field-scale wear mask and the single field-markings colour map are combined
+ * inside one physically-shaded pass, so every yard line, number, hash, mow band, scuff and
+ * end-zone wordmark costs zero extra draw calls.
+ *
+ * The mow bands are the reason this is a `MeshStandardMaterial` and not a painted texture. Real
+ * mown turf does not change colour band to band — it changes *direction*. Grass laid over toward
+ * the mower shows you its flat leaf faces and goes bright and glossy; grass laid away shows you
+ * its edges and goes dark and matte, and the two swap the moment you walk to the other end. That
+ * only happens if the normal and the roughness alternate, which needs a real BRDF and the venue's
+ * environment map behind it. Everything else here — wear, weather, the paint sitting slightly
+ * proud of the grass — rides on the same shader for free.
  */
 
 const HALF_W = 26.665;
 const LENGTH = 120;          // z ∈ [-10, 110]
 const CENTER_Z = 50;
-const TURF_TILE = 10;        // yards per turf detail tile
+const TURF_TILE = 10;        // yards per turf detail (albedo) tile
+const MICRO_TILE = 7;        // yards per micro-relief tile — deliberately not a factor of 5 or 10,
+                             // so the relief never lines up with the mow bands or the yard lines
+const MOW_PERIOD = 10;       // yards for a light+dark pair, i.e. 5-yard bands on the 5-yard lines
 /** Apron reaches the largest rectangle that fits inside the stadium bowl's inner wall. */
 const APRON_OUT_X = 37;
 const APRON_OUT_Z = 16;      // beyond each end line
@@ -56,6 +70,206 @@ export interface FieldHandle {
   dispose(): void;
 }
 
+// ───────────────────────────────────────────────────────────── turf shading
+
+interface TurfTuning {
+  /** Roughness of pristine surface, and how far the micro-relief pushes it either way. */
+  roughBase: number; roughVar: number;
+  /** Mow band response: albedo, roughness and normal-tilt deltas between neighbouring bands. */
+  mowTone: number; mowRough: number; mowTilt: number;
+  wearDark: number; wearRough: number;
+  paintRough: number; paintGain: number; paintProud: number;
+  /** Weather/surface switches consumed by the shader, all 0..1. */
+  wet: number; snow: number; mud: number; frost: number;
+  normalScale: number; envGain: number; macroBump: number;
+}
+
+/**
+ * How the surface answers the sky.
+ *
+ * Wet grass is not darker *and* shinier by coincidence — water fills the gaps between the blades,
+ * which removes the diffuse scattering that made it bright and replaces it with a specular sheet,
+ * so albedo drops and roughness drops together. Snow does the opposite on both counts. Getting
+ * that pairing right is most of why weather reads at all.
+ */
+function turfTuning(surface: SurfaceKind, weather: WeatherKind): TurfTuning {
+  const look = SURFACE_LOOK[surface];
+  const living = surface === 'GRASS' || surface === 'TURF';
+  const t: TurfTuning = {
+    roughBase: look.rough,
+    roughVar: living ? 0.26 : 0.16,
+    mowTone: look.stripe * 0.34,
+    mowRough: look.mow,
+    mowTilt: living ? 0.34 : 0.10,
+    // A mud ground is defined by how much of it has been churned away, so its wear runs to the
+    // top of the range; sand and asphalt have no grass to lose.
+    wearDark: surface === 'MUD' ? 1.0 : living ? 0.78 : 0.48,
+    wearRough: 0.17,
+    paintRough: 0.50,
+    paintGain: surface === 'FROZEN' || surface === 'SAND' ? 0.55 : 1.0,
+    paintProud: 0.45,
+    wet: 0,
+    snow: 0,
+    mud: surface === 'MUD' ? 1 : 0,
+    frost: surface === 'FROZEN' ? 1 : 0,
+    normalScale: living ? 1.15 : 0.85,
+    envGain: 0.58,
+    macroBump: living ? 1.0 : 0.6,
+  };
+  switch (weather) {
+    // A soaked field is the best-looking one: it stops being a colour and starts being a mirror
+    // for the towers, and every hollow the groundskeeper never fixed shows up as a bright patch.
+    case 'RAIN': t.wet = 1; t.envGain = 0.95; t.mowTilt *= 0.7; break;
+    case 'FOG': t.wet = 0.32; break;
+    case 'SNOW': t.snow = 1; t.envGain = 0.72; t.mowTilt *= 0.45; break;
+    case 'HEAT': t.roughBase = Math.min(1, look.rough + 0.07); t.wearDark *= 1.15; break;
+    default: break;
+  }
+  return t;
+}
+
+/**
+ * World +Z and world +X in view space, so the shader can lean the nap along the mow direction
+ * without needing to know where the camera is. Declared on both stages.
+ */
+const TURF_VARYINGS = /* glsl */`
+varying vec3 vMowDir;
+varying vec3 vFieldX;`;
+
+const TURF_VERT_BODY = /* glsl */`
+vMowDir = normalize( ( modelViewMatrix * vec4( 0.0, 0.0, 1.0, 0.0 ) ).xyz );
+vFieldX = normalize( ( modelViewMatrix * vec4( 1.0, 0.0, 0.0, 0.0 ) ).xyz );`;
+
+const TURF_FRAG_PARS = /* glsl */`
+uniform sampler2D uMarks;
+uniform sampler2D uWear;
+uniform vec2  uTurfRepeat;
+uniform float uDetailBias;
+uniform float uDetailGain;
+uniform float uMowPeriod;
+uniform vec3  uMow;        // x albedo, y roughness, z normal tilt
+uniform vec3  uWearTint;
+uniform vec2  uWearAmt;    // x darkening, y roughening
+uniform vec2  uRough;      // x base, y micro variation
+uniform vec3  uPaint;      // x roughness, y gain, z proudness
+uniform vec4  uWx;         // x wet, y snow, z mud, w frost
+uniform float uMacro;
+// Resolved once in the albedo pass and reused by the roughness and normal passes.
+float goPaintM;
+float goMowM;
+float goWearM;
+float goDampM;
+float goRoughX;
+float goFarM;`;
+
+const TURF_FRAG_ALBEDO = /* glsl */`
+vec2 goUv = vMapUv;
+float goZ = 110.0 - goUv.y * 120.0;
+
+vec3 goMarks = texture2D( uMarks, goUv ).rgb;
+vec3 goNap   = texture2D( map, goUv * uTurfRepeat ).rgb;
+vec3 goWear3 = texture2D( uWear, goUv ).rgb;
+
+goWearM  = clamp( goWear3.r, 0.0, 1.0 );
+goRoughX = goWear3.g;
+goDampM  = clamp( goWear3.b, 0.0, 1.0 );
+
+// Paint identifies itself: it is the only bright *neutral* thing painted on the field, so a
+// brightness test crossed with a saturation test separates it from every team colour going.
+float goMx = max( goMarks.r, max( goMarks.g, goMarks.b ) );
+float goMn = min( goMarks.r, min( goMarks.g, goMarks.b ) );
+goPaintM = smoothstep( 0.60, 0.80, goMx ) * ( 1.0 - smoothstep( 0.08, 0.24, goMx - goMn ) );
+goPaintM *= uPaint.y * ( 1.0 - 0.5 * goWearM );
+
+// Mown bands straight off world Z, 5 yards each so every seam lands on a 5-yard line. The edge
+// softens to match the pixel footprint, so once a band is thinner than a pixel the whole term
+// collapses to zero instead of turning the far end of the field into a moire fence.
+float goFw = fwidth( goZ ) / uMowPeriod;
+float goEdge = clamp( goFw * 1.7, 0.035, 0.5 );
+float goT = fract( goZ / uMowPeriod );
+goMowM = ( smoothstep( 0.0, goEdge, goT ) - smoothstep( 0.5, 0.5 + goEdge, goT ) ) * 2.0 - 1.0;
+
+goFarM = smoothstep( 34.0, 150.0, length( vViewPosition ) );
+
+vec3 goCol = goMarks * ( uDetailBias + uDetailGain * goNap );
+goCol *= 1.0 + uMow.x * goMowM * ( 1.0 - goPaintM * 0.7 );
+// Chlorophyll is never even across a hundred yards: the patches the sprinklers favour run
+// bluer, the ones they miss run yellow.
+goCol *= mix( vec3( 0.97, 1.01, 1.04 ), vec3( 1.07, 0.99, 0.88 ), clamp( goRoughX * 1.3, 0.0, 1.0 ) );
+
+// Wear, in the order it actually happens: grass thins and goes pale and yellow long before it
+// gives up, and only the very worst of it is bare soil. Modulating by the blade detail keeps the
+// edge of a worn patch ragged instead of airbrushed.
+float goWk = clamp( goWearM * uWearAmt.x * ( 0.45 + 1.15 * goNap.r ), 0.0, 0.88 );
+// Thinning grass keeps its brightness and loses its colour — lifting red and blue against green
+// yellows it without turning the middle of the field into a grey wash.
+vec3 goPale = goCol * vec3( 2.60, 1.04, 1.20 );
+vec3 goSoil = uWearTint * ( 0.60 + 0.85 * goNap.g );
+goCol = mix( goCol, goPale, smoothstep( 0.0, 0.60, goWk ) );
+goCol = mix( goCol, goSoil, smoothstep( 0.45, 1.0, goWk ) );
+
+// Mud goes patchy rather than uniformly brown.
+goCol = mix( goCol, goCol * ( 0.42 + 0.55 * goNap.r ), uWx.z * ( 0.45 + 0.55 * goDampM ) );
+
+// Wet ground loses albedo; the gloss that replaces it is handled in the roughness pass.
+goCol *= mix( 1.0, 0.66, uWx.x * ( 0.45 + 0.55 * goDampM ) );
+
+// Snow settles in the low ground and the scuffed ground first and blows off the crown, so it
+// lands patchy rather than as a bedsheet — and it gets swept off the paint, because a field
+// nobody can find the yard lines on is not a field anybody wants to play on.
+float goSnowK = uWx.y * ( 0.30 + 0.44 * goDampM + 0.26 * goWearM ) * ( 0.55 + 0.85 * goNap.b );
+goSnowK = clamp( goSnowK * ( 1.0 - 0.55 * goPaintM ), 0.0, 0.88 );
+goCol = mix( goCol, mix( vec3( dot( goCol, vec3( 0.3333 ) ) ), vec3( 0.74, 0.78, 0.86 ), 0.88 ), goSnowK );
+
+// Frozen ground goes pale and gives up its colour without going white.
+goCol = mix( goCol, mix( goCol, vec3( 0.60, 0.68, 0.71 ), 0.5 ), uWx.w );
+
+diffuseColor.rgb *= goCol;`;
+
+const TURF_FRAG_ROUGH = /* glsl */`
+float goR = uRough.x;
+goR += uRough.y * ( texture2D( normalMap, vNormalMapUv ).a - 0.5 ) * 2.0 * ( 1.0 - goFarM );
+goR += uMow.y * goMowM;
+goR += uWearAmt.y * goWearM;
+goR += 0.15 * ( goRoughX - 0.22 );
+goR = mix( goR, uPaint.x, goPaintM );
+goR = mix( goR, 0.13, uWx.x * clamp( 0.5 + 0.5 * goDampM, 0.0, 1.0 ) );
+goR = mix( goR, 0.17, uWx.w * 0.85 );
+goR = mix( goR, 0.90, uWx.y * 0.75 );
+// Dry grass is never glossier than this. A 0.05 floor let the mow bands go near-specular at
+// grazing incidence, which blew the middle distance out to a white band across the field.
+float goFloor = mix( 0.34, 0.12, clamp( max( uWx.x, uWx.w ), 0.0, 1.0 ) );
+roughnessFactor = clamp( goR, goFloor, 1.0 );`;
+
+const TURF_FRAG_NORMAL = /* glsl */`
+{
+  vec3 goFlat = normalize( vNormal );
+  // Blade-scale relief has no business surviving to the far end of the field; it only aliases.
+  normal = normalize( mix( goFlat, normal, 1.0 - 0.9 * goFarM ) );
+
+  // Macro undulation. Three incommensurate swells, differentiated analytically, wavelengths in
+  // the 25–40 yard range: a real field is crowned and settled, and a plane is exactly what the
+  // old one looked like.
+  float gX = ( vMapUv.x - 0.5 ) * 53.33;
+  float gZ = 110.0 - vMapUv.y * 120.0;
+  float w1 = cos( gX * 0.171 + gZ * 0.083 + 0.7 );
+  float w2 = cos( gX * -0.094 + gZ * 0.211 + 2.3 );
+  float w3 = cos( gX * 0.263 + gZ * 0.147 + 4.1 );
+  float dhx = w1 * 0.0445 + w2 * -0.0188 + w3 * 0.0316;
+  float dhz = w1 * 0.0216 + w2 *  0.0422 + w3 * 0.0176;
+  normal = normalize( normal - ( vFieldX * dhx + vMowDir * dhz ) * uMacro );
+
+  // The mow itself: grass laid toward the mower and grass laid away from it, which is the whole
+  // reason the bands change places when you look from the other end.
+  normal = normalize( normal - vMowDir * ( goMowM * uMow.z * ( 1.0 - goPaintM * 0.8 ) ) );
+
+  // Paint fills the gaps between the blades, so it is flatter than the grass and stands very
+  // slightly proud of it. The bevel comes from the gradient of the mask itself.
+  normal = normalize( mix( normal, goFlat, goPaintM * 0.8 ) );
+  vec2 goPg = clamp( vec2( dFdx( goPaintM ), dFdy( goPaintM ) ), -0.6, 0.6 );
+  normal = normalize( normal - vec3( goPg * uPaint.z, 0.0 ) );
+}`;
+
 function markerTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = 4; c.height = 64;
@@ -88,7 +302,11 @@ export function buildField(reg: SceneRegistry, o: FieldOptions): FieldHandle {
   const keepM = <T extends THREE.Material>(m: T): T => { mats.push(m); return m; };
 
   // ── turf + markings, one mesh ──────────────────────────────────────────
-  const detail = turfTexture(surface, q);
+  /** LOW keeps the cheap forward-shaded field; everything else gets the full surface. */
+  const rich = q.tier !== 'LOW';
+  const tune = turfTuning(surface, o.conditions.weather);
+  const detail = turfTexture(surface, q, false);
+  const wearMap = fieldWearTexture(surface, q);
   const marks = fieldMarkingsTexture({
     home: o.home.colors,
     away: o.away.colors,
@@ -98,35 +316,81 @@ export function buildField(reg: SceneRegistry, o: FieldOptions): FieldHandle {
     accent: o.stadium.accent,
     quality: q,
   });
+  const micro = rich ? turfMicroTexture(surface, q) : null;
+  if (micro) micro.repeat.set((HALF_W * 2) / MICRO_TILE, LENGTH / MICRO_TILE);
 
   const turfGeo = keep(new THREE.PlaneGeometry(HALF_W * 2, LENGTH, 1, 1));
   turfGeo.rotateX(-Math.PI / 2);
   turfGeo.translate(0, 0, CENTER_Z);
 
-  const turfMat = keepM(new THREE.MeshPhongMaterial({
-    map: detail,
-    color: 0xffffff,
-    specular: new THREE.Color(surface === 'FROZEN' ? 0x3a4650 : 0x161c14),
-    shininess: surface === 'FROZEN' ? 46 : surface === 'MUD' ? 26 : 14,
-  }));
-  turfMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uMarks = { value: marks };
-    shader.uniforms.uTurfRepeat = { value: new THREE.Vector2((HALF_W * 2) / TURF_TILE, LENGTH / TURF_TILE) };
-    shader.uniforms.uDetailBias = { value: 0.24 };
-    shader.uniforms.uDetailGain = { value: 1.52 };
-    shader.fragmentShader =
-      'uniform sampler2D uMarks;\nuniform vec2 uTurfRepeat;\nuniform float uDetailBias;\nuniform float uDetailGain;\n'
-      + shader.fragmentShader;
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <map_fragment>',
-      [
-        'vec3 goPaint = texture2D( uMarks, vMapUv ).rgb;',
-        'vec3 goNap = texture2D( map, vMapUv * uTurfRepeat ).rgb;',
-        'diffuseColor.rgb *= goPaint * ( uDetailBias + uDetailGain * goNap );',
-      ].join('\n'),
-    );
+  const turfUniforms = {
+    uMarks: { value: marks },
+    uWear: { value: wearMap },
+    uTurfRepeat: { value: new THREE.Vector2((HALF_W * 2) / TURF_TILE, LENGTH / TURF_TILE) },
+    uDetailBias: { value: 0.30 },
+    uDetailGain: { value: 1.42 },
+    uMowPeriod: { value: MOW_PERIOD },
+    uMow: { value: new THREE.Vector3(tune.mowTone, tune.mowRough, tune.mowTilt) },
+    uWearTint: { value: new THREE.Color(look.dirt) },
+    uWearAmt: { value: new THREE.Vector2(tune.wearDark, tune.wearRough) },
+    uRough: { value: new THREE.Vector2(tune.roughBase, tune.roughVar) },
+    uPaint: { value: new THREE.Vector3(tune.paintRough, tune.paintGain, tune.paintProud) },
+    uWx: { value: new THREE.Vector4(tune.wet, tune.snow, tune.mud, tune.frost) },
+    uMacro: { value: tune.macroBump },
   };
-  turfMat.customProgramCacheKey = () => 'go-env-turf';
+
+  let turfMat: THREE.Material;
+  /** Non-null on the physically-shaded path; `update` keeps its gain in step with the venue. */
+  let fieldRim: RimUniforms | null = null;
+
+  if (rich) {
+    const mat = keepM(new THREE.MeshStandardMaterial({
+      map: detail,
+      color: 0xffffff,
+      roughness: tune.roughBase,
+      metalness: 0,
+      normalMap: micro,
+      normalScale: new THREE.Vector2(tune.normalScale, tune.normalScale),
+      envMapIntensity: tune.envGain,
+      dithering: true,
+    }));
+    // The turf carries the rim too, at a fraction of the athletes' strength — enough that the far
+    // end of the field picks up the venue's edge colour and reads as distance, not as a bald plane.
+    // Sharing the Color instance means a venue re-tune reaches the turf without a second call.
+    fieldRim = makeRimUniforms(new THREE.Color(), rimUniforms.uRimGain.value * SURF.TURF.rim, 3.4);
+    fieldRim.uRimColor.value = rimUniforms.uRimColor.value;
+    applySurfaceShader(mat, fieldRim, false);
+    const baseCompile = mat.onBeforeCompile;
+    mat.onBeforeCompile = (shader, renderer): void => {
+      baseCompile.call(mat, shader, renderer);
+      for (const [k, v] of Object.entries(turfUniforms)) shader.uniforms[k] = v;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>\n${TURF_VARYINGS}`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>\n${TURF_VERT_BODY}`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\n${TURF_FRAG_PARS}\n${TURF_VARYINGS}`)
+        .replace('#include <map_fragment>', TURF_FRAG_ALBEDO)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n${TURF_FRAG_ROUGH}`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${TURF_FRAG_NORMAL}`);
+    };
+    mat.customProgramCacheKey = () => 'go-env-turf-std';
+    turfMat = mat;
+  } else {
+    const mat = keepM(new THREE.MeshPhongMaterial({
+      map: detail,
+      color: 0xffffff,
+      specular: new THREE.Color(surface === 'FROZEN' ? 0x3a4650 : 0x161c14),
+      shininess: surface === 'FROZEN' ? 46 : surface === 'MUD' ? 26 : 14,
+    }));
+    mat.onBeforeCompile = (shader): void => {
+      for (const [k, v] of Object.entries(turfUniforms)) shader.uniforms[k] = v;
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\n${TURF_FRAG_PARS}`)
+        .replace('#include <map_fragment>', TURF_FRAG_ALBEDO);
+    };
+    mat.customProgramCacheKey = () => 'go-env-turf-lite';
+    turfMat = mat;
+  }
 
   const turf = new THREE.Mesh(turfGeo, turfMat);
   turf.name = 'turf';
@@ -153,10 +417,17 @@ export function buildField(reg: SceneRegistry, o: FieldOptions): FieldHandle {
     quad(-HALF_W + inset, HALF_W - inset, -10 - APRON_OUT_Z, -10 + inset);
     quad(-HALF_W + inset, HALF_W - inset, 110 - inset, 110 + APRON_OUT_Z);
     const g = keep(apron.build());
-    const m = keepM(new THREE.MeshPhongMaterial({
-      map: detail, vertexColors: true, shininess: 8, specular: new THREE.Color(0x0c0f0c),
-      polygonOffset: true, polygonOffsetFactor: 1.4, polygonOffsetUnits: 1.4,
-    }));
+    // Matched to the field so the two do not read as different materials at the sideline.
+    const m = keepM(rich
+      ? new THREE.MeshStandardMaterial({
+        map: detail, vertexColors: true, roughness: Math.min(1, tune.roughBase + 0.12), metalness: 0,
+        envMapIntensity: tune.envGain * 0.8, dithering: true,
+        polygonOffset: true, polygonOffsetFactor: 1.4, polygonOffsetUnits: 1.4,
+      })
+      : new THREE.MeshPhongMaterial({
+        map: detail, vertexColors: true, shininess: 8, specular: new THREE.Color(0x0c0f0c),
+        polygonOffset: true, polygonOffsetFactor: 1.4, polygonOffsetUnits: 1.4,
+      }));
     const mesh = new THREE.Mesh(g, m);
     mesh.receiveShadow = q.shadows;
     mesh.matrixAutoUpdate = false;
@@ -431,6 +702,9 @@ export function buildField(reg: SceneRegistry, o: FieldOptions): FieldHandle {
       const a = 0.72 + Math.sin(pulse * 3.1) * 0.14;
       los.mat.opacity = a;
       firstDown.mat.opacity = 0.80 + Math.sin(pulse * 3.1 + 1.1) * 0.16;
+      // The venue's rim gain is set after the environment is built, so track it rather than
+      // sampling it once at build time and being permanently one match behind.
+      if (fieldRim) fieldRim.uRimGain.value = rimUniforms.uRimGain.value * SURF.TURF.rim;
     },
     dispose(): void {
       if (disposed) return;

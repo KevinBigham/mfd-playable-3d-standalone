@@ -50,6 +50,8 @@ function finish(c: HTMLCanvasElement, srgb: boolean, repeat: boolean, aniso: num
 
 // ───────────────────────────────────────────────────────────────── surfaces
 
+export type TurfGrain = 'BLADE' | 'FIBRE' | 'CRACK' | 'CLUMP' | 'RIPPLE' | 'AGGREGATE';
+
 interface SurfaceLook {
   /** Base field colour, painted into the markings texture. */
   base: string;
@@ -59,27 +61,48 @@ interface SurfaceLook {
   stripe: number;
   /** Per-channel tint of the detail modulation. */
   tint: [number, number, number];
-  grain: 'BLADE' | 'FIBRE' | 'CRACK' | 'CLUMP' | 'RIPPLE' | 'AGGREGATE';
+  grain: TurfGrain;
+  /** Colour the surface turns where it has been chewed down to nothing. */
+  dirt: string;
+  /** Base roughness of the pristine surface, 0 = mirror. */
+  rough: number;
+  /** How much a mown band changes roughness relative to its neighbour. */
+  mow: number;
+  /** Height of the micro relief, in normal-map strength. */
+  relief: number;
 }
 
 export const SURFACE_LOOK: Record<SurfaceKind, SurfaceLook> = {
-  GRASS:   { base: '#2c7a37', blotch: '#245f2b', stripe: 0.19, tint: [0.94, 1.06, 0.92], grain: 'BLADE' },
-  TURF:    { base: '#1d7f48', blotch: '#17693c', stripe: 0.14, tint: [0.92, 1.05, 0.99], grain: 'FIBRE' },
-  FROZEN:  { base: '#8fae95', blotch: '#d8e6ea', stripe: 0.07, tint: [1.02, 1.02, 1.06], grain: 'CRACK' },
-  MUD:     { base: '#5b482c', blotch: '#3f3120', stripe: 0.05, tint: [1.05, 0.98, 0.90], grain: 'CLUMP' },
-  SAND:    { base: '#c0a165', blotch: '#a98a51', stripe: 0.04, tint: [1.06, 1.00, 0.90], grain: 'RIPPLE' },
-  ASPHALT: { base: '#3b4048', blotch: '#2c3037', stripe: 0.03, tint: [0.98, 0.99, 1.04], grain: 'AGGREGATE' },
+  GRASS:   { base: '#2c7a37', blotch: '#245f2b', stripe: 0.19, tint: [0.94, 1.06, 0.92], grain: 'BLADE',
+    dirt: '#6b5333', rough: 0.79, mow: 0.16, relief: 1.0 },
+  TURF:    { base: '#1d7f48', blotch: '#17693c', stripe: 0.14, tint: [0.92, 1.05, 0.99], grain: 'FIBRE',
+    dirt: '#2c3f37', rough: 0.72, mow: 0.11, relief: 0.7 },
+  FROZEN:  { base: '#8fae95', blotch: '#d8e6ea', stripe: 0.07, tint: [1.02, 1.02, 1.06], grain: 'CRACK',
+    dirt: '#7d8b8d', rough: 0.34, mow: 0.05, relief: 0.8 },
+  // A mud ground is a churned GRASS pitch, not a bare earth lot: green survives at the edges and
+  // the middle and the goal mouths go to mud. A uniform brown base read as a building site.
+  MUD:     { base: '#3f5c33', blotch: '#31491f', stripe: 0.07, tint: [1.02, 1.00, 0.92], grain: 'CLUMP',
+    dirt: '#4a3822', rough: 0.58, mow: 0.06, relief: 1.3 },
+  SAND:    { base: '#c0a165', blotch: '#a98a51', stripe: 0.04, tint: [1.06, 1.00, 0.90], grain: 'RIPPLE',
+    dirt: '#8e7442', rough: 0.88, mow: 0.03, relief: 0.9 },
+  ASPHALT: { base: '#3b4048', blotch: '#2c3037', stripe: 0.03, tint: [0.98, 0.99, 1.04], grain: 'AGGREGATE',
+    dirt: '#20242a', rough: 0.68, mow: 0.02, relief: 1.1 },
 };
 
 /**
  * Tiling turf DETAIL map — one tile covers 10 × 10 yards.
  *
- * Encodes mown stripes (5-yard bands), blade/fibre noise and small-scale wear as a multiplier
- * around 0.5. The field material combines it with the markings colour map in a single pass.
+ * Encodes blade/fibre noise and small-scale wear as an albedo multiplier around 0.5. The field
+ * material combines it with the markings colour map in a single pass.
+ *
+ * `mow` bakes the 5-yard mown bands into the tile. The physically-shaded field turns that OFF and
+ * derives the bands analytically from world Z instead, because a baked lighter/darker green is the
+ * one thing that mown turf does *not* do — the stripes are a change in how the grass catches the
+ * light, not a change in its colour, and that only works if roughness and normal vary too.
  */
-export function turfTexture(surface: SurfaceKind, quality: QualitySettings): THREE.CanvasTexture {
+export function turfTexture(surface: SurfaceKind, quality: QualitySettings, mow = true): THREE.CanvasTexture {
   const size = quality.turfDetail > 0.8 ? 512 : quality.turfDetail > 0.4 ? 384 : 256;
-  return memo(`turf:${surface}:${size}`, () => {
+  return memo(`turf:${surface}:${size}:${mow ? 1 : 0}`, () => {
     const look = SURFACE_LOOK[surface];
     const [c, g] = canvas2d(size, size);
     const rng = new VisualRng(0x51f0 ^ size ^ surface.length * 7919);
@@ -91,32 +114,37 @@ export function turfTexture(surface: SurfaceKind, quality: QualitySettings): THR
     };
     const grey = (v: number, a = 1): string => `rgba(${lvl(v, 0)},${lvl(v, 1)},${lvl(v, 2)},${a})`;
 
-    // Mown bands: 5 yards each, so the boundary lands on every 5-yard line.
-    g.fillStyle = grey(0.5 + look.stripe);
-    g.fillRect(0, 0, size, half);
-    g.fillStyle = grey(0.5 - look.stripe);
-    g.fillRect(0, half, size, size - half);
+    if (mow) {
+      // Mown bands: 5 yards each, so the boundary lands on every 5-yard line.
+      g.fillStyle = grey(0.5 + look.stripe);
+      g.fillRect(0, 0, size, half);
+      g.fillStyle = grey(0.5 - look.stripe);
+      g.fillRect(0, half, size, size - half);
 
-    // Soft blend at the band seam so the mow line is a nap change, not a hard edge.
-    for (const y of [0, half]) {
-      const grad = g.createLinearGradient(0, y - size * 0.02, 0, y + size * 0.02);
-      grad.addColorStop(0, grey(0.5, 0));
-      grad.addColorStop(0.5, grey(0.5, 0.45));
-      grad.addColorStop(1, grey(0.5, 0));
-      g.fillStyle = grad;
-      g.fillRect(0, y - size * 0.02, size, size * 0.04);
-    }
-
-    // Diagonal mower cross-hatch on the bright band only.
-    if (look.stripe > 0.05) {
-      g.save();
-      g.beginPath(); g.rect(0, 0, size, half); g.clip();
-      g.strokeStyle = grey(0.5, 0.10);
-      g.lineWidth = Math.max(1, size / 200);
-      for (let i = -size; i < size * 2; i += size / 22) {
-        g.beginPath(); g.moveTo(i, 0); g.lineTo(i + half, half); g.stroke();
+      // Soft blend at the band seam so the mow line is a nap change, not a hard edge.
+      for (const y of [0, half]) {
+        const grad = g.createLinearGradient(0, y - size * 0.02, 0, y + size * 0.02);
+        grad.addColorStop(0, grey(0.5, 0));
+        grad.addColorStop(0.5, grey(0.5, 0.45));
+        grad.addColorStop(1, grey(0.5, 0));
+        g.fillStyle = grad;
+        g.fillRect(0, y - size * 0.02, size, size * 0.04);
       }
-      g.restore();
+
+      // Diagonal mower cross-hatch on the bright band only.
+      if (look.stripe > 0.05) {
+        g.save();
+        g.beginPath(); g.rect(0, 0, size, half); g.clip();
+        g.strokeStyle = grey(0.5, 0.10);
+        g.lineWidth = Math.max(1, size / 200);
+        for (let i = -size; i < size * 2; i += size / 22) {
+          g.beginPath(); g.moveTo(i, 0); g.lineTo(i + half, half); g.stroke();
+        }
+        g.restore();
+      }
+    } else {
+      g.fillStyle = grey(0.5);
+      g.fillRect(0, 0, size, size);
     }
 
     const strokes = Math.round(size * size * 0.02);
@@ -201,6 +229,251 @@ export function turfTexture(surface: SurfaceKind, quality: QualitySettings): THR
     }
 
     return finish(c, false, true, quality.anisotropy);
+  });
+}
+
+// ──────────────────────────────────────────────────── turf micro-surface (relief)
+
+/** One octave of tileable value noise on an `nx × ny` lattice. Non-square = stretched grain. */
+function latSample(lat: Float32Array, nx: number, ny: number, u: number, v: number): number {
+  const fx = u * nx, fy = v * ny;
+  const x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const tx = fx - x0, ty = fy - y0;
+  const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+  const i0 = ((x0 % nx) + nx) % nx, j0 = ((y0 % ny) + ny) % ny;
+  const i1 = (i0 + 1) % nx, j1 = (j0 + 1) % ny;
+  const a = lat[j0 * nx + i0], b = lat[j0 * nx + i1];
+  const c = lat[j1 * nx + i0], d = lat[j1 * nx + i1];
+  const top = a + (b - a) * sx;
+  return top + ((c + (d - c) * sx) - top) * sy;
+}
+
+interface Octave { nx: number; ny: number; amp: number }
+
+/** Octave stacks chosen so each surface's relief reads as its own material, not just "noise". */
+const GRAIN_OCTAVES: Record<TurfGrain, Octave[]> = {
+  // Blades: coarse tufts plus tall thin streaks running along the length of the tile.
+  BLADE:     [{ nx: 8, ny: 8, amp: 0.34 }, { nx: 19, ny: 19, amp: 0.19 }, { nx: 58, ny: 13, amp: 0.27 },
+    { nx: 118, ny: 27, amp: 0.13 }, { nx: 61, ny: 61, amp: 0.07 }],
+  // Synthetic fibre: much finer, much more uniform, barely any large-scale lumpiness.
+  FIBRE:     [{ nx: 11, ny: 11, amp: 0.20 }, { nx: 97, ny: 23, amp: 0.32 }, { nx: 163, ny: 41, amp: 0.17 },
+    { nx: 47, ny: 47, amp: 0.11 }],
+  // Frozen: broad plates with a fine fracture network on top.
+  CRACK:     [{ nx: 6, ny: 6, amp: 0.42 }, { nx: 13, ny: 13, amp: 0.25 }, { nx: 33, ny: 33, amp: 0.17 },
+    { nx: 79, ny: 79, amp: 0.09 }],
+  // Mud: big soft clods.
+  CLUMP:     [{ nx: 5, ny: 5, amp: 0.44 }, { nx: 11, ny: 11, amp: 0.28 }, { nx: 27, ny: 27, amp: 0.17 },
+    { nx: 59, ny: 59, amp: 0.09 }],
+  // Sand: ridges running across the tile.
+  RIPPLE:    [{ nx: 7, ny: 7, amp: 0.28 }, { nx: 9, ny: 43, amp: 0.36 }, { nx: 23, ny: 97, amp: 0.18 },
+    { nx: 61, ny: 61, amp: 0.08 }],
+  // Asphalt: dense pebble aggregate.
+  AGGREGATE: [{ nx: 9, ny: 9, amp: 0.20 }, { nx: 29, ny: 29, amp: 0.26 }, { nx: 71, ny: 71, amp: 0.29 },
+    { nx: 149, ny: 149, amp: 0.17 }],
+};
+
+/**
+ * Tiling micro-surface map: RGB = tangent-space normal, A = roughness detail around 0.5.
+ *
+ * Both halves come from one procedural height field, which is the only way they agree: the gaps
+ * between the blades are simultaneously the low points (dark, occluded) and the rough points (soil
+ * and thatch rather than waxy leaf), and a normal map whose roughness disagrees with it looks like
+ * printed paper. Packing roughness into alpha keeps it to a single texture and a single fetch.
+ */
+export function turfMicroTexture(surface: SurfaceKind, quality: QualitySettings): THREE.DataTexture {
+  const size = quality.turfDetail > 0.8 ? 512 : 256;
+  return memo(`micro:${surface}:${size}`, () => {
+    const look = SURFACE_LOOK[surface];
+    const octs = GRAIN_OCTAVES[look.grain];
+    const rng = new VisualRng(0x2ba9 ^ size ^ look.grain.length * 104729);
+    const lats = octs.map((o) => {
+      const a = new Float32Array(o.nx * o.ny);
+      for (let i = 0; i < a.length; i++) a[i] = rng.next();
+      return a;
+    });
+    let norm = 0;
+    for (const o of octs) norm += o.amp;
+
+    const h = new Float32Array(size * size);
+    const inv = 1 / size;
+    for (let y = 0; y < size; y++) {
+      const v = y * inv;
+      for (let x = 0; x < size; x++) {
+        const u = x * inv;
+        let s = 0;
+        for (let k = 0; k < octs.length; k++) s += latSample(lats[k], octs[k].nx, octs[k].ny, u, v) * octs[k].amp;
+        h[y * size + x] = s / norm;
+      }
+    }
+
+    // Sobel of the height field, wrapped, so the tile joins seamlessly.
+    const data = new Uint8Array(size * size * 4);
+    const strength = 3.4 * look.relief;
+    const finest = octs[octs.length - 1];
+    const fineLat = lats[lats.length - 1];
+    for (let y = 0; y < size; y++) {
+      const yn = (y + size - 1) % size, yp = (y + 1) % size;
+      for (let x = 0; x < size; x++) {
+        const xn = (x + size - 1) % size, xp = (x + 1) % size;
+        const dx = (h[y * size + xn] - h[y * size + xp]) * strength;
+        const dy = (h[yn * size + x] - h[yp * size + x]) * strength;
+        const len = Math.sqrt(dx * dx + dy * dy + 1);
+        const i = (y * size + x) * 4;
+        data[i] = Math.round(((dx / len) * 0.5 + 0.5) * 255);
+        data[i + 1] = Math.round(((dy / len) * 0.5 + 0.5) * 255);
+        data[i + 2] = Math.round(((1 / len) * 0.5 + 0.5) * 255);
+        // Low ground is thatch and soil (rough); the tips of the blades are waxy (smoother).
+        const fine = latSample(fineLat, finest.nx, finest.ny, x * inv, y * inv);
+        const r = 0.5 + (0.5 - h[y * size + x]) * 0.62 + (fine - 0.5) * 0.26;
+        data[i + 3] = Math.round(Math.max(0, Math.min(1, r)) * 255);
+      }
+    }
+
+    const t = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    t.colorSpace = THREE.NoColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.generateMipmaps = true;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.anisotropy = quality.anisotropy;
+    t.needsUpdate = true;
+    return t;
+  });
+}
+
+// ───────────────────────────────────────────────────────── field wear & damp
+
+/**
+ * ONE field-scale mask, same texel mapping as the markings texture, telling the turf shader where
+ * the season has happened. Nothing tiles: it is painted once over the whole 120 × 53.33 yards.
+ *
+ *   R — wear. 0 = untouched, 1 = chewed to the soil.
+ *   G — extra roughness, on its own irrigation/mowing-overlap pattern.
+ *   B — damp. Low ground and compacted traffic lanes that hold water.
+ *
+ * The corridor between the hashes wanders rather than running straight, the two goal mouths are
+ * deliberately unequal, and the whole thing is asymmetric about both axes, so no part of it reads
+ * as a repeat of any other part.
+ */
+export function fieldWearTexture(surface: SurfaceKind, quality: QualitySettings): THREE.CanvasTexture {
+  const H = quality.tier === 'HIGH' ? 1024 : quality.tier === 'MEDIUM' ? 640 : 384;
+  return memo(`wear:${surface}:${H}`, () => {
+    const S = H / 120;
+    const W = Math.round(HALF_W * 2 * S);
+    const [c, g] = canvas2d(W, H);
+    const rng = new VisualRng(0x77c1 ^ H ^ surface.length * 31337);
+    const X = (x: number): number => (x + HALF_W) * S;
+    const Y = (z: number): number => (z + 10) * S;
+    // Synthetic and hard surfaces do not scar the way a grass field does.
+    const scar = surface === 'TURF' ? 0.5 : surface === 'ASPHALT' ? 0.22 : surface === 'MUD' ? 1.15 : 1;
+
+    g.fillStyle = '#000000';
+    g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = 'lighter';
+
+    /** Additive soft blob. `amt` is the peak addition per channel, 0..1. */
+    const blob = (x: number, z: number, r: number, wr: number, rg: number, dp: number): void => {
+      const px = X(x), py = Y(z), pr = Math.max(1, r * S);
+      const col = (a: number): string =>
+        `rgba(${Math.round(Math.min(1, wr) * 255)},${Math.round(Math.min(1, rg) * 255)},${Math.round(Math.min(1, dp) * 255)},${a})`;
+      const grad = g.createRadialGradient(px, py, 0, px, py, pr);
+      grad.addColorStop(0, col(1));
+      grad.addColorStop(0.42, col(0.62));
+      grad.addColorStop(1, col(0));
+      g.fillStyle = grad;
+      g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill();
+    };
+
+    // ── large-scale groundskeeping variation (roughness + damp only) ──────
+    for (let i = 0; i < 34; i++) {
+      blob(rng.range(-30, 30), rng.range(-14, 114), rng.range(6, 20), 0, rng.range(0.10, 0.30), rng.range(0, 0.16));
+    }
+    // Low ground: two shallow basins, deliberately off-centre.
+    blob(-7.5, 38, 22, 0, 0.05, 0.34);
+    blob(11.0, 71, 17, 0, 0.04, 0.26);
+
+    // ── the corridor between the hashes ───────────────────────────────────
+    // A wandering spine, not a stripe: three incommensurate waves so it never repeats over 100 yd.
+    const spine = (z: number): number =>
+      2.5 * Math.sin(z * 0.113 + 0.61) + 1.6 * Math.sin(z * 0.041 + 2.29) + 0.9 * Math.sin(z * 0.277 + 4.1);
+    for (let z = 4; z <= 96; z += 1.3) {
+      const t = (z - 50) / 50;
+      // Heaviest between the twenties, and heavier again where the ball is spotted most.
+      const mid = (1 - 0.5 * t * t) * (0.72 + 0.36 * Math.sin(z * 0.19 + 1.4));
+      const cx = spine(z);
+      const a = mid * rng.range(0.35, 0.80) * scar;
+      blob(cx + rng.range(-4.8, 4.8), z + rng.range(-1.2, 1.2), rng.range(1.8, 5.0),
+        a * 0.30, a * 0.34, a * 0.14);
+    }
+
+    // ── goal mouths ───────────────────────────────────────────────────────
+    // Both ends get chewed; one end always worse than the other, and never the same shape.
+    const mouths: Array<[number, number, number]> = [[0, 1, 1.0], [100, -1, 0.70]];
+    for (const [gz, into, power] of mouths) {
+      for (let i = 0; i < 40; i++) {
+        const spread = rng.range(0, 1);
+        const x = (rng.next() < 0.5 ? -1 : 1) * spread * spread * 17 + rng.range(-2, 2);
+        // Most of it lands on the field side of the stripe; the end zone keeps its colour.
+        const dz = rng.range(-1.6, 5.4) * into;
+        const a = power * (1 - spread * 0.55) * rng.range(0.35, 0.85) * scar;
+        blob(x, gz + dz, rng.range(1.5, 4.4), a * 0.31, a * 0.42, a * 0.18);
+      }
+      // The scrape right on the paint where every goal-line pile ends up.
+      for (let i = 0; i < 14; i++) {
+        blob(rng.range(-9, 9), gz + rng.range(-0.5, 1.8) * into, rng.range(1.0, 2.6),
+          0.26 * power * scar, 0.36 * power * scar, 0.20 * power * scar);
+      }
+    }
+
+    // ── hash tramlines: seven athletes a side line up in the same two places ──
+    for (const hx of [-9.25, 9.25]) {
+      for (let z = 6; z <= 94; z += 2.1) {
+        const a = rng.range(0.10, 0.30) * scar * (0.6 + 0.4 * Math.sin(z * 0.07 + (hx < 0 ? 0 : 2.1)));
+        blob(hx + rng.range(-1.4, 1.4), z + rng.range(-1, 1), rng.range(0.8, 2.2), a * 0.4, a * 0.6, a * 0.3);
+      }
+    }
+
+    // ── sideline traffic in front of the benches ──────────────────────────
+    for (const sx of [-1, 1]) {
+      for (let z = 20; z <= 82; z += 1.8) {
+        const a = rng.range(0.14, 0.40) * scar;
+        blob(sx * rng.range(22.5, 26.4), z + rng.range(-1.5, 1.5), rng.range(1.2, 2.8), a * 0.42, a * 0.5, a * 0.34);
+      }
+    }
+
+    // ── a few genuinely bad patches, placed at random ─────────────────────
+    for (let i = 0; i < 5; i++) {
+      const x = rng.range(-19, 19), z = rng.range(8, 92), r = rng.range(3.2, 7.5);
+      const a = rng.range(0.26, 0.52) * scar;
+      blob(x, z, r, a * 0.46, a * 0.5, a * 0.28);
+      for (let k = 0; k < 9; k++) {
+        blob(x + rng.range(-r, r), z + rng.range(-r, r), rng.range(0.7, 2.2), a * 0.40, a * 0.42, a * 0.20);
+      }
+    }
+
+    // ── divots and cleat scars ────────────────────────────────────────────
+    // Airbrushed blobs alone read as a smudge on the lens. These are the hard little marks that
+    // tell you something with studs on stood here, and they carry the high frequencies.
+    g.lineCap = 'round';
+    for (let i = 0; i < 900; i++) {
+      const z = rng.range(-4, 104);
+      const t = (z - 50) / 55;
+      const bias = 1 - 0.45 * t * t;
+      const x = spine(z) + rng.range(-1, 1) * (7 + 16 * rng.next() * rng.next());
+      if (Math.abs(x) > HALF_W - 0.6) continue;
+      const a = rng.range(0.07, 0.26) * scar * bias;
+      const len = rng.range(0.18, 0.75);
+      const ang = rng.range(-0.7, 0.7) + (rng.next() < 0.5 ? 0 : Math.PI / 2);
+      g.strokeStyle = `rgba(${Math.round(a * 255)},${Math.round(a * 1.1 * 255)},${Math.round(a * 0.6 * 255)},1)`;
+      g.lineWidth = Math.max(1, rng.range(0.06, 0.19) * S);
+      g.beginPath();
+      g.moveTo(X(x), Y(z));
+      g.lineTo(X(x + Math.cos(ang) * len), Y(z + Math.sin(ang) * len));
+      g.stroke();
+    }
+
+    g.globalCompositeOperation = 'source-over';
+    return finish(c, false, false, quality.anisotropy);
   });
 }
 

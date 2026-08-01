@@ -30,6 +30,10 @@ export function simulateMatch(opts: SimOptions = {}): SimReport {
   if (!cfg.away) cfg.away = TEAM_IDS[1];
   const home: TeamDef = getTeam(cfg.home);
   const away: TeamDef = getTeam(cfg.away);
+  // Play at the home team's ground unless told otherwise. The venue owns the playing surface,
+  // and twelve of eighteen grounds are not grass — batching every game on an implicit grass
+  // field left every non-grass traction value completely unexercised.
+  if (!cfg.stadium) cfg.stadium = home.stadium;
   const m = new Match({ config: cfg, home, away });
   if (opts.record !== false) m.bus.record();
 

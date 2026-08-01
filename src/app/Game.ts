@@ -179,6 +179,10 @@ export class Game {
     const home = getTeam(config.home);
     const away = getTeam(config.away);
     const stadium = getStadium(config.stadium || home.stadium);
+    // Write the resolved venue back before the match is built: the simulation reads the playing
+    // surface off it, so leaving the id blank here silently gave the renderer a sand pitch and
+    // the simulation grass traction.
+    config.stadium = stadium.id;
     const seatIntent = (seat: number): PlayerIntent | null => this.input.intentFor(seat);
     const m = new Match({ config, home, away, seatIntent, customOffense: undefined });
     this.match = m;
@@ -376,6 +380,25 @@ export class Game {
     const dt = 1 / 60;
     const n = Math.round(seconds * 60);
     for (let i = 0; i < n; i++) {
+      this.renderer.sync(m.world, m.state, 1, dt, m.phase === 'SCORE_RESOLVE' || m.phase === 'FINAL');
+    }
+  }
+
+  /**
+   * Run the match and the presentation together at a fixed step, without drawing.
+   *
+   * `settle` freezes the world and only eases the camera, which is right for a still of a set
+   * piece and useless for anything transient: trails collapse to zero length and every spark has
+   * decayed before the shutter opens. This is the capture harness's equivalent of actually
+   * playing for a second, and it is the only way to photograph motion in a container with no GPU.
+   */
+  advance(seconds: number): void {
+    const m = this.match;
+    if (!m) return;
+    const dt = FIXED_DT;
+    const n = Math.round(seconds * 60);
+    for (let i = 0; i < n; i++) {
+      m.tick();
       this.renderer.sync(m.world, m.state, 1, dt, m.phase === 'SCORE_RESOLVE' || m.phase === 'FINAL');
     }
   }

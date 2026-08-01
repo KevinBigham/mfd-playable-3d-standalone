@@ -204,6 +204,9 @@ export class PostFX {
   private width = 2;
   private height = 2;
   private t = 0;
+  /** Draw calls and triangles from the SCENE pass alone, captured before the blits pollute them. */
+  sceneCalls = 0;
+  sceneTriangles = 0;
   private aberration = 0;
   private flash = 0;
   private disposed = false;
@@ -332,6 +335,11 @@ export class PostFX {
     this.renderer.setRenderTarget(this.sceneRT);
     this.renderer.clear();
     this.renderer.render(scene, camera);
+    // `renderer.info.render` resets on every render() call, so by the time the composite has run
+    // it describes one fullscreen triangle. Anything reporting scene complexity — the budget
+    // check in the smoke test, for one — has to read it here.
+    this.sceneCalls = this.renderer.info.render.calls;
+    this.sceneTriangles = this.renderer.info.render.triangles;
     this.renderer.toneMapping = prevTone;
 
     // 2. Bright pass at half resolution.

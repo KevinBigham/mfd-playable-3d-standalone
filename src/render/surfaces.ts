@@ -33,7 +33,7 @@ export const SURF = {
   JERSEY: { rough: 0.88, metal: 0.0, rim: 0.55 },
   PANTS: { rough: 0.76, metal: 0.02, rim: 0.45 },
   /** Painted shell with a clear coat: the brightest thing on the field after the ball. */
-  HELMET: { rough: 0.19, metal: 0.40, rim: 0.95 },
+  HELMET: { rough: 0.19, metal: 0.22, rim: 0.95 },
   VISOR: { rough: 0.06, metal: 0.72, rim: 1.0 },
   /** Facemask, buckles, cleat plates. */
   METAL: { rough: 0.33, metal: 0.85, rim: 0.8 },

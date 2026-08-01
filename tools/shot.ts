@@ -5,6 +5,7 @@
  * The full review set (`npm run capture`) takes several minutes under software rendering;
  * this exists to check a single framing change without re-shooting all thirty images.
  */
+import { execFileSync } from 'node:child_process';
 import { startServer, stopServer, launch, screenshot, screenshotDom } from './browser.ts';
 
 function arg(name: string, def: string): string {
@@ -16,23 +17,34 @@ const name = arg('name', 'shot');
 const seed = Number(arg('seed', '909090'));
 const settle = Number(arg('settle', '900'));
 const extra = Number(arg('extra', '0'));
+/** Seconds of real tick+present, for anything transient: trails, sparks, spray. */
+const live = Number(arg('live', '0'));
+const home = arg('home', '');
+const away = arg('away', '');
 const dom = process.argv.includes('--dom');
 
 async function main(): Promise<void> {
+  // The server serves dist/. Without building first a shot silently captures the LAST build,
+  // which looks exactly like a change that did nothing.
+  if (!process.argv.includes('--no-build')) {
+    console.log('building…');
+    execFileSync('npx', ['vite', 'build', '--logLevel', 'error'], { stdio: 'inherit' });
+  }
   const url = await startServer(4179);
   const h = await launch(url, { width: 1440, height: 810 });
   const { page } = h;
   try {
-    await page.evaluate((s) => {
+    await page.evaluate(({ s, home, away }) => {
       (window as any).GO.reset('match', {
         config: {
           seed: s, quarterSeconds: 120, difficulty: 'ALLSTAR',
+          ...(home ? { home } : {}), ...(away ? { away } : {}),
           seats: [{ side: 0, active: false }, { side: 1, active: false },
             { side: 0, active: false }, { side: 1, active: false }],
         },
         returnScreen: 'mainMenu',
       });
-    }, seed);
+    }, { s: seed, home, away });
     await page.waitForTimeout(2600);
     const reached = await page.evaluate((p) => {
       const m = (window as any).GO.match;
@@ -44,8 +56,12 @@ async function main(): Promise<void> {
     if (extra > 0) {
       await page.evaluate((n) => { const m = (window as any).GO.match; for (let i = 0; i < n; i++) m.tick(); }, extra);
     }
-    // Let the camera and every cross-fade reach their resting state before shooting.
-    await page.evaluate(() => { (window as any).GO.settle?.(1.6); });
+    if (live > 0) {
+      await page.evaluate((sec) => { (window as any).GO.advance?.(sec); }, live);
+    } else {
+      // Let the camera and every cross-fade reach their resting state before shooting.
+      await page.evaluate(() => { (window as any).GO.settle?.(1.6); });
+    }
     await page.waitForTimeout(settle);
     const out = `docs/captures/${name}.png`;
     if (dom) await screenshotDom(page, out); else await screenshot(page, out);
