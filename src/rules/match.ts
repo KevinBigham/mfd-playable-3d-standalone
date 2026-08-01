@@ -21,7 +21,7 @@ import {
 import {
   createWorld, assignUnits, makeConditions, carrier, OFF_START, DEF_START, type World,
 } from '../sim/world.ts';
-import { setupPlay, snap, stepPlay, type Controller } from '../sim/playRunner.ts';
+import { setupPlay, snap, stepPlay, idleStep, type Controller } from '../sim/playRunner.ts';
 import { giveBall, killBall, assertBallInvariant, dropLoose } from '../sim/ball.ts';
 import {
   KICKOFF_OFFENSE, KICKOFF_DEFENSE, PUNT_OFFENSE, PUNT_DEFENSE, FG_OFFENSE, FG_DEFENSE,
@@ -39,6 +39,11 @@ import {
 import { OFFENSE_PLAYS } from '../plays/offense.ts';
 import { DEFENSE_PLAYS } from '../plays/defense.ts';
 import { Action, has } from '../input/actions.ts';
+
+/** Phases whose handlers call `stepPlay` and therefore advance the world themselves. */
+const STEPPING_PHASES: ReadonlySet<string> = new Set([
+  'KICKOFF_LIVE', 'PRE_SNAP', 'LIVE', 'DEAD_BALL', 'POST_PLAY', 'CONVERSION_LIVE',
+]);
 
 export type SpecialCall = 'PUNT' | 'FIELD_GOAL' | null;
 
@@ -249,8 +254,17 @@ export class Match {
   tick(): void {
     const m = this.state;
     const w = this.world;
-    if (m.finished) return;
+    if (m.finished) {
+      // FINAL is reached only through `finish()`, which sets `finished` first, so the phase
+      // switch below can never see it. Without this the final screen is fourteen statues with
+      // a stale `prevX`, which sawtooths under interpolation — exactly what idleStep exists
+      // to prevent. The winners get to celebrate.
+      const champion = winnerOf(m);
+      idleStep(w, champion === 'TIE' ? null : champion);
+      return;
+    }
     m.phaseTicks++;
+    const phaseAtEntry = m.phase;
 
     switch (m.phase) {
       case 'PREGAME': this.tickPregame(); break;
@@ -271,6 +285,14 @@ export class Match {
       case 'OVERTIME_SETUP': this.tickOvertimeSetup(); break;
       case 'FINAL': break;
       default: break;
+    }
+
+    // Phases that did not advance the world still have to advance the presentation, or the
+    // renderer interpolates against a stale previous frame and everybody freezes. See idleStep.
+    if (!STEPPING_PHASES.has(phaseAtEntry)) {
+      const celebrating = phaseAtEntry === 'SCORE_RESOLVE' && m.pendingScore
+        ? m.pendingScore.side : null;
+      idleStep(w, celebrating);
     }
 
     // Overdrive decay + validation.

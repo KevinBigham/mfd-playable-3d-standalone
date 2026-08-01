@@ -674,7 +674,14 @@ export class PracticeScreen implements Screen {
         }
       }
     } else if (phase === 'PRE_SNAP' || phase === 'LIVE') {
-      // still this rep
+      // Still the rep we called; leave it alone.
+    } else if (phase === 'DEAD_BALL' || phase === 'POST_PLAY') {
+      // The whistle has gone: bank the rep and let the next PLAY_CALL re-arm.
+      if (this.called) {
+        this.called = false;
+        this.repCount++;
+        if (this.repNode) this.repNode.textContent = `REP ${this.repCount}`;
+      }
     } else if (phase === 'CONVERSION_CALL') {
       if (m.pendingConversion === null) m.submitConversion('KICK');
       this.called = false;
@@ -685,12 +692,6 @@ export class PracticeScreen implements Screen {
       this.arm();
     } else {
       this.called = false;
-    }
-
-    if (phase === 'DEAD_BALL' && this.called) {
-      this.repCount++;
-      this.called = false;
-      if (this.repNode) this.repNode.textContent = `REP ${this.repCount}`;
     }
 
     if (m.state.finished) {

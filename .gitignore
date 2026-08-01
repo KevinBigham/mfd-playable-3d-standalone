@@ -1,0 +1,8 @@
+# Dependencies and build output are reproducible from package.json + the lockfile.
+node_modules/
+dist/
+
+# Local noise
+*.log
+.DS_Store
+.vite/

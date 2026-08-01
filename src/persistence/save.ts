@@ -18,6 +18,8 @@ export interface Settings {
   volumes: { master: number; sfx: number; crowd: number; music: number; ui: number };
   quality: QualityTier;
   resolutionScale: number;  // 0.5..1
+  /** Let the game lower the render resolution when frames run long, and raise it back. */
+  dynamicResolution: boolean;
   fullscreen: boolean;
   bindings: [KeyboardBinding, KeyboardBinding];
   catchUpBias: boolean;
@@ -73,6 +75,7 @@ export function defaultSettings(): Settings {
     volumes: { master: 0.85, sfx: 0.9, crowd: 0.7, music: 0.6, ui: 0.8 },
     quality: 'HIGH',
     resolutionScale: 1,
+    dynamicResolution: true,
     fullscreen: false,
     bindings: [{ ...KEYBOARD_P1 }, { ...KEYBOARD_P2 }],
     catchUpBias: true,

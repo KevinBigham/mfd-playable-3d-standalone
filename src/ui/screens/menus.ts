@@ -357,6 +357,7 @@ export class SettingsScreen implements Screen {
       sliderRow('INTERFACE', () => st.volumes.ui, (v) => { st.volumes.ui = v; }, 0.05, apply),
       optionRow<QualityTier>({ label: 'GRAPHICS', values: QUALITIES, get: () => st.quality, set: (v) => { st.quality = v; } }, apply),
       optionRow<number>({ label: 'RESOLUTION SCALE', values: [0.5, 0.65, 0.8, 1], format: (v) => `${Math.round(v * 100)}%`, get: () => st.resolutionScale, set: (v) => { st.resolutionScale = v; } }, apply),
+      optionRow<boolean>({ label: 'ADAPTIVE RESOLUTION', values: [false, true], format: (v) => (v ? 'ON' : 'OFF'), get: () => st.dynamicResolution, set: (v) => { st.dynamicResolution = v; } }, apply),
       optionRow<boolean>({
         label: 'FULLSCREEN', values: [false, true], format: (v) => (v ? 'ON' : 'OFF'),
         get: () => !!document.fullscreenElement,

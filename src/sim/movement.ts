@@ -6,7 +6,7 @@ import {
   TURBO_MAX, TURBO_DRAIN, TURBO_REGEN, TURBO_REGEN_DELAY_MIN, TURBO_REGEN_DELAY_MAX,
   TURBO_COST, MOVE_TICKS, DIVE_BOOST, FIELD_HALF_WIDTH, OVERDRIVE_SPEED, CARRIER_SPEED_BONUS,
 } from '../core/constants.ts';
-import { clamp, clamp01, angApproach, heading, lerp } from '../core/math.ts';
+import { clamp, clamp01, angDelta, heading, lerp } from '../core/math.ts';
 import type { World } from './world.ts';
 
 const LINE_POSITIONS = new Set(['OL', 'DL']);
@@ -76,17 +76,96 @@ function updateTurbo(a: Athlete, wantTurbo: boolean): boolean {
 }
 
 /**
+ * Gait bookkeeping, run once per athlete per tick from `locomote`.
+ *
+ * Gait is driven by GROUND COVERED, not by velocity. Blocking shoves, pile separation and
+ * sideline clamps all move an athlete without touching his velocity, so a velocity-driven run
+ * cycle showed a defender strolling while he was in fact sliding four yards a second. The
+ * difference between the two positions spans a whole tick, so it picks up every one of those
+ * corrections — and reading it costs nothing in gameplay terms, because it changes only what
+ * the legs do.
+ *
+ * `speed01` is normalised against the athlete's OWN top speed rather than his current cap.
+ * Normalising against the current cap made the number fall off a cliff the instant turbo
+ * engaged — the denominator jumped from base to turbo speed in a single tick — which flipped
+ * the animation state backwards at the exact moment the athlete accelerated. (The denominator
+ * still steps by 11 % when Overdrive ignites, which is small enough for the hysteresis in
+ * `syncAnim` to absorb.)
+ *
+ * The two acceleration terms are in the athlete's own frame and exist so the renderer can
+ * lean the body into what it is doing without re-deriving anything.
+ */
+const GAIT_SMOOTH = 0.24;
+const ACCEL_SMOOTH = 0.16;
+
+/**
+ * Second-order heading control.
+ *
+ * `angApproach` rotates at a constant clamped rate and then stops dead the tick the error
+ * falls inside one step. Constant rate then zero is an infinite angular acceleration, and it
+ * is what made bodies whip round and halt. Chasing an angular VELOCITY instead — proportional
+ * to the error, capped by the turn rate, and itself rate-limited — costs one number per
+ * athlete and removes the snap entirely.
+ */
+const TURN_P = 9.5;         // 1/s: how hard the athlete chases the heading error
+const TURN_ACCEL = 0.30;    // fraction of the angular-velocity error closed per tick
+
+function steerFacing(a: Athlete, target: number, maxRate: number): void {
+  const err = angDelta(a.facing, target);
+  const want = clamp(err * TURN_P, -maxRate, maxRate);
+  a.turnVel += (want - a.turnVel) * TURN_ACCEL;
+  a.facing += a.turnVel * FIXED_DT;
+}
+
+/** Re-anchor the gait after an athlete is teleported (formation setup), so the tick in which
+ *  he appears at his alignment is not read as one tick of enormous ground speed. */
+export function resetGait(a: Athlete): void {
+  const an = a.anim;
+  an.lastX = a.x; an.lastZ = a.z;
+  an.ground = 0; an.speed01 = 0; an.accelFwd = 0; an.accelLat = 0;
+  a.turnVel = 0;
+}
+
+function decayTurn(a: Athlete): void {
+  a.turnVel *= 0.72;
+  if (Math.abs(a.turnVel) < 1e-4) a.turnVel = 0;
+  else a.facing += a.turnVel * FIXED_DT;
+}
+
+function updateGait(a: Athlete, vx0: number, vz0: number): void {
+  const top = turboSpeed(a) * (a.onFire ? OVERDRIVE_SPEED : 1);
+  const an = a.anim;
+  // Distance covered since the last update, which is exactly one tick, however it was covered.
+  // Clamped so a formation reset or a teleporting spawn cannot spike the stride.
+  const ground = Math.min(
+    Math.hypot(a.x - an.lastX, a.z - an.lastZ) / FIXED_DT, top * 1.7,
+  );
+  an.lastX = a.x; an.lastZ = a.z;
+  an.ground = ground;
+  const raw = clamp01(ground / Math.max(1e-3, top));
+  an.speed01 += (raw - an.speed01) * GAIT_SMOOTH;
+
+  const ax = (a.vx - vx0) / FIXED_DT, az = (a.vz - vz0) / FIXED_DT;
+  const fx = Math.sin(a.facing), fz = Math.cos(a.facing);
+  an.accelFwd += ((ax * fx + az * fz) - an.accelFwd) * ACCEL_SMOOTH;
+  an.accelLat += ((ax * fz - az * fx) - an.accelLat) * ACCEL_SMOOTH;
+}
+
+/**
  * Core locomotion. `desiredX/desiredZ` is a unit-ish direction; magnitude scales the target speed.
- * Returns the speed fraction (0..1) reached this tick, used to drive animation.
+ * Returns the smoothed gait fraction (0..1), used to drive animation.
  */
 export function locomote(w: World, a: Athlete, desiredX: number, desiredZ: number, wantTurbo: boolean): number {
   const traction = w.conditions.traction;
   const sprinting = updateTurbo(a, wantTurbo);
+  const vx0 = a.vx, vz0 = a.vz;
 
   if (!canAct(a)) {
     a.vx *= 0.82; a.vz *= 0.82;
+    decayTurn(a);
     integrate(a, traction);
-    return 0;
+    updateGait(a, vx0, vz0);
+    return a.anim.speed01;
   }
 
   let mag = Math.hypot(desiredX, desiredZ);
@@ -100,15 +179,16 @@ export function locomote(w: World, a: Athlete, desiredX: number, desiredZ: numbe
 
   // Committed moves override steering.
   if (isCommitted(a)) {
+    a.turnVel = 0;
     applyCommittedMove(a, maxSpeed);
     integrate(a, traction);
-    return Math.hypot(a.vx, a.vz) / Math.max(1, maxSpeed);
+    updateGait(a, vx0, vz0);
+    return a.anim.speed01;
   }
 
   const targetVx = desiredX * maxSpeed * mag;
   const targetVz = desiredZ * maxSpeed * mag;
 
-  const curSpeed = Math.hypot(a.vx, a.vz);
   const accel = (mag > 0.05 ? ACCEL_GROUND : DECEL_GROUND) * traction
     * (isLineman(a) ? 0.9 : 1);
 
@@ -120,18 +200,32 @@ export function locomote(w: World, a: Athlete, desiredX: number, desiredZ: numbe
     a.vx += dvx * k; a.vz += dvz * k;
   }
 
-  // Facing follows velocity, but turning is harder at speed.
+  // Facing follows a blend of where the athlete is going and where he is asking to go. The
+  // old code hard-switched between the two at 0.35 yd/s, so an athlete slowing through that
+  // speed snapped his heading; below it he also turned at full rate regardless of momentum.
   const sp = Math.hypot(a.vx, a.vz);
-  if (sp > 0.35) {
-    const t = clamp01(sp / Math.max(1, maxSpeed));
-    const turnRate = lerp(TURN_RATE_BASE, TURN_RATE_SPRINT, t) * (0.75 + a.def.ratings.agility / 200);
-    a.facing = angApproach(a.facing, heading(a.vx, a.vz), turnRate * FIXED_DT);
-  } else if (mag > 0.05) {
-    a.facing = angApproach(a.facing, heading(desiredX, desiredZ), TURN_RATE_BASE * FIXED_DT);
+  const dux = mag > 1e-4 ? desiredX / mag : 0;
+  const duz = mag > 1e-4 ? desiredZ / mag : 0;
+  if (sp > 0.05 || mag > 0.05) {
+    const wVel = clamp01((sp - 0.15) / 1.2);
+    let tx = 0, tz = 0;
+    if (sp > 1e-4) { tx += (a.vx / sp) * wVel; tz += (a.vz / sp) * wVel; }
+    tx += dux * (1 - wVel); tz += duz * (1 - wVel);
+    if (Math.abs(tx) > 1e-5 || Math.abs(tz) > 1e-5) {
+      // Squared so the turn stays loose through mid speed and only tightens near the top.
+      const t = clamp01(sp / Math.max(1, maxSpeed));
+      const turnRate = lerp(TURN_RATE_BASE, TURN_RATE_SPRINT, t * t) * (0.75 + a.def.ratings.agility / 200);
+      steerFacing(a, heading(tx, tz), turnRate);
+    } else {
+      decayTurn(a);
+    }
+  } else {
+    decayTurn(a);
   }
 
   integrate(a, traction);
-  return clamp01(curSpeed / Math.max(1, maxSpeed));
+  updateGait(a, vx0, vz0);
+  return a.anim.speed01;
 }
 
 function applyCommittedMove(a: Athlete, maxSpeed: number): void {
@@ -291,9 +385,24 @@ export function stun(a: Athlete, ticks: number): void {
   a.anim.state = 'STUMBLE'; a.anim.phase = 0;
 }
 
-/** Derive the animation state from movement + intent for rendering. */
+/**
+ * Derive the animation state from movement + intent for rendering.
+ *
+ * The locomotion bands carry hysteresis. Fixed thresholds meant an athlete holding a speed
+ * near a boundary changed state every single tick, and every change restarts a procedural
+ * pose — the visible result was a vibrating athlete, not a running one.
+ */
+const SPRINT_IN = 0.80, SPRINT_OUT = 0.71;
+const RUN_IN = 0.10, RUN_OUT = 0.055;
+/** Yards covered by one full stride cycle. Cadence is derived from ground speed so feet
+ *  travel with the turf instead of buzzing at a fixed rate. */
+const STRIDE_YARDS = 3.4;
+
 export function syncAnim(a: Athlete, speed01: number): void {
   const st = a.anim;
+  const wasSprint = st.state === 'SPRINT';
+  const wasMoving = wasSprint || st.state === 'RUN';
+
   if (a.move === 'DOWN') { st.state = 'TACKLED'; }
   else if (a.move === 'GETUP') { st.state = 'GETUP'; }
   else if (a.move === 'STUNNED') { st.state = 'STUMBLE'; }
@@ -307,12 +416,18 @@ export function syncAnim(a: Athlete, speed01: number): void {
   else if (a.move === 'POWER_TACKLE' || a.move === 'TACKLING') { st.state = 'TACKLE'; }
   else if (a.move === 'CELEBRATE') { st.state = 'CELEBRATE'; }
   else if (a.engagedWith >= 0) { st.state = 'BLOCK'; }
-  else if (speed01 > 0.72) { st.state = 'SPRINT'; }
-  else if (speed01 > 0.08) { st.state = 'RUN'; }
+  else if (speed01 > (wasSprint ? SPRINT_OUT : SPRINT_IN)) { st.state = 'SPRINT'; }
+  else if (speed01 > (wasMoving ? RUN_OUT : RUN_IN)) { st.state = 'RUN'; }
   else { st.state = 'IDLE'; }
 
-  const cadence = st.state === 'SPRINT' ? 0.115 : st.state === 'RUN' ? 0.085 : 0.02;
-  st.phase = (st.phase + cadence * (0.4 + speed01)) % 1;
+  let cadence: number;
+  if (st.state === 'RUN' || st.state === 'SPRINT') {
+    const hz = clamp(a.anim.ground / STRIDE_YARDS, 1.15, 4.6);
+    cadence = hz * FIXED_DT;
+  } else {
+    cadence = 0.02 * (0.4 + speed01);
+  }
+  st.phase = (st.phase + cadence) % 1;
 }
 
 export function intentDir(i: PlayerIntent): { x: number; z: number } {

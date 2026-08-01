@@ -4,7 +4,9 @@ import type {
 } from '../core/types.ts';
 import { SceneRegistry, QUALITY_PRESETS, type QualitySettings, type QualityTier } from './registry.ts';
 import { buildAthleteRig, type AthleteRig } from './athleteRig.ts';
-import { poseAthlete, type AnimSample } from './athletePose.ts';
+import {
+  poseAthlete, capturePose, blendPose, fadeTimeFor, POSE_FLOATS, type AnimSample,
+} from './athletePose.ts';
 import { GameCamera } from './camera.ts';
 import { Effects } from './effects.ts';
 import { buildBall, buildMarkers, makeNumberSprite, type Markers } from './props.ts';
@@ -13,7 +15,7 @@ import { buildEnvironment, type Environment } from './env/index.ts';
 import type { ReplayView } from './replay.ts';
 import type { World } from '../sim/world.ts';
 import { carrier, dirOf } from '../sim/world.ts';
-import { clamp, clamp01, lerp, angLerp } from '../core/math.ts';
+import { clamp, clamp01, lerp, angLerp, angDelta, damp, smoothstep } from '../core/math.ts';
 import { FIXED_DT } from '../core/constants.ts';
 
 export interface RendererOptions {
@@ -25,6 +27,32 @@ export interface RendererOptions {
 }
 
 const sample: AnimSample = { state: 'IDLE', phase: 0, speed01: 0, lean: 0, fire: 0, t: 0 };
+
+/** Per-athlete presentation state: pose cross-fade, smoothed yaw, body lean and bank. */
+interface RigMotion {
+  fadeFrom: Float32Array;
+  fadeT: number;
+  fadeDur: number;      // 0 = not fading
+  yaw: number;
+  bank: number;
+  visible: boolean;     // was it drawn last frame? if not, snap instead of easing
+  /** side*1000 + jersey. A slot can change hands between plays; that is a different body. */
+  rigKey: number;
+}
+function makeMotion(): RigMotion {
+  return {
+    fadeFrom: new Float32Array(POSE_FLOATS), fadeT: 0, fadeDur: 0,
+    yaw: 0, bank: 0, visible: false, rigKey: -1,
+  };
+}
+
+/** Body yaw chases the simulation heading; 26 is roughly a 40 ms tail. */
+const YAW_LAMBDA = 26;
+/** Beyond this the heading changed because the athlete was moved, not because he turned. */
+const YAW_SNAP = 1.2;
+const BANK_PER_ACCEL = 0.0055;
+const BANK_MAX = 0.26;
+const LEAN_PER_ACCEL = 0.0040;
 
 export class GameRenderer {
   readonly renderer: THREE.WebGLRenderer;
@@ -41,6 +69,7 @@ export class GameRenderer {
   private opts: RendererOptions;
   private animT: number[] = new Array(14).fill(0);
   private lastAnimState: string[] = new Array(14).fill('');
+  private motion: RigMotion[] = Array.from({ length: 14 }, makeMotion);
   private flashOverlay: HTMLDivElement | null = null;
   private disposed = false;
 
@@ -71,6 +100,15 @@ export class GameRenderer {
     this.renderer.shadowMap.enabled = this.quality.shadows;
   }
 
+  /** Change only the resolution multiplier. Used by the adaptive-resolution governor. */
+  setResolutionScale(scale: number): void {
+    if (Math.abs(scale - this.opts.resolutionScale) < 0.001) return;
+    this.opts.resolutionScale = scale;
+    this.renderer.setPixelRatio(Math.min(this.quality.pixelRatio * scale, 2));
+  }
+
+  get resolutionScale(): number { return this.opts.resolutionScale; }
+
   setCameraOptions(shake: number, reducedMotion: boolean): void {
     this.opts.shake = shake; this.opts.reducedMotion = reducedMotion;
     this.gameCamera.setOptions({ shake, reducedMotion });
@@ -99,6 +137,9 @@ export class GameRenderer {
       const colors = side === 0 ? kits.home : kits.away;
       for (const p of team.roster) {
         const rig = buildAthleteRig(this.registry, p, colors, this.quality, side === 1);
+        // Yaw first, then bank in the yawed frame, so leaning into a cut tips the body
+        // sideways rather than rolling it about the world axis.
+        rig.root.rotation.order = 'YXZ';
         rig.root.visible = false;
         group.add(rig.root);
         this.rigs[side].set(p.number, rig);
@@ -111,9 +152,27 @@ export class GameRenderer {
       this.registry.group('markers').add(sp);
       this.numberSprites.push(sp);
     }
+    for (const m of this.motion) { m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1; }
+    for (let i = 0; i < this.lastAnimState.length; i++) { this.lastAnimState[i] = ''; this.animT[i] = 0; }
+    this.prewarm();
+  }
+
+  /**
+   * Compile every material the match will use before the first frame of it is shown.
+   * Without this the first snap stalls for a few hundred milliseconds while the driver links
+   * the athlete, crowd and turf programs — the single worst hitch in a session.
+   */
+  private prewarm(): void {
+    const hidden: AthleteRig[] = [];
+    for (const m of this.rigs) for (const r of m.values()) { if (!r.root.visible) { r.root.visible = true; hidden.push(r); } }
+    try {
+      this.renderer.compile(this.scene, this.gameCamera.camera);
+    } catch { /* compile is best-effort; a failure here must not stop the match */ }
+    for (const r of hidden) r.root.visible = false;
   }
 
   unloadMatch(): void {
+    for (const m of this.motion) { m.visible = false; m.fadeDur = 0; m.rigKey = -1; }
     for (const m of this.rigs) { for (const r of m.values()) r.dispose(); m.clear(); }
     this.numberSprites.length = 0;
     if (this.env) { this.env.dispose(); this.env = null; }
@@ -172,22 +231,55 @@ export class GameRenderer {
       if (!rig) continue;
       shown.add(rig);
       rig.root.visible = true;
+      const mo = this.motion[i];
+      const key = a.side * 1000 + a.def.number;
+      if (mo.rigKey !== key) { mo.rigKey = key; mo.visible = false; mo.fadeDur = 0; }
       const x = lerp(a.prevX, a.x, alpha);
       const y = lerp(a.prevY, a.y, alpha);
       const z = lerp(a.prevZ, a.z, alpha);
       rig.root.position.set(x, y, z);
-      rig.root.rotation.y = angLerp(a.prevFacing, a.facing, alpha);
+
+      // Yaw is interpolated between ticks and then eased, because the simulation heading can
+      // still step when an athlete is shoved. A large step is a reposition, not a turn, so it
+      // snaps rather than sweeping the body round the long way.
+      const yawTarget = angLerp(a.prevFacing, a.facing, alpha);
+      if (!mo.visible || Math.abs(angDelta(mo.yaw, yawTarget)) > YAW_SNAP) mo.yaw = yawTarget;
+      else mo.yaw += angDelta(mo.yaw, yawTarget) * (1 - Math.exp(-YAW_LAMBDA * dt));
+
+      const bankTarget = clamp(-a.anim.accelLat * BANK_PER_ACCEL, -BANK_MAX, BANK_MAX);
+      mo.bank = mo.visible ? damp(mo.bank, bankTarget, 11, dt) : bankTarget;
+      rig.root.rotation.set(0, mo.yaw, mo.bank);
+      mo.visible = true;
 
       const st = a.anim.state;
-      if (this.lastAnimState[i] !== st) { this.animT[i] = 0; this.lastAnimState[i] = st; }
+      if (this.lastAnimState[i] !== st) {
+        // Snapshot the pose being left BEFORE the new one overwrites the bones.
+        capturePose(rig, mo.fadeFrom);
+        mo.fadeT = 0;
+        mo.fadeDur = fadeTimeFor(st);
+        this.animT[i] = 0;
+        this.lastAnimState[i] = st;
+      }
       this.animT[i] += dt;
+
+      // The stride phase advances once per simulation tick; interpolating it stops the legs
+      // stepping at 60 Hz on a 120 Hz display.
+      let dp = a.anim.phase - a.anim.prevPhase;
+      if (dp < -0.5) dp += 1; else if (dp > 0.5) dp -= 1;
+      sample.phase = (a.anim.prevPhase + dp * alpha + 1) % 1;
       sample.state = st;
-      sample.phase = a.anim.phase;
-      sample.speed01 = clamp01(Math.hypot(a.vx, a.vz) / 13);
-      sample.lean = 0;
+      sample.speed01 = a.anim.speed01;
+      sample.lean = clamp(a.anim.accelFwd * LEAN_PER_ACCEL, -0.16, 0.24);
       sample.fire = a.onFire ? 1 : 0;
       sample.t = this.animT[i];
       poseAthlete(rig, sample);
+
+      if (mo.fadeDur > 0) {
+        mo.fadeT += dt;
+        const k = mo.fadeT / mo.fadeDur;
+        if (k >= 1) mo.fadeDur = 0;
+        else blendPose(rig, mo.fadeFrom, 1 - smoothstep(k));
+      }
     }
     for (const side of [0, 1] as TeamSide[]) {
       for (const rig of this.rigs[side].values()) if (!shown.has(rig)) rig.root.visible = false;
@@ -198,9 +290,18 @@ export class GameRenderer {
     const bx = lerp(b.prevX, b.x, alpha), by = lerp(b.prevY, b.y, alpha), bz = lerp(b.prevZ, b.z, alpha);
     this.ball.position.set(bx, by, bz);
     if (b.state.kind === 'inAir' || b.state.kind === 'kicked') {
+      // Point the ball along the path it is actually travelling. A thrown ball is moved by
+      // interpolating between two points rather than by integrating a velocity, so `b.v*` is
+      // zero for the whole flight and the spiral used to hang at a fixed angle.
+      const dx = (b.x - b.prevX) / FIXED_DT;
+      const dy = (b.y - b.prevY) / FIXED_DT;
+      const dz = (b.z - b.prevZ) / FIXED_DT;
+      const flat = Math.hypot(dx, dz);
       this.ball.rotation.z += b.spin * dt * 0.35;
-      this.ball.rotation.x = Math.atan2(-b.vy, Math.hypot(b.vx, b.vz)) * 0.5;
-      this.ball.rotation.y = Math.atan2(b.vx, b.vz);
+      if (flat > 0.5) {
+        this.ball.rotation.x = Math.atan2(-dy, flat) * 0.5;
+        this.ball.rotation.y = Math.atan2(dx, dz);
+      }
     } else if (b.state.kind === 'loose') {
       this.ball.rotation.x += dt * 9; this.ball.rotation.z += dt * 6;
     }
@@ -214,6 +315,7 @@ export class GameRenderer {
       this.env.field.setLos(world.losZ);
       this.env.field.setFirstDown(match.firstDownZ);
       this.env.field.setMarkersVisible(world.special === null);
+      this.env.field.setGoalOcclusion(this.gameCamera.camera.position.z, this.gameCamera.focusZ, dt);
       this.env.lighting.focusOn(this.gameCamera.focusX, this.gameCamera.focusZ);
       this.env.update(dt, this.gameCamera.camera.position);
       void dir;
@@ -247,7 +349,13 @@ export class GameRenderer {
     const car = carrier(world);
     if (car && world.playPhase === 'LIVE') {
       mk.carrierMark.visible = true;
-      mk.carrierMark.position.set(car.x, 2.75 + car.y + Math.sin(world.tick * 0.14) * 0.08, car.z);
+      // Interpolated like the body it sits above; a marker stepping at 60 Hz over a body
+      // moving at the display rate is more obvious than the body would have been on its own.
+      mk.carrierMark.position.set(
+        lerp(car.prevX, car.x, alpha),
+        2.75 + lerp(car.prevY, car.y, alpha) + Math.sin((world.tick + alpha) * 0.14) * 0.08,
+        lerp(car.prevZ, car.z, alpha),
+      );
       (mk.carrierMark.material as THREE.MeshBasicMaterial).color.setHex(car.onFire ? 0xff7a2a : 0xffe14d);
     } else {
       mk.carrierMark.visible = false;
@@ -261,7 +369,9 @@ export class GameRenderer {
       if (!showTargets || id < 0) { sp.visible = false; continue; }
       const r = world.athletes[id];
       sp.visible = true;
-      sp.position.set(r.x, 2.95 + r.y, r.z);
+      sp.position.set(
+        lerp(r.prevX, r.x, alpha), 2.95 + lerp(r.prevY, r.y, alpha), lerp(r.prevZ, r.z, alpha),
+      );
     }
 
     const bs = world.ball.state;
@@ -287,8 +397,20 @@ export class GameRenderer {
       if (!rig) continue;
       shown.add(rig);
       rig.root.visible = true;
+      const mo = this.motion[i];
+      const key = a.side * 1000 + a.jersey;
+      if (mo.rigKey !== key) { mo.rigKey = key; mo.visible = false; mo.fadeDur = 0; }
       rig.root.position.set(a.x, a.y, a.z);
-      rig.root.rotation.y = a.facing;
+      if (!mo.visible || Math.abs(angDelta(mo.yaw, a.facing)) > YAW_SNAP) mo.yaw = a.facing;
+      else mo.yaw += angDelta(mo.yaw, a.facing) * (1 - Math.exp(-YAW_LAMBDA * dt));
+      rig.root.rotation.set(0, mo.yaw, 0);
+      mo.visible = true;
+      if (this.lastAnimState[i] !== a.state) {
+        capturePose(rig, mo.fadeFrom);
+        mo.fadeT = 0; mo.fadeDur = fadeTimeFor(a.state);
+        this.animT[i] = 0;
+        this.lastAnimState[i] = a.state;
+      }
       sample.state = a.state;
       sample.phase = a.phase;
       sample.speed01 = 0.5;
@@ -296,6 +418,12 @@ export class GameRenderer {
       sample.fire = 0;
       sample.t = this.animT[i] += dt;
       poseAthlete(rig, sample);
+      if (mo.fadeDur > 0) {
+        mo.fadeT += dt;
+        const k = mo.fadeT / mo.fadeDur;
+        if (k >= 1) mo.fadeDur = 0;
+        else blendPose(rig, mo.fadeFrom, 1 - smoothstep(k));
+      }
     }
     for (const side of [0, 1] as TeamSide[]) {
       for (const rig of this.rigs[side].values()) if (!shown.has(rig)) rig.root.visible = false;

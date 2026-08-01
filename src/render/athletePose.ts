@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { AnimState } from '../core/types.ts';
-import type { AthleteRig } from './athleteRig.ts';
+import { BONE_NAMES, type AthleteRig } from './athleteRig.ts';
 import { clamp, clamp01, lerp, TAU } from '../core/math.ts';
 
 export interface AnimSample {
@@ -32,6 +32,10 @@ export function poseAthlete(rig: AthleteRig, s: AnimSample): void {
   let bodyLean = s.lean;
   let hipY = 0;
   let hipRoll = 0;
+  // Hip yaw has to be accumulated rather than written to the bone: the final block below
+  // rebuilds the hip quaternion from lean and roll, which silently threw away the rotation the
+  // throw case set — the quarterback's hip drive never actually rendered.
+  let hipYaw = 0;
 
   // defaults
   set(b.hips, 0, 0, 0);
@@ -42,13 +46,17 @@ export function poseAthlete(rig: AthleteRig, s: AnimSample): void {
   switch (s.state) {
     case 'RUN':
     case 'SPRINT': {
-      const fast = s.state === 'SPRINT';
-      const amp = fast ? 1.15 : 0.82;
+      // Stride amplitude and lean scale continuously with gait speed. They used to be a binary
+      // step keyed off the RUN/SPRINT state — `speed01` was computed here and then thrown
+      // away — so crossing the sprint threshold snapped every limb forty per cent wider on a
+      // single frame, and athletes sitting on that threshold did it several times a second.
+      const drive = clamp01(sp / 0.75);
+      const amp = lerp(0.50, 1.16, drive);
       const a = p * TAU;
       const swing = Math.sin(a);
       const swing2 = Math.sin(a + Math.PI);
-      bodyLean += fast ? 0.34 : 0.20;
-      hipY = Math.abs(Math.sin(a * 2)) * 0.055 * (fast ? 1.3 : 1);
+      bodyLean += lerp(0.14, 0.36, drive);
+      hipY = Math.abs(Math.sin(a * 2)) * 0.055 * lerp(0.8, 1.32, drive);
       hipRoll = swing * 0.10;
       set(b.thighL, swing * amp * 0.95 - 0.12, 0, 0);
       set(b.kneeL, -clamp(swing2 * amp * 1.15 + 0.35, 0.05, 2.0), 0, 0);
@@ -96,7 +104,7 @@ export function poseAthlete(rig: AthleteRig, s: AnimSample): void {
       set(b.shoulderL, 0.5 - t * 0.7, 0, 1.0);
       set(b.elbowL, -0.7, 0, 0);
       set(b.chest, 0, -0.55 + t * 1.1, 0);
-      set(b.hips, 0, -0.30 + t * 0.55, 0);
+      hipYaw = -0.30 + t * 0.55;
       set(b.thighL, 0.35, 0, 0); set(b.kneeL, -0.5, 0, 0);
       set(b.thighR, -0.25, 0, 0); set(b.kneeR, -0.4, 0, 0);
       break;
@@ -240,7 +248,7 @@ export function poseAthlete(rig: AthleteRig, s: AnimSample): void {
   b.hips.position.y = rig.bones.hips.userData.baseY ?? b.hips.position.y;
   if (b.hips.userData.baseY === undefined) b.hips.userData.baseY = b.hips.position.y;
   b.hips.position.y = (b.hips.userData.baseY as number) + hipY;
-  E.set(-bodyLean, 0, hipRoll);
+  E.set(-bodyLean, hipYaw, hipRoll);
   b.hips.quaternion.setFromEuler(E);
 
   if (rig.aura) {
@@ -252,5 +260,52 @@ export function poseAthlete(rig: AthleteRig, s: AnimSample): void {
     rig.aura.scale.setScalar(sc);
   }
 }
+
+// ── cross-fading ───────────────────────────────────────────────────────────
+//
+// Every pose above writes bone rotations absolutely, so changing state used to teleport every
+// limb in the same frame. Athletes change state a couple of times a second each, which is a
+// constant flicker of snapping arms and legs across fourteen bodies.
+//
+// Rather than rewrite the poses as additive layers, the renderer snapshots the pose an athlete
+// is leaving and eases out of it. The cost is one quaternion array per athlete and seventeen
+// slerps per athlete per frame.
+
+export const POSE_FLOATS = BONE_NAMES.length * 4 + 1;
+const _q = new THREE.Quaternion();
+
+/** Snapshot the rig's current bone rotations (and hip height) into `out`. */
+export function capturePose(rig: AthleteRig, out: Float32Array): void {
+  let k = 0;
+  for (const n of BONE_NAMES) {
+    const q = rig.bones[n].quaternion;
+    out[k++] = q.x; out[k++] = q.y; out[k++] = q.z; out[k++] = q.w;
+  }
+  out[k] = rig.bones.hips.position.y;
+}
+
+/** Blend the rig `w` of the way back toward a snapshot. w = 1 is the snapshot exactly. */
+export function blendPose(rig: AthleteRig, from: Float32Array, w: number): void {
+  if (w <= 0.0005) return;
+  let k = 0;
+  for (const n of BONE_NAMES) {
+    _q.set(from[k], from[k + 1], from[k + 2], from[k + 3]); k += 4;
+    rig.bones[n].quaternion.slerp(_q, w);
+  }
+  rig.bones.hips.position.y = lerp(rig.bones.hips.position.y, from[k], w);
+}
+
+/**
+ * How long to ease into each state. Impacts are deliberately short — a tackle should still
+ * land like a tackle — while locomotion and idle poses get a full blend.
+ */
+const FADE_DEFAULT = 0.12;
+const FADE: Partial<Record<AnimState, number>> = {
+  TACKLED: 0.05, DIVE: 0.06, TACKLE: 0.06, THROW: 0.05, STIFFARM: 0.05,
+  CATCH: 0.07, JUMP: 0.06, HURDLE: 0.06, SPIN: 0.06, KICK: 0.06, STUMBLE: 0.07,
+  GETUP: 0.10, BLOCK: 0.10, BACKPEDAL: 0.12, RUN: 0.13, SPRINT: 0.13,
+  IDLE: 0.14, SET: 0.14, CELEBRATE: 0.14,
+};
+export function fadeTimeFor(state: AnimState): number { return FADE[state] ?? FADE_DEFAULT; }
 
 export { clamp01, lerp };

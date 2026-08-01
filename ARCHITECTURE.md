@@ -59,6 +59,14 @@ Input devices ──▶ InputManager ──▶ PlayerIntent[4]  (pure data struc
 - `FIXED_DT = 1/60` s. Simulation only ever advances in whole ticks.
 - Max 5 catch-up ticks per frame (`MAX_SUBSTEPS`), then time is dropped — never spiral.
 - Rendering interpolates between `prevTransform` and `transform` using `alpha`.
+- The frame delta reaching the accumulator comes from `FramePacer` (`src/app/framePacer.ts`),
+  which averages it, snaps it to a whole number of steps when it is close to one, and banks the
+  difference so the match clock stays true to the wall clock. It has no dependencies beyond
+  `FIXED_DT`, which is what makes it directly testable (`tests/framePacer.test.ts`,
+  `npm run pacing`).
+- **Every match phase advances the world.** Phases whose handler does not call `stepPlay` call
+  `idleStep` instead. A phase that leaves the world untouched leaves `prev*` stale while `alpha`
+  keeps sweeping, and the whole field sawtooths at any refresh above 60 Hz.
 - `world.tick` is a monotonically increasing integer. All timers are expressed in **ticks**, not
   seconds, inside sim code. Seconds only appear at authoring boundaries (`s(0.4)` helper).
 
@@ -239,14 +247,28 @@ poseAthlete(rig: AthleteRig, s: AnimSample): void
 interface AnimSample {
   state: AnimState;    // IDLE RUN SPRINT BACKPEDAL THROW CATCH DIVE HURDLE SPIN
                        // STIFFARM TACKLE TACKLED CELEBRATE BLOCK KICK GETUP STUMBLE
-  phase: number;       // 0..1 within the state
-  speed01: number; lean: number; facing: number; blend: number;
-  ragdoll?: RagdollSample;  // cosmetic only — never authoritative
+  phase: number;       // 0..1 within the state, interpolated between ticks
+  speed01: number;     // smoothed gait, from GROUND COVERED not velocity
+  lean: number;        // from the athlete's own forward acceleration
+  fire: number; t: number;
 }
 ```
 
-Sim sets `athlete.anim = { state, phase }`. Rendering must not infer state from positions.
-Ragdoll/secondary motion is visual only; possession and dead-ball are decided by sim.
+Sim owns `athlete.anim`: `{ state, phase, prevPhase, speed01, accelFwd, accelLat, ground, … }`.
+Rendering must not infer state from positions.
+
+Three rules the renderer must keep:
+
+1. **Gait comes from ground covered, not velocity.** `updateGait` differences the athlete's
+   position across a whole tick, so shoves, pile separation and sideline clamps are all in it.
+   A velocity-driven stride slides.
+2. **Locomotion state changes need hysteresis** (`syncAnim`). A pose change restarts the pose.
+3. **Pose changes cross-fade** (`capturePose` / `blendPose`). Poses write bone rotations
+   absolutely, so an un-faded change teleports every limb in one frame. The renderer owns the
+   fade; the simulation never sees it.
+
+Everything in this section is presentation. None of it may change a rules outcome, and the
+between-plays `idleStep` explicitly saves and restores turbo for that reason.
 
 ## 14. AI INTERFACE
 

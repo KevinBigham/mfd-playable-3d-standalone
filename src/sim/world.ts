@@ -97,10 +97,13 @@ function blankAthlete(id: number): Athlete {
       ratings: { speed: 50, power: 50, hands: 50, agility: 50, arm: 50, accuracy: 50, coverage: 50, awareness: 50 },
       build: 0.5, tone: 0.5, flair: 0,
     },
-    x: 0, z: 0, y: 0, vx: 0, vz: 0, vy: 0, facing: 0,
+    x: 0, z: 0, y: 0, vx: 0, vz: 0, vy: 0, facing: 0, turnVel: 0,
     prevX: 0, prevZ: 0, prevY: 0, prevFacing: 0,
     move: 'NORMAL', moveTicks: 0,
-    anim: { state: 'IDLE', phase: 0, ticks: 0 },
+    anim: {
+      state: 'IDLE', phase: 0, prevPhase: 0, ticks: 0,
+      speed01: 0, accelFwd: 0, accelLat: 0, ground: 0, lastX: 0, lastZ: 0,
+    },
     hasBall: false, turbo: 100, turboHeld: false, turboLockTicks: 0, stamina: 100,
     downTicks: 0, stunTicks: 0, blockedBy: -1, engagedWith: -1, onFire: false,
     role: 'WIDE', route: null, routeIdx: 0, routeHold: 0, assign: null, targetButton: null,
@@ -161,9 +164,11 @@ function pickOffense(roster: PlayerDef[], slot: number, kicker: boolean): Player
 
 export function resetAthlete(a: Athlete, side: TeamSide, slot: number, unit: 'OFF' | 'DEF' | 'KICK', def: PlayerDef): void {
   a.side = side; a.slotIndex = slot; a.unit = unit; a.def = def;
-  a.vx = 0; a.vz = 0; a.vy = 0; a.y = 0;
+  a.vx = 0; a.vz = 0; a.vy = 0; a.y = 0; a.turnVel = 0;
   a.move = 'NORMAL'; a.moveTicks = 0;
-  a.anim.state = 'SET'; a.anim.phase = 0; a.anim.ticks = 0;
+  a.anim.state = 'SET'; a.anim.phase = 0; a.anim.prevPhase = 0; a.anim.ticks = 0;
+  a.anim.speed01 = 0; a.anim.accelFwd = 0; a.anim.accelLat = 0;
+  a.anim.ground = 0; a.anim.lastX = a.x; a.anim.lastZ = a.z;
   a.hasBall = false; a.turbo = 100; a.turboHeld = false; a.turboLockTicks = 0;
   a.downTicks = 0; a.stunTicks = 0; a.blockedBy = -1; a.engagedWith = -1;
   a.route = null; a.routeIdx = 0; a.routeHold = 0; a.assign = null; a.targetButton = null;
@@ -187,6 +192,7 @@ export function savePrev(w: World): void {
   for (let i = 0; i < w.athletes.length; i++) {
     const a = w.athletes[i];
     a.prevX = a.x; a.prevZ = a.z; a.prevY = a.y; a.prevFacing = a.facing;
+    a.anim.prevPhase = a.anim.phase;
   }
   w.ball.prevX = w.ball.x; w.ball.prevY = w.ball.y; w.ball.prevZ = w.ball.z;
 }

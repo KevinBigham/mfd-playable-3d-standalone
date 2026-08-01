@@ -197,6 +197,47 @@ line of scrimmage and the first-down marker before the snap, widens on deep thro
 breakaways, pulls back for kicks, and settles fast after the whistle. Impact shake is scaled by a
 user setting and disabled entirely by Reduced Motion.
 
+The framing numbers — distance, height, look-ahead, field of view — are eased in their own right
+before the camera is placed from them, so a change of shot is a second-order move rather than a
+lurch toward a target that jumped. Shot changes need a clear reason and a minimum dwell: a runner
+must be plainly clear to earn the tight breakaway shot and plainly caught to lose it, because a
+single threshold made the camera flip several times a second whenever a carrier ran alongside a
+defender. The camera also looks a little further ahead the faster the carrier is moving, so it
+shows the space he is running into instead of reporting it afterwards.
+
+## 10b. MOTION
+
+Everything below is presentation only; none of it changes a rules outcome.
+
+- **Stride is locked to ground covered.** Cadence comes from the distance an athlete actually
+  travelled last tick divided by a fixed stride length, not from his velocity. Blocking shoves,
+  pile separation and sideline clamps all move a body without touching its velocity, so a
+  velocity-driven run cycle showed a defender strolling while he slid several yards a second.
+- **Locomotion states carry hysteresis.** Fixed speed thresholds meant an athlete holding a speed
+  near a boundary changed animation state every tick, and every change restarts a procedural pose.
+- **Poses cross-fade.** Each pose writes bone rotations absolutely, so a state change used to
+  teleport every limb on one frame. The renderer snapshots the pose being left and eases out of it
+  over 50–140 ms depending on the state; impacts stay short so a tackle still lands like a tackle.
+- **Bodies lean and bank.** Forward and lateral acceleration in the athlete's own frame drive body
+  lean and a roll into the turn.
+- **Between plays the world still breathes.** Match phases that do not run a simulation step now run
+  a narrow animation-only step, so the field does not freeze and the renderer is never interpolating
+  against a stale previous frame.
+- **Frame pacing.** The frame delta is averaged and snapped to a whole number of simulation steps
+  when it is close to one, with the difference banked and bled back so the match clock stays true
+  to the wall clock. What this fixes is *timestamp* noise: browser frame timestamps are not exact,
+  and a world that advances by a noisy delta wobbles even when frames arrive on time. It is
+  explicitly NOT fixing the classic fixed-timestep beat, where one frame runs two simulation steps
+  and the next runs none — render interpolation already covers that, and the harness prints the
+  step count to show it happening harmlessly on half of all frames at 120 Hz.
+- **Adaptive resolution.** On by default, and switchable in Settings. Frames that arrive late
+  relative to the fastest this machine has been seen to manage shrink the render buffer in 10 %
+  steps down to 60 %; a sustained run of on-time frames gives it back in 5 % steps. Both thresholds
+  are relative rather than absolute, so a 50 Hz display with headroom is not mistaken for a 60 Hz
+  display in trouble. Reset to full at the start of every match.
+- **The near goalpost fades out** when it stands between the camera and the ball, which near a goal
+  line otherwise draws a bright yellow bar across the play.
+
 ## 11. AUDIO
 
 Fully synthesised in the browser: layered impacts (sub thump + mid crack + high transient), a

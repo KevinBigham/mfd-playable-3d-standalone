@@ -11,6 +11,7 @@ import { el } from '../ui/uiKit.ts';
 import { Hud } from '../ui/hud.ts';
 import { clamp, clamp01 } from '../core/math.ts';
 import { ReplayBuffer, ReplayPlayer, makeReplayView } from '../render/replay.ts';
+import { FramePacer } from './framePacer.ts';
 
 export interface PerfSample { p50: number; p95: number; p99: number; worst: number; frames: number }
 
@@ -142,7 +143,8 @@ export class Game {
   // ── settings ──────────────────────────────────────────────────────────
   applySettings(): void {
     const s = this.settings;
-    this.renderer.setQuality(s.quality, s.resolutionScale);
+    if (!s.dynamicResolution) this.dynScale = 1;
+    this.renderer.setQuality(s.quality, s.resolutionScale * this.dynScale);
     this.renderer.setCameraOptions(s.cameraShake, s.reducedMotion);
     this.audio.engine.setVolume('master', s.volumes.master);
     this.audio.engine.setVolume('sfx', s.volumes.sfx);
@@ -158,6 +160,12 @@ export class Game {
   // ── match lifecycle ───────────────────────────────────────────────────
   startMatch(cfg: Partial<MatchConfig>): Match {
     this.endMatch();
+    // Every match starts at full resolution and earns its way down, so a single bad session
+    // does not quietly leave the game blurry for the next one.
+    this.dynScale = 1; this.dynOver = 0; this.dynUnder = 0;
+    this.renderer.setResolutionScale(this.settings.resolutionScale);
+    this.accumulator = 0;
+    this.pacer.reset();
     const config = defaultMatchConfig({
       ...cfg,
       difficulty: cfg.difficulty ?? this.settings.difficulty,
@@ -219,17 +227,74 @@ export class Game {
     const loop = (now: number) => {
       this.rafId = requestAnimationFrame(loop);
       const frameStart = now;
-      let dt = (now - this.lastTime) / 1000;
+      let raw = (now - this.lastTime) / 1000;
       this.lastTime = now;
-      if (!Number.isFinite(dt) || dt < 0) dt = 0;
-      dt = Math.min(dt, 0.25);
-      this.frame(dt);
+      if (!Number.isFinite(raw) || raw < 0) raw = 0;
+      raw = Math.min(raw, 0.25);
+      this.frame(this.pacer.next(raw));
       const cost = performance.now() - frameStart;
       this.frameTimes.push(cost);
       if (this.frameTimes.length > 900) this.frameTimes.shift();
+      this.governResolution(raw * 1000);
     };
     this.rafId = requestAnimationFrame(loop);
   }
+
+  private pacer = new FramePacer();
+
+  /**
+   * Adaptive resolution. Frames that arrive late get a smaller buffer to fill; a sustained run
+   * of on-time frames gives it back. Deliberately slow in both directions — resolution that
+   * oscillates is worse to look at than resolution that is simply a bit low.
+   *
+   * The trigger is the frame INTERVAL, not the time spent in this loop. WebGL submits work
+   * asynchronously, so a machine can be comfortably inside its CPU budget and still be missing
+   * every second frame on the GPU; the interval is the only figure that sees both.
+   *
+   * Both thresholds are relative to what this machine has been observed to achieve, not to a
+   * hardcoded 60 Hz. Absolute thresholds make the governor a one-way ratchet on every display
+   * slower than about 53 Hz: a 50 Hz panel with unlimited headroom satisfies "late" on every
+   * frame and "on time" on none, and silently drops to the minimum resolution. The baseline is
+   * tracked in menus too, where the load is light and the figure therefore reflects the display
+   * rather than the scene.
+   */
+  private dynScale = 1;
+  private dynOver = 0;
+  private dynUnder = 0;
+  private dynBaseline = 16.7;   // ms; the fastest frame this session, forgotten slowly
+
+  private governResolution(intervalMs: number): void {
+    if (intervalMs > 4 && intervalMs < 500) {
+      // Min-tracking with a slow upward creep. A hitch only ever raises the interval, so it
+      // cannot poison the estimate; the creep exists so moving the window to another monitor
+      // is picked up within a minute or so.
+      this.dynBaseline = Math.min(intervalMs, this.dynBaseline + 0.005);
+      this.dynBaseline = clamp(this.dynBaseline, 4, 40);
+    }
+    if (!this.settings.dynamicResolution || !this.inMatch || this.paused) {
+      this.dynOver = 0; this.dynUnder = 0;
+      return;
+    }
+    const late = this.dynBaseline * 1.30;
+    const onTime = this.dynBaseline * 1.12;
+    if (intervalMs > late) this.dynOver++; else this.dynOver = Math.max(0, this.dynOver - 1);
+    // Decayed rather than zeroed: a single long frame is normal, and resetting on one meant
+    // the recovery path could never complete in the presence of ordinary jitter.
+    if (intervalMs < onTime) this.dynUnder++; else this.dynUnder = Math.max(0, this.dynUnder - 3);
+
+    if (this.dynOver >= 45 && this.dynScale > 0.6) {
+      this.dynScale = Math.max(0.6, this.dynScale - 0.1);
+      this.dynOver = 0; this.dynUnder = 0;
+      this.renderer.setResolutionScale(this.settings.resolutionScale * this.dynScale);
+    } else if (this.dynUnder >= 240 && this.dynScale < 1) {
+      this.dynScale = Math.min(1, this.dynScale + 0.05);
+      this.dynUnder = 0;
+      this.renderer.setResolutionScale(this.settings.resolutionScale * this.dynScale);
+    }
+  }
+
+  /** Current adaptive-resolution multiplier, 0.6..1. Exposed for the perf harness. */
+  get dynamicScale(): number { return this.dynScale; }
 
   stop(): void { this.running = false; cancelAnimationFrame(this.rafId); }
 
@@ -261,6 +326,7 @@ export class Game {
         steps++;
       }
       if (steps === MAX_SUBSTEPS) this.accumulator = 0;
+      this.stepHist[Math.min(steps, this.stepHist.length - 1)]++;
       const alpha = clamp01(this.accumulator / FIXED_DT);
       const celebrating = m.phase === 'SCORE_RESOLVE' || m.phase === 'FINAL';
       this.renderer.sync(m.world, m.state, alpha, dt, celebrating);
@@ -288,7 +354,33 @@ export class Game {
     this.input.clearEdges();
   }
 
-  perfReset(): void { this.frameTimes.length = 0; }
+  /**
+   * How many simulation steps each frame ran. A perfectly paced 60 Hz session is entirely in
+   * bucket 1; entries in 0 and 2 are the beat that pacing exists to remove.
+   */
+  private stepHist = [0, 0, 0, 0, 0, 0];
+  stepHistogram(): number[] { return [...this.stepHist]; }
+
+  /**
+   * Advance presentation-only state — camera easing, pose cross-fades, effects — by a fixed
+   * amount of simulated wall time, without stepping the match and without drawing.
+   *
+   * Purely a tool hook. The capture harness drives the match forward programmatically because
+   * this container has no GPU, and a still taken immediately afterwards catches the camera
+   * mid-transition: at software-rasteriser frame rates a "wait 600 ms" is barely one frame. This
+   * lets a screenshot show the framing the game actually settles on.
+   */
+  settle(seconds: number): void {
+    const m = this.match;
+    if (!m) return;
+    const dt = 1 / 60;
+    const n = Math.round(seconds * 60);
+    for (let i = 0; i < n; i++) {
+      this.renderer.sync(m.world, m.state, 1, dt, m.phase === 'SCORE_RESOLVE' || m.phase === 'FINAL');
+    }
+  }
+
+  perfReset(): void { this.frameTimes.length = 0; this.stepHist.fill(0); }
 
   perf(): PerfSample {
     const a = [...this.frameTimes].sort((x, y) => x - y);

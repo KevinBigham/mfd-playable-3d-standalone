@@ -51,6 +51,7 @@ export interface FieldHandle {
   setLos(z: number): void;
   setFirstDown(z: number): void;
   setMarkersVisible(v: boolean): void;
+  setGoalOcclusion(camZ: number, focusZ: number, dt: number): void;
   update(dt: number): void;
   dispose(): void;
 }
@@ -176,26 +177,27 @@ export function buildField(reg: SceneRegistry, o: FieldOptions): FieldHandle {
       new THREE.Vector3(GOAL_HALF_WIDTH, UPRIGHT_TOP_Y, 100),
     ],
   };
+  /** One mesh per end so the goal standing between the camera and the ball can fade out. */
+  const goalMeshes: THREE.Mesh[] = [];
   {
-    const batch = new GeoBatch();
-    batch.uvScale = 0.5;
     const metal = new THREE.Color('#ffd21e');
     const metalDark = new THREE.Color('#c99b10');
     const pad = new THREE.Color('#1b1f26');
     const seg = q.tier === 'LOW' ? 6 : 10;
 
-    const tube = (radius: number, from: THREE.Vector3, to: THREE.Vector3, color: THREE.Color): void => {
-      const dir = new THREE.Vector3().subVectors(to, from);
-      const len = dir.length();
-      if (len < 1e-5) return;
-      const g = new THREE.CylinderGeometry(radius, radius, len, seg, 1, false);
-      const m = new THREE.Matrix4();
-      const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
-      m.compose(new THREE.Vector3().addVectors(from, to).multiplyScalar(0.5), quat, new THREE.Vector3(1, 1, 1));
-      batch.addGeometry(g, m, color);
-    };
-
     for (const gz of [0, 100]) {
+      const batch = new GeoBatch();
+      batch.uvScale = 0.5;
+      const tube = (radius: number, from: THREE.Vector3, to: THREE.Vector3, color: THREE.Color): void => {
+        const dir = new THREE.Vector3().subVectors(to, from);
+        const len = dir.length();
+        if (len < 1e-5) return;
+        const g = new THREE.CylinderGeometry(radius, radius, len, seg, 1, false);
+        const m = new THREE.Matrix4();
+        const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+        m.compose(new THREE.Vector3().addVectors(from, to).multiplyScalar(0.5), quat, new THREE.Vector3(1, 1, 1));
+        batch.addGeometry(g, m, color);
+      };
       const back = gz === 0 ? -1 : 1;           // away from the field of play
       const baseZ = gz + back * 1.35;
       // Padded base sleeve.
@@ -228,16 +230,21 @@ export function buildField(reg: SceneRegistry, o: FieldOptions): FieldHandle {
         rm.setPosition(sx * GOAL_HALF_WIDTH, UPRIGHT_TOP_Y - 0.55, gz + 0.16);
         batch.addGeometry(rib, rm, new THREE.Color('#ff5a2a'));
       }
+      const g = keep(batch.build());
+      const m = keepM(new THREE.MeshPhongMaterial({
+        vertexColors: true, shininess: 88, specular: new THREE.Color(0x8f7a2a),
+        side: THREE.DoubleSide, transparent: true, opacity: 1, depthWrite: true,
+      }));
+      const mesh = new THREE.Mesh(g, m);
+      mesh.castShadow = q.shadows;
+      mesh.matrixAutoUpdate = false;
+      mesh.renderOrder = 2;
+      group.add(mesh);
+      goalMeshes.push(mesh);
     }
-    const g = keep(batch.build());
-    const m = keepM(new THREE.MeshPhongMaterial({
-      vertexColors: true, shininess: 88, specular: new THREE.Color(0x8f7a2a), side: THREE.DoubleSide,
-    }));
-    const mesh = new THREE.Mesh(g, m);
-    mesh.castShadow = q.shadows;
-    mesh.matrixAutoUpdate = false;
-    group.add(mesh);
   }
+  /** Current opacity per end, eased so the fade is never a pop. */
+  const goalFade = [1, 1];
 
   // ── LOS + first-down markers ───────────────────────────────────────────
   const markerGroup = new THREE.Group();
@@ -401,6 +408,24 @@ export function buildField(reg: SceneRegistry, o: FieldOptions): FieldHandle {
     setLos(z: number): void { los.root.position.z = z; },
     setFirstDown(z: number): void { firstDown.root.position.z = z; },
     setMarkersVisible(v: boolean): void { markerGroup.visible = v; },
+    /**
+     * Fade out whichever goal is standing between the camera and the action.
+     *
+     * Near a goal line the camera sits behind the end zone and the crossbar draws a bright
+     * yellow bar straight across the play. Hiding it outright would pop, so it eases.
+     */
+    setGoalOcclusion(camZ: number, focusZ: number, dt: number): void {
+      for (let i = 0; i < goalMeshes.length; i++) {
+        const gz = i === 0 ? 0 : 100;
+        const between = (camZ - gz) * (focusZ - gz) < 0;
+        const want = between ? 0.16 : 1;
+        goalFade[i] += (want - goalFade[i]) * (1 - Math.exp(-7 * dt));
+        const mat = goalMeshes[i].material as THREE.MeshPhongMaterial;
+        mat.opacity = goalFade[i];
+        mat.depthWrite = goalFade[i] > 0.92;
+        goalMeshes[i].castShadow = goalFade[i] > 0.5;
+      }
+    },
     update(dt: number): void {
       pulse += dt;
       const a = 0.72 + Math.sin(pulse * 3.1) * 0.14;

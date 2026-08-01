@@ -6,8 +6,9 @@
 
 ## CURRENT MILESTONE
 
-**M8 — hardening.** M0–M7 are complete: the deterministic core, a full match, the playbook, AI,
-local multiplayer, presentation and every mode are in and integrated.
+**M9 — motion polish.** M0–M8 are complete: the deterministic core, a full match, the playbook,
+AI, local multiplayer, presentation, every mode, and the hardening pass. M9 was a dedicated pass on
+how the game *moves*, measured by two new harnesses rather than asserted.
 
 ## COMPLETED SYSTEMS
 
@@ -28,19 +29,27 @@ local multiplayer, presentation and every mode are in and integrated.
 | Modes: Quick Play, Tournament, Season, Practice, Play Editor | done |
 | Persistence: settings, season, tournament, custom plays, records | done |
 | Harness: unit tests, purity tests, scenarios, batch sim, determinism, smoke, capture, perf | done |
+| Motion: ground-locked stride, state hysteresis, pose cross-fade, lean/bank, eased camera | done |
+| Frame pacing, adaptive resolution, shader prewarm, goalpost occlusion fade | done |
+| Harness: motion-quality metrics (`smoothness`), frame-pacing metrics (`pacing`) | done |
 
 ## MEASUREMENTS (latest)
 
 Full detail in QA_REPORT.md. Headline numbers:
 
 - 200-game CPU-vs-CPU batch: 100 % completion, **0 rules violations**, **0 watchdog trips**.
-- 47.8 combined points, 63.7 plays, 5.8 touchdowns, 2.1 interceptions per game.
-- Home/away split 24.6 / 23.2 across the batch — no directional bias.
-- 216 ms to simulate a full game headless; 0.009 ms per simulation tick (147× real-time headroom).
-- Browser smoke: **19/19**. Unit tests **206/206**. Scenarios **24/24**. Determinism **12/12**.
+- 48.2 combined points, 63.0 plays, 5.9 touchdowns, 2.3 interceptions per game.
+- Home/away split 24.9 / 23.3 across the batch — no directional bias.
+- 198 ms to simulate a full game headless.
+- Browser smoke: **19/19** (31 draw calls, 112 k triangles). Unit tests **214/214**.
+  Scenarios **24/24**. Determinism **12/12**.
+- Motion: animation churn **−44 %**, run/sprint flips **−52 %**, heading jerk **−20 %**, worst
+  single-tick positional correction **−22 %**, foot-slide structurally eliminated.
+- Frame pacing: apparent-speed jitter cut **3–7×** across eight display models, clock drift ≤30 ms
+  in 30 s.
 - Deterministic: identical seed ⇒ identical event log, verified three ways.
-- One balance target missed: **2.56 safeties a game** against a ≤1 target. Documented in
-  QA_REPORT.md §7 rather than hidden.
+- One balance target missed: **2.63 safeties a game** against a ≤1 target. Documented in
+  QA_REPORT.md §8 rather than hidden.
 
 ## IMPORTANT DECISIONS
 
@@ -65,6 +74,16 @@ Full detail in QA_REPORT.md. Headline numbers:
     snap or a punt from your own 1 is not an automatic safety.
 11. **The kick meter is edge-triggered and arms on release.** The snap and the kick share a button;
     accepting the held button made every human field goal fire instantly at 22 % power.
+12. **Gait is driven by ground covered, not by velocity.** Shoves, pile separation and sideline
+    clamps move a body without touching its velocity, so a velocity-driven run cycle showed a
+    defender strolling while he slid several yards a second. Reading the position delta fixes it
+    with zero gameplay effect — an earlier attempt that pushed the block shove through velocity
+    instead cost 2.8 sacks a game and was reverted.
+13. **Phases that do not run a simulation step still run an animation step.** Otherwise `prevX`
+    goes stale while the renderer keeps sweeping `alpha`, and the whole field sawtooths above
+    60 Hz — and a touchdown is celebrated by fourteen statues.
+14. **The frame pacer distinguishes cadence changes from timestamp noise.** Averaging a genuinely
+    dropped frame smears it across the next four and is worse than the problem being solved.
 
 ## ACTIVE BLOCKERS
 
@@ -76,6 +95,8 @@ None.
 - No online multiplayer, by design.
 - Frame-time figures produced in this repository's container are software-rendered (no GPU
   available), so they are a worst case; draw calls, triangles and memory are hardware-independent.
+  Frames arrive roughly 2.4 s apart here, so camera smoothness and adaptive resolution could not be
+  measured in-browser; the frame pacer is measured directly instead (QA_REPORT.md §6).
 - Score variance is genuinely high: a mirror match (identical teams) still averages a ~15-point
   margin, and roughly a quarter of matches finish 28+ apart. That is the nature of ~10 scoring
   drives a game; comeback assist bounds it rather than removing it.
@@ -89,4 +110,5 @@ npm install        npm run dev        npm run build      npm run preview
 npm run typecheck  npm test           npm run scenarios  npm run replay
 npm run sim        npm run sim:batch  npm run invariants
 npm run smoke      npm run capture    npm run perf       npm run qa
+npm run smoothness npm run pacing     npm run perf:sim
 ```

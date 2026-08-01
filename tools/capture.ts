@@ -25,6 +25,14 @@ async function toPhase(page: Page, phase: string, maxTicks = 6000): Promise<stri
 async function advance(page: Page, ticks: number): Promise<void> {
   await page.evaluate((n) => { const m = (window as any).GO.match; if (m) for (let i = 0; i < n; i++) m.tick(); }, ticks);
 }
+/**
+ * Ease the camera and every cross-fade to rest without drawing. Software rasterisation runs at
+ * well under one frame a second here, so a real-time wait catches the camera mid-transition and
+ * the review set would show framings the game never actually settles on.
+ */
+async function settle(page: Page, seconds = 1.6): Promise<void> {
+  await page.evaluate((sec) => { (window as any).GO.settle?.(sec); }, seconds);
+}
 async function startMatch(page: Page, weather: string, seed: number): Promise<void> {
   await page.evaluate(({ weather, seed }) => {
     (window as any).GO.reset('match', {
@@ -73,14 +81,18 @@ async function main(): Promise<void> {
     for (const [weather, tag, seed] of [['CLEAR', 'clear', 909090], ['RAIN', 'rain', 4242], ['SNOW', 'snow', 777]] as const) {
       await startMatch(page, weather, seed);
       await toPhase(page, 'KICKOFF_LIVE');
-      await advance(page, 60); await page.waitForTimeout(600); await shot(`20-${tag}-kickoff`);
+      await advance(page, 60); await settle(page); await page.waitForTimeout(400); await shot(`20-${tag}-kickoff`);
       await toPhase(page, 'PRE_SNAP');
-      await page.waitForTimeout(700); await shot(`21-${tag}-presnap`, true);
+      await settle(page); await page.waitForTimeout(400); await shot(`21-${tag}-presnap`, true);
       await toPhase(page, 'LIVE');
-      for (let i = 0; i < 3; i++) { await advance(page, 20); await page.waitForTimeout(550); await shot(`22-${tag}-live-${i}`); }
+      for (let i = 0; i < 3; i++) {
+        await advance(page, 20); await settle(page, 0.5); await page.waitForTimeout(400);
+        await shot(`22-${tag}-live-${i}`);
+      }
       // Run forward to a score and grab the celebration.
       await toPhase(page, 'SCORE_RESOLVE', 12000);
-      await page.waitForTimeout(600); await shot(`23-${tag}-score`, true);
+      await advance(page, 70);      // let the celebration get going before the shot
+      await settle(page, 2.2); await page.waitForTimeout(400); await shot(`23-${tag}-score`, true);
       if (tag === 'clear') {
         await page.evaluate(() => { const m = (window as any).GO.match; let t = 0; while (m && !m.state.finished && t < 60 * 60 * 25) { m.tick(); t++; } });
         await page.waitForTimeout(3200);

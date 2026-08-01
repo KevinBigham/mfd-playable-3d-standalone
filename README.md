@@ -52,14 +52,16 @@ npm run preview   # serves dist/ on http://localhost:4173
 ```bash
 npm run typecheck    # strict TypeScript across src, tools and tests
 npm test             # unit tests (rules, league data, playbook, audio, layer purity)
-npm run scenarios    # 23 deterministic gameplay scenarios with assertions
+npm run scenarios    # 24 deterministic gameplay scenarios with assertions
 npm run sim          # CPU-vs-CPU batch simulation with a balance report
 npm run sim:batch    # 200 games
 npm run invariants   # 50 games with per-tick rules-invariant checking
 npm run smoke        # boots the real build in Chromium and plays a match to a final score
 npm run capture      # writes the visual review set to docs/captures/
 npm run perf         # frame-time profile of moving gameplay at every quality preset
-npm run qa           # typecheck + tests + scenarios + 200-game batch
+npm run smoothness   # motion quality: animation churn, heading and position jerk, foot-slide
+npm run pacing       # frame pacing: apparent-speed jitter across eight display models
+npm run qa           # typecheck + tests + scenarios + 200-game batch + motion quality
 ```
 
 Measured results, including the failures and compromises, are in **[QA_REPORT.md](QA_REPORT.md)**.
@@ -124,8 +126,14 @@ reclaims him when the pad comes back.
 
 Three presets — **LOW / MEDIUM / HIGH** — adjusting device pixel ratio, shadows and shadow map
 size, crowd density, particle counts, turf detail, post-processing, weather density and athlete
-detail. There is also a separate resolution scale (50–100 %), fullscreen, camera shake, screen
-flash, reduced motion, large HUD and colour-safe markers.
+detail. There is also a separate resolution scale (50–100 %), **adaptive resolution**, fullscreen, camera
+shake, screen flash, reduced motion, large HUD and colour-safe markers.
+
+**Adaptive resolution is on by default.** When frames start arriving late it quietly lowers the
+render resolution in small steps, down to 60 % of whatever you have set, and gives it back once
+frames are on time again. It moves slowly on purpose — resolution that flickers up and down is
+worse to look at than resolution that is simply a bit low — and it resets to full at the start of
+every match. Turn it off in Settings if you would rather the image never change.
 
 If the game feels heavy, drop to MEDIUM first and then reduce resolution scale — that pair is worth
 far more than any other setting.

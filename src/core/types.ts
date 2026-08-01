@@ -202,8 +202,23 @@ export type AnimState =
 export interface AnimSlot {
   state: AnimState;
   phase: number;   // 0..1
+  /** Phase at the start of the tick, so the renderer can interpolate the stride. */
+  prevPhase: number;
   /** Ticks remaining before the state auto-returns to locomotion. */
   ticks: number;
+  /**
+   * Smoothed 0..1 gait speed, normalised against the athlete's own top speed so it does not
+   * jump the instant turbo engages. Drives stride cadence, pose amplitude and body lean.
+   */
+  speed01: number;
+  /** Smoothed forward acceleration, yd/s², for lean. */
+  accelFwd: number;
+  /** Smoothed lateral acceleration, yd/s², for bank. */
+  accelLat: number;
+  /** Ground speed actually covered last tick, yd/s — includes shoves, not just velocity. */
+  ground: number;
+  /** Position at the previous gait update, to difference against. */
+  lastX: number; lastZ: number;
 }
 
 export type MoveState =
@@ -222,6 +237,8 @@ export interface Athlete {
   x: number; z: number; y: number;
   vx: number; vz: number; vy: number;
   facing: number;              // radians, 0 = +Z
+  /** Angular velocity of `facing`, rad/s. Rate-limited so the body never snaps round. */
+  turnVel: number;
   prevX: number; prevZ: number; prevY: number; prevFacing: number;
 
   // state

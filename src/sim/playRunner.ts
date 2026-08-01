@@ -10,7 +10,7 @@ import { clamp, clamp01, dist, heading, angDelta } from '../core/math.ts';
 import type { World } from './world.ts';
 import { OFF_START, DEF_START, dirOf, goalOf, ownGoalOf, other, carrier, savePrev } from './world.ts';
 import {
-  locomote, tickMoveState, syncAnim, startSpin, startHurdle, startDive, startStiffArm,
+  locomote, tickMoveState, syncAnim, resetGait, startSpin, startHurdle, startDive, startStiffArm,
   startJump, startDiveTackle, startPowerTackle, spendTurbo, canAct, isCommitted, isLineman,
 } from './movement.ts';
 import { giveBall, releasePass, stepBall, killBall, syncHeldBall, dropLoose } from './ball.ts';
@@ -111,6 +111,7 @@ export function setupPlay(w: World, setup: PlaySetup): void {
     a.y = 0; a.vx = 0; a.vz = 0; a.vy = 0;
     a.facing = dir > 0 ? 0 : Math.PI;
     a.move = 'NORMAL'; a.moveTicks = 0; a.anim.state = 'SET'; a.anim.phase = 0;
+    resetGait(a);
     a.stunTicks = 0; a.downTicks = 0;
     a.hasBall = false;
     a.assign = null;
@@ -131,6 +132,7 @@ export function setupPlay(w: World, setup: PlaySetup): void {
     d.y = 0; d.vx = 0; d.vz = 0; d.vy = 0;
     d.facing = dir > 0 ? Math.PI : 0;
     d.move = 'NORMAL'; d.moveTicks = 0; d.anim.state = 'SET'; d.anim.phase = 0;
+    resetGait(d);
     d.stunTicks = 0; d.downTicks = 0;
     d.hasBall = false;
   }
@@ -500,6 +502,49 @@ export function detectDead(w: World): DeadReason | null {
 export interface Controller { produce(w: World, id: AthleteId, out: PlayerIntent): void }
 
 const steerScratch = { x: 0, z: 0, turbo: false };
+
+/**
+ * Between-play animation step, for every match phase that does not run `stepPlay`.
+ *
+ * Those phases used to leave the world completely untouched, which had two visible costs.
+ * `prevX` stayed stale while the renderer kept sweeping `alpha` from 0 to 1 every frame, so
+ * the entire field sawtoothed between two positions at any refresh rate above 60 Hz — about a
+ * fifth of a yard at 144 Hz, invisible at exactly 60. And nobody moved at all, so a touchdown
+ * was celebrated by fourteen statues.
+ *
+ * Deliberately narrow: no contact, no ball authority, no rules, no RNG. Bodies coast to a stop,
+ * anyone on the turf gets up, and the scoring side celebrates.
+ *
+ * Two details worth stating precisely, because "presentation only" is easy to claim and easy to
+ * get wrong. Move and stun timers DO advance — that is what makes a tackled athlete stand up
+ * between plays, and it is presentation. Turbo does NOT: it is a gameplay resource, and twelve
+ * seconds of play-call at 26 a second would silently hand everyone three full meters. It is
+ * saved and restored around the locomotion call rather than left to the fact that `setupPlay`
+ * happens to reset it, so a future change to turbo carry-over cannot quietly break this.
+ */
+export function idleStep(w: World, celebrateSide: TeamSide | null = null): void {
+  savePrev(w);
+  // The camera's orientation comes from `dirOf(w.possession)`, and possession still holds the
+  // side that SNAPPED the ball, which is not the side that scored on a pick-six, a fumble
+  // return, a kick return or a safety. Keying the turn to the scoring side pointed 40 % of
+  // celebrations away from the camera — the exact defect this is here to fix.
+  const faceCamera = dirOf(w.possession) > 0 ? Math.PI : 0;
+  for (let i = 0; i < w.athletes.length; i++) {
+    const a = w.athletes[i];
+    if (celebrateSide !== null) {
+      if (a.side === celebrateSide && a.move === 'NORMAL') a.move = 'CELEBRATE';
+      if (a.move === 'CELEBRATE') a.facing += angDelta(a.facing, faceCamera) * 0.06;
+    } else if (a.move === 'CELEBRATE') {
+      a.move = 'NORMAL';
+    }
+    const turbo = a.turbo, turboLock = a.turboLockTicks, held = a.turboHeld;
+    const sp = locomote(w, a, 0, 0, false);
+    a.turbo = turbo; a.turboLockTicks = turboLock; a.turboHeld = held;
+    tickMoveState(a);
+    syncAnim(a, sp);
+  }
+  if (w.ball.state.kind === 'held') syncHeldBall(w);
+}
 
 export function stepPlay(w: World, controllers: (Controller | null)[]): DeadReason | null {
   savePrev(w);
