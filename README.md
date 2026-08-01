@@ -57,7 +57,7 @@ npm run sim          # CPU-vs-CPU batch simulation with a balance report
 npm run sim:batch    # 200 games
 npm run invariants   # 50 games with per-tick rules-invariant checking
 npm run smoke        # boots the real build in Chromium and plays a match to a final score
-npm run capture      # writes the visual review set to docs/captures/
+npm run capture      # regenerates the 30-image visual review set in docs/captures/
 npm run perf         # frame-time profile of moving gameplay at every quality preset
 npm run smoothness   # motion quality: animation churn, heading and position jerk, foot-slide
 npm run pacing       # frame pacing: apparent-speed jitter across eight display models
