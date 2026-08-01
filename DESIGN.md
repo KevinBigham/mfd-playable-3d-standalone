@@ -189,6 +189,47 @@ is not a single binary art asset in the repository.
 Athletes are one `SkinnedMesh` each with rigid single-bone skinning and vertex colours, so a full
 7-on-7 costs about fourteen draw calls. Poses are procedural — no imported animation clips.
 
+## 9b. RENDERING
+
+The look is stage lighting, not photography: one hard key, saturated primaries, deep corners, and
+detail spent on silhouette rather than on surface realism. What changed in the graphics pass was
+not the style — it was that the renderer finally had the machinery to express it.
+
+**Surfaces.** Every athlete is one skinned mesh so a full 7-on-7 costs fourteen draw calls, which
+means one material for helmet, jersey, skin and cleats alike. That material used to be Lambert:
+no specular at all, so a moulded helmet shaded exactly like a cotton sleeve. Surface description
+now lives in the geometry — each vertex carries roughness, metalness and a rim gain, and a small
+patch to the standard shader reads it. One draw call, one material, and a helmet that catches the
+lights while the sleeve beside it does not.
+
+**Rim light.** A dark athlete on dark turf under a single hard key loses his own outline. A
+view-angle edge light puts him back on top of the field. It is not physical and is not trying to
+be; it is the arcade equivalent of a backlight on a stage, and it is what stops fourteen bodies
+in a pile from merging into one shape.
+
+**Image-based light.** The finished venue — sky, stands, turf — is captured into a pre-filtered
+environment map at match load, before any athlete exists. Everything glossy has something to
+reflect. Intensity is held at just over half, because at full strength it flattens the key that
+the whole look is built on.
+
+**Post.** HDR render target with multisampling (a render target does not inherit the canvas's),
+a soft-knee bright pass, two levels of bloom, ACES, a per-venue grade, vignette, grain, and
+chromatic aberration driven by the same impacts that shake the camera. Tone mapping lives in the
+composite: leaving it on the renderer would clamp the scene to display range before the bright
+pass ever saw a highlight. A night ground grades deeper and hotter than an afternoon one; snow
+lifts the blacks because a field full of it really does bounce light into the shadows.
+
+**Turf.** Mown bands are not painted stripes. Real mown grass changes how it *catches light*, not
+what colour it is, so the bands drive roughness and normal tilt and the effect appears and
+disappears with the viewing angle. Wear runs through the hashes and the goal mouths, progressing
+grass → thinned → bare soil. Weather is a real response: rain drops albedo and roughness together,
+snow settles in the low ground and is swept off the paint, frozen goes pale and glossy.
+
+**The venue owns its surface.** Twelve of the eighteen grounds are not grass, and until this pass
+none of them knew it — the match hardcoded grass, so a mud ground played and rendered exactly like
+a manicured one. Mud is a churned grass pitch, not a bare earth lot: green survives at the edges
+and the middle is destroyed.
+
 ## 10. CAMERA
 
 One automatic broadcast camera, never player-controlled, never rolling, never flipping orientation

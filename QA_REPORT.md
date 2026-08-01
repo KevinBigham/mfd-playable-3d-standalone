@@ -23,17 +23,17 @@ called out wherever it distorts a number.
 | Rematch works | **PASS** | smoke check `rematch starts cleanly` |
 | Returning to the menu works | **PASS** | smoke check `quit to menu works` |
 | Core controls work on keyboard | **PASS** | smoke reads the produced intent: `moveZ=1, held=8209` (TURBO+TARGET_M+UP) |
-| Core controls work on a gamepad | **UNVERIFIED HERE** | no controller can be attached in this container — see §8 |
+| Core controls work on a gamepad | **UNVERIFIED HERE** | no controller can be attached in this container — see §9 |
 | Pause and resume work | **PASS** | smoke checks `pause opens` / `resume returns to the match` |
 | No permanent stuck-ball state | **PASS** | ball invariant asserted every 7th tick over 200 games: 0 violations |
 | No permanent stuck-athlete state | **PASS** | scenario `no athlete leaves the world bounds`; 0 watchdog trips in 200 games |
 | No duplicate score | **PASS** | scenarios for TD / FG / safety / conversion assert score **deltas** |
 | No impossible down progression | **PASS** | `validateMatchState` run continuously: 0 `DOWN_RANGE` violations |
 | No possession deadlock | **PASS** | 200/200 games completed; phase watchdog never fired |
-| CPU completes games against itself | **PASS** | 200/200, 198 ms per game |
+| CPU completes games against itself | **PASS** | 200/200, 143 ms per game |
 | Save and load work | **PASS** | `npm run replay` save round-trip + corrupt-JSON quarantine |
 | Settings persist | **PASS** | smoke writes `cameraShake=0.42` and reads it back from local storage |
-| Low graphics preset remains playable | **PASS** | LOW: 32 draw calls, 41 k triangles (see §5) |
+| Low graphics preset remains playable | **PASS** | LOW: 35 draw calls, 47 k triangles, post off (see §5) |
 | Important console errors resolved | **PASS** | smoke: `no console errors — clean` |
 | No critical TODO or stub | **PASS** | `grep -rn "TODO\|FIXME\|coming soon" src/` → none |
 | No proprietary asset or branding | **PASS** | zero binary assets (test-enforced); league-name test; see IP_SAFETY.md |
@@ -259,9 +259,13 @@ The simulation is not the constraint on any plausible machine.
 
 | tier | draw calls | triangles | textures | geometries | frame p50 | frame p95 |
 |---|---|---|---|---|---|---|
-| HIGH | **39** | 145 012 | 23 | 38 | 15.6 ms | 149.6 ms |
-| MEDIUM | **39** | 103 072 | 36 | 38 | 17.0 ms | 100.3 ms |
-| LOW | **32** | 41 292 | 48 | 38 | 16.1 ms | 31.9 ms |
+| HIGH | **40** | 209 508 | 32 | 43 | 18.1 ms | 204.0 ms |
+| MEDIUM | **42** | 108 700 | 45 | 43 | 18.2 ms | 149.5 ms |
+| LOW | **35** | 46 710 | 51 | 42 | 17.0 ms | 32.9 ms |
+
+Post-processing adds 6 further passes at HIGH and MEDIUM (4 of them at reduced resolution) and 0
+at LOW, where the chain is off. Draw-call and triangle figures are read from the SCENE pass, not
+from the final composite — see §7.
 
 Budgets: ≤180 draw calls (hard fail >320), ≤420 k triangles (hard fail >900 k).
 
@@ -274,8 +278,8 @@ Budgets: ≤180 draw calls (hard fail >320), ≤420 k triangles (hard fail >900 
 - **The frame times are software-rendered and should not be read as performance figures.** They are
   reported because hiding them would be worse. The sampling windows were short (5–21 frames) because
   each sample costs a browser round-trip on a machine already saturated by rasterising in software.
-  Frame timing on real hardware is untested — see §8.
-- Boot to interactive measured **9.9 s** here against a 2.5 s budget. Most of that is procedural
+  Frame timing on real hardware is untested — see §9.
+- Boot to interactive measured **19.4 s** here against a 2.5 s budget. Most of that is procedural
   texture generation plus software-rendered first frames; it is not comparable to a GPU machine, and
   it is also not proof that the budget is met.
 
@@ -341,7 +345,7 @@ What each row is and why it moved:
 The shipped `FramePacer` and the shipped accumulator arithmetic, run over synthetic delta
 sequences. **This is not a browser benchmark and deliberately so**: an in-browser timing run in
 this container measures the software rasteriser, not the pacer (frames arrive roughly 2.4 s apart,
-see §8). Pacing is a pure function of the delta sequence, so it can be measured exactly here.
+see §9). Pacing is a pure function of the delta sequence, so it can be measured exactly here.
 
 The model has two clocks: the true interval a frame is on screen, and the noisy delta the loop
 reads. The metric is the standard deviation of *simulated time advanced ÷ time the frame was
@@ -453,7 +457,92 @@ Findings 1, 3, 4 and 5 were each reproduced with a measurement before being fixe
 
 ---
 
-## 7. WHAT WAS RUN TO PRODUCE THIS
+## 7. GRAPHICS PASS
+
+Added after the motion pass, in response to "evolve the graphics". Same rule as everything else in
+this document: measured where measurable, and honest about the large part of it that is not.
+
+### What the scene costs now
+
+`npm run perf`, 1600×900, moving CPU-vs-CPU gameplay. Budgets are ≤180 draw calls (hard fail >320)
+and ≤420 k triangles (hard fail >900 k).
+
+| tier | draw calls | triangles | post passes | before this pass |
+|---|---|---|---|---|
+| HIGH | **40** | **209 508** | 6 | 39 calls / 145 012 tris |
+| MEDIUM | **42** | 108 700 | 6 | 39 / 103 072 |
+| LOW | **35** | 46 710 | 0 | 32 / 41 292 |
+
+**One extra draw call** bought all of it. That is the payoff from the constraint the renderer has
+had since the first build — one skinned mesh per athlete, merged geometry everywhere else — and it
+is why the surface description had to move into the vertices rather than into more materials. The
+triangles went where they were supposed to: athletes are 7 450 tris each at HIGH (835 at LOW),
+up from about 1 600, and they are 104 k of the 209 k total.
+
+The effects rewrite made the scene *cheaper* whenever something is happening: the old shock-ring
+pool was 24 individual meshes, and the whole effects system is now 4 instanced draw calls.
+
+### What was measured, and what was only looked at
+
+Measured and hardware-independent: draw calls, triangles, texture and geometry counts, GPU
+resource stability across repeated matches (smoke: geometries 25→25→25→25→25, textures 25→25 over
+five match loads), and the 200-game balance batch.
+
+**Not measured: whether any of it runs fast enough.** This container has no GPU, so every frame
+figure below is SwiftShader software rasterisation and is not evidence of anything:
+
+| tier | frame p50 | frame p95 |
+|---|---|---|
+| HIGH | 18.1 ms | 204.0 ms |
+| MEDIUM | 18.2 ms | 149.5 ms |
+| LOW | 17.0 ms | 32.9 ms |
+
+Boot to interactive went from 9.9 s to **19.4 s under software rendering**. Some of that is real —
+the environment map is a genuine one-off render at match load, and there is more procedural texture
+generation — and some is the rasteriser. Which share is which cannot be determined here. A player
+on real hardware should be asked whether HIGH is comfortable; the adaptive-resolution governor
+added in the motion pass exists for exactly this and is on by default.
+
+The look itself — bloom weight, grade, rim strength, mow-band visibility, whether the athletes read
+at distance — was judged by eye on the capture set across about twenty iterations. There is no
+number for that and it would be dishonest to invent one.
+
+### Two real bugs the graphics work exposed
+
+Both were found because rendering work changed conditions elsewhere, and both are fixed:
+
+1. **`StadiumDef.surface` never reached the game.** `Match` hardcoded `'GRASS'` when building the
+   conditions, so twelve of the eighteen grounds — mud, sand, frozen, artificial turf, asphalt —
+   rendered as grass *and* played with grass traction. The venue now owns its surface. The
+   200-game batch is unchanged (48.0 combined, 0 violations, 0 watchdogs), because the batch had
+   been running on an implicit grass field too; it now plays at the home team's actual ground, so
+   non-grass traction is exercised for the first time.
+2. **Quick key taps were silently dropped.** Held keys lived in a set that was sampled once per
+   frame; a key pressed *and released* between two samples never appeared in it, so the press
+   simply did not exist. The slower the frame, the more often it happened — which is why adding a
+   post chain made the browser smoke fail on a menu keystroke. Presses are now latched on the
+   keydown event, so a tap always produces exactly one press edge and one release edge regardless
+   of frame rate. This was a live input defect, not a test artefact.
+
+A third issue was tooling: every browser tool serves `dist/` and none of them built first, so a run
+could silently measure or photograph the previous build. Three separate work streams lost an
+iteration to it before it was fixed; `ensureBuild()` now runs first in smoke, perf, capture and
+shot.
+
+### What was NOT done
+
+- The stadium bowl, crowd, sky and weather are unchanged. The crowd is still instanced billboards.
+- Goalposts, pylons, benches and sideline props are still Phong; they do not pick up the
+  environment map. They are small on screen, and it was the wrong place to spend the pass.
+- No screen-space ambient occlusion and no contact shadows. Athletes still meet the turf with a
+  hard shadow edge and nothing softer.
+- Heat shimmer around an Overdrive athlete is a faked additive plume, not refraction.
+- The additive carrier trail is at its weakest over bright end-zone paint, which is exactly where
+  a long touchdown run finishes.
+
+---
+
+## 8. WHAT WAS RUN TO PRODUCE THIS
 
 ```bash
 npm install
@@ -469,11 +558,12 @@ npm run perf
 npm run smoothness       # motion quality, §6
 npm run pacing           # frame pacing, §6
 npm run capture          # visual review set
+npm run shot -- --phase LIVE --live 0.9   # single frame, with motion, §7
 ```
 
 ---
 
-## 8. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
+## 9. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
 
 Stated as failures rather than omissions:
 
@@ -497,7 +587,7 @@ Stated as failures rather than omissions:
 5. **Audio is verified functionally, not aurally.** The Node suite proves every cue can be triggered
    without throwing and that the headless no-op path is safe; nobody has listened to it. Levels,
    mix balance and whether the touchdown sting actually lands are unjudged.
-6. **Safeties are still too common at 2.42 a game** (2.56 before the motion work; the small
+6. **Safeties are still too common at 2.73 a game** (2.56 before the motion work; the small
    improvement is a side effect, not a fix). Real football sees about 0.05. This is the one
    balance target the shipped build misses, and it is a genuine defect, not a rounding error. The
    illegal cases are fixed — possession gained in your own end zone is a touchback now, and nobody

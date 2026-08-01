@@ -1,5 +1,5 @@
 /** Shared Playwright harness: build once, serve, drive the real game in Chromium. */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { chromium, type Browser, type Page, type ConsoleMessage } from 'playwright';
 import { writeFile } from 'node:fs/promises';
 
@@ -27,6 +27,17 @@ function waitForPort(url: string, timeoutMs = 60000): Promise<void> {
 }
 
 let server: ChildProcess | null = null;
+
+/**
+ * Build before serving. Every browser tool here serves `dist/`, so without this a run silently
+ * measures or photographs the PREVIOUS build — which looks exactly like a change that did
+ * nothing, and has cost three separate people a full iteration cycle on this project.
+ * Set GO_NO_BUILD=1 to skip when you know the bundle is current.
+ */
+export function ensureBuild(): void {
+  if (process.env.GO_NO_BUILD === '1') return;
+  execFileSync('npx', ['vite', 'build', '--logLevel', 'error'], { stdio: 'inherit' });
+}
 
 export async function startServer(port = 4173): Promise<string> {
   // An already-running preview server can be reused via GO_SERVER; this is what CI does,

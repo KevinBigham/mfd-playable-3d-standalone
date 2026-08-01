@@ -6,6 +6,8 @@
 
 ## CURRENT MILESTONE
 
+**M10 — graphics.** M9 was motion polish; M10 rebuilt how the game is lit and shaded.
+
 **M9 — motion polish.** M0–M8 are complete: the deterministic core, a full match, the playbook,
 AI, local multiplayer, presentation, every mode, and the hardening pass. M9 was a dedicated pass on
 how the game *moves*, measured by two new harnesses rather than asserted.
@@ -32,23 +34,30 @@ how the game *moves*, measured by two new harnesses rather than asserted.
 | Motion: ground-locked stride, state hysteresis, pose cross-fade, lean/bank, eased camera | done |
 | Frame pacing, adaptive resolution, shader prewarm, goalpost occlusion fade | done |
 | Harness: motion-quality metrics (`smoothness`), frame-pacing metrics (`pacing`) | done |
+| Per-vertex surface shading, venue environment map, rim light | done |
+| Post chain: HDR + MSAA target, two-level bloom, ACES, per-venue grade, vignette, aberration | done |
+| Turf: analytic mow bands, procedural micro-normal, wear, weather response, paint sheen | done |
+| Athletes: jersey numbers, facemasks, pads, cleats, per-athlete variation | done |
+| Effects: carrier trails, ballistic spray, shock rings, ball trail, Overdrive embers | done |
 
 ## MEASUREMENTS (latest)
 
 Full detail in QA_REPORT.md. Headline numbers:
 
 - 200-game CPU-vs-CPU batch: 100 % completion, **0 rules violations**, **0 watchdog trips**.
-- 48.2 combined points, 63.0 plays, 5.9 touchdowns, 2.3 interceptions per game.
-- Home/away split 24.9 / 23.3 across the batch — no directional bias.
-- 198 ms to simulate a full game headless.
-- Browser smoke: **19/19** (31 draw calls, 112 k triangles). Unit tests **214/214**.
+- 48.0 combined points, 62.6 plays, 5.9 touchdowns, 2.2 interceptions per game, played at each
+  home team's real ground for the first time.
+- Home/away split 24.6 / 23.4 across the batch — no directional bias.
+- 143 ms to simulate a full game headless.
+- Browser smoke: **19/19**. Unit tests **214/214**. Scene at HIGH: **40 draw calls, 210 k
+  triangles** against a 180 / 420 k budget — the whole graphics pass cost one draw call.
   Scenarios **24/24**. Determinism **12/12**.
 - Motion: animation churn **−44 %**, run/sprint flips **−52 %**, heading jerk **−20 %**, worst
   single-tick positional correction **−22 %**, foot-slide structurally eliminated.
 - Frame pacing: apparent-speed jitter cut **3–7×** across eight display models, clock drift ≤30 ms
   in 30 s.
 - Deterministic: identical seed ⇒ identical event log, verified three ways.
-- One balance target missed: **2.63 safeties a game** against a ≤1 target. Documented in
+- One balance target missed: **2.73 safeties a game** against a ≤1 target. Documented in
   QA_REPORT.md §8 rather than hidden.
 
 ## IMPORTANT DECISIONS
@@ -72,7 +81,18 @@ Full detail in QA_REPORT.md. Headline numbers:
    touchback. Getting this wrong paid two points to the team that threw the pick.
 10. **Formations are clamped to the field.** Nobody lines up behind his own goal line, so a shotgun
     snap or a punt from your own 1 is not an automatic safety.
-11. **The kick meter is edge-triggered and arms on release.** The snap and the kick share a button;
+11. **Surface description lives in the geometry, not in the material.** One skinned mesh per
+    athlete means one material for the whole body; per-vertex roughness/metalness/rim is what lets
+    a helmet and a sleeve shade differently inside a single draw call.
+12. **Tone mapping belongs to whoever writes the final pixel.** With the post chain on that is the
+    composite; leaving it on the renderer as well clamps the scene before the bright pass sees it.
+13. **The venue owns the playing surface.** It used to be hardcoded to grass in the match, so
+    twelve of eighteen grounds neither looked nor played like themselves.
+14. **Key presses are latched on the event, not sampled on the frame.** A tap that began and ended
+    between two polls used to vanish entirely.
+15. **Every browser tool builds before it serves.** They serve `dist/`; three work streams lost an
+    iteration each to measuring the previous build.
+16. **The kick meter is edge-triggered and arms on release.** The snap and the kick share a button;
     accepting the held button made every human field goal fire instantly at 22 % power.
 12. **Gait is driven by ground covered, not by velocity.** Shoves, pile separation and sideline
     clamps move a body without touching its velocity, so a velocity-driven run cycle showed a

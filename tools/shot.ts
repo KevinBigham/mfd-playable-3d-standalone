@@ -5,8 +5,7 @@
  * The full review set (`npm run capture`) takes several minutes under software rendering;
  * this exists to check a single framing change without re-shooting all thirty images.
  */
-import { execFileSync } from 'node:child_process';
-import { startServer, stopServer, launch, screenshot, screenshotDom } from './browser.ts';
+import { startServer, stopServer, launch, screenshot, screenshotDom, ensureBuild } from './browser.ts';
 
 function arg(name: string, def: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -24,12 +23,7 @@ const away = arg('away', '');
 const dom = process.argv.includes('--dom');
 
 async function main(): Promise<void> {
-  // The server serves dist/. Without building first a shot silently captures the LAST build,
-  // which looks exactly like a change that did nothing.
-  if (!process.argv.includes('--no-build')) {
-    console.log('building…');
-    execFileSync('npx', ['vite', 'build', '--logLevel', 'error'], { stdio: 'inherit' });
-  }
+  ensureBuild();
   const url = await startServer(4179);
   const h = await launch(url, { width: 1440, height: 810 });
   const { page } = h;

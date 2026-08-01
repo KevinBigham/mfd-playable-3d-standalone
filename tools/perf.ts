@@ -3,7 +3,7 @@
  * Performance profile of MOVING GAMEPLAY (not an empty field), at every quality preset.
  * `npm run perf`
  */
-import { startServer, stopServer, launch, probe } from './browser.ts';
+import { startServer, stopServer, launch, probe, ensureBuild } from './browser.ts';
 
 interface Row {
   tier: string; p50: number; p95: number; p99: number; worst: number;
@@ -51,6 +51,7 @@ async function measure(page: import('playwright').Page, tier: string, seconds: n
 }
 
 async function main(): Promise<void> {
+  ensureBuild();
   const url = await startServer(4174);
   const h = await launch(url, { width: 1600, height: 900 });
   const rows: Row[] = [];

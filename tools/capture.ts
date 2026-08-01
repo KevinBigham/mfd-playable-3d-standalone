@@ -6,7 +6,7 @@
  * for the real-time loop to reach an interesting moment would take many minutes per frame.
  * The rendering path is identical either way — only the pacing differs.
  */
-import { startServer, stopServer, launch, probe, screenshot, screenshotDom } from './browser.ts';
+import { startServer, stopServer, launch, probe, screenshot, screenshotDom, ensureBuild } from './browser.ts';
 import type { Page } from 'playwright';
 import { mkdirSync } from 'node:fs';
 
@@ -48,6 +48,7 @@ async function startMatch(page: Page, weather: string, seed: number): Promise<vo
 }
 
 async function main(): Promise<void> {
+  ensureBuild();
   const url = await startServer(4175);
   const h = await launch(url, { width: 1440, height: 810 });
   const { page } = h;

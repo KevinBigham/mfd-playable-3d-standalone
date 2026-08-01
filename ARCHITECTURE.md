@@ -238,6 +238,29 @@ the top of the rAF callback, before the fixed-step accumulator drains.
 Everything registers through `SceneRegistry` (`render/registry.ts`) which owns add/remove/dispose.
 No module calls `scene.add` directly.
 
+## 12b. MATERIAL AND POST CONTRACT
+
+Two rules, both consequences of the draw-call budget.
+
+**Surface description lives in the geometry.** An athlete is one `SkinnedMesh` and therefore one
+material. Roughness, metalness and rim gain travel as a per-vertex `aSurf` attribute; a patch in
+`src/render/surfaces.ts` makes the standard shader read it. Anything adding geometry to an athlete
+must tag it with a class from `SURF` — untagged geometry silently inherits the jersey.
+
+**Tone mapping belongs to whoever writes the final pixel.** When `QualitySettings.postProcessing`
+is on, the scene renders to a half-float target with `NoToneMapping` and the composite applies
+ACES; when it is off, the renderer does it. Never both — the scene would be clamped to display
+range before the bright pass could see a highlight, and bloom would have nothing to work with.
+
+Corollaries that have already caught people:
+- `renderer.info.render` describes the LAST thing drawn. With the post chain on, that is one
+  fullscreen triangle. Scene complexity is snapshotted right after the scene pass; read it through
+  `GameRenderer.info()`, never directly.
+- A render target does not inherit the canvas's multisampling. It has to be asked for, or turning
+  post-processing on makes the game look worse.
+- `scene.environment` is rebuilt per match from the finished venue, BEFORE athletes exist. It must
+  be disposed in `unloadMatch` or it leaks a render target per match.
+
 ## 13. ANIMATION CONTRACT
 
 Athletes are procedurally posed — no imported clips. `athletePose.ts` exposes:

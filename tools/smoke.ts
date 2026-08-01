@@ -4,7 +4,7 @@
  * human-controlled match to a final result, checks for console errors and memory growth.
  * `npm run smoke`
  */
-import { startServer, stopServer, launch, tap, probe, enterQuickMatch, screenshot, screenshotDom } from './browser.ts';
+import { startServer, stopServer, launch, tap, probe, enterQuickMatch, screenshot, screenshotDom, ensureBuild } from './browser.ts';
 import { mkdirSync } from 'node:fs';
 
 const OUT = 'docs/captures';
@@ -18,6 +18,7 @@ function check(name: string, pass: boolean, detail = ''): void {
 }
 
 async function main(): Promise<void> {
+  ensureBuild();
   console.log('\nGRIDIRON OVERDRIVE — browser smoke\n────────────────────────────────────────────────────────');
   const url = await startServer(4173);
   const h = await launch(url);
