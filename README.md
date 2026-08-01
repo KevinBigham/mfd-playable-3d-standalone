@@ -61,7 +61,9 @@ npm run capture      # regenerates the 30-image visual review set in docs/captur
 npm run perf         # frame-time profile of moving gameplay at every quality preset
 npm run smoothness   # motion quality: animation churn, heading and position jerk, foot-slide
 npm run pacing       # frame pacing: apparent-speed jitter across eight display models
-npm run qa           # typecheck + tests + scenarios + 200-game batch + motion quality
+npm run artifact     # folds the whole game into ONE self-contained HTML file
+npm run artifact:check  # boots that file in a sandboxed iframe and plays a match in it
+npm run qa           # typecheck + tests + scenarios + batch + motion + the artifact build
 ```
 
 Measured results, including the failures and compromises, are in **[QA_REPORT.md](QA_REPORT.md)**.
@@ -137,6 +139,21 @@ every match. Turn it off in Settings if you would rather the image never change.
 
 If the game feels heavy, drop to MEDIUM first and then reduce resolution scale — that pair is worth
 far more than any other setting.
+
+## ONE-FILE BUILD
+
+`npm run artifact` writes `dist-artifact/gridiron-overdrive.html` — the entire game, about 980 kB,
+in a single document. No module imports, no stylesheet link, no fonts, no images, no network of any
+kind. Open it from a disk, email it to somebody, or drop it in an iframe and it plays.
+
+`npm run artifact:check` proves that rather than assuming it: it loads the file inside a
+**sandboxed iframe** on a different origin with every other path returning 404, then checks that it
+boots, draws, takes keyboard input through the frame, plays a full match to a legal final score,
+and makes zero network requests.
+
+Two accommodations the embedded build makes: it starts at MEDIUM graphics rather than HIGH, because
+it usually runs inside a page that is already busy; and when a frame refuses `localStorage`, saves
+fall back to memory, so a session stays coherent even though nothing survives a reload.
 
 ## BROWSER EXPECTATIONS
 

@@ -61,6 +61,21 @@ export interface SaveFile {
   lastTeams: { home: string; away: string; stadium: string; weather: WeatherKind };
 }
 
+/**
+ * The single-file artifact starts one graphics tier down. It runs inside someone else's page,
+ * usually on a machine already busy rendering a chat, and a first impression that stutters is
+ * worse than one that is slightly softer. Everything is still changeable in Settings, and the
+ * adaptive-resolution governor works either way.
+ */
+function defaultQuality(): QualityTier {
+  try {
+    if (typeof window !== 'undefined' && (window as unknown as { __GO_ARTIFACT__?: boolean }).__GO_ARTIFACT__) {
+      return 'MEDIUM';
+    }
+  } catch { /* not a browser */ }
+  return 'HIGH';
+}
+
 export function defaultSettings(): Settings {
   return {
     difficulty: 'PRO',
@@ -73,7 +88,7 @@ export function defaultSettings(): Settings {
     largeHud: false,
     colorBlindMarkers: false,
     volumes: { master: 0.85, sfx: 0.9, crowd: 0.7, music: 0.6, ui: 0.8 },
-    quality: 'HIGH',
+    quality: defaultQuality(),
     resolutionScale: 1,
     dynamicResolution: true,
     fullscreen: false,
@@ -96,15 +111,54 @@ export function defaultSave(): SaveFile {
   };
 }
 
-function hasStorage(): boolean {
-  try { return typeof localStorage !== 'undefined' && localStorage !== null; } catch { return false; }
+/**
+ * Storage backend.
+ *
+ * `localStorage` when it actually works, an in-memory map when it does not. It fails to work in
+ * more places than you would think: private browsing, a sandboxed iframe with no storage access,
+ * a quota that is already full, and the single-file artifact build. The old code simply gave up
+ * in those cases, so settings changed during a session were forgotten the moment you left the
+ * settings screen. Memory keeps a session coherent; only persistence between sessions is lost.
+ *
+ * Detection is a real write-then-remove probe. Testing for the object's existence is not enough —
+ * the throw happens on ACCESS, not on lookup.
+ */
+const memory = new Map<string, string>();
+let backend: 'LOCAL' | 'MEMORY' | null = null;
+
+function pickBackend(): 'LOCAL' | 'MEMORY' {
+  if (backend) return backend;
+  try {
+    const probe = `${SAVE_KEY}.probe`;
+    localStorage.setItem(probe, '1');
+    localStorage.removeItem(probe);
+    backend = 'LOCAL';
+  } catch {
+    backend = 'MEMORY';
+  }
+  return backend;
+}
+
+/** Which backend is live. Shown in Settings so a player knows whether a season will survive. */
+export function storageKind(): 'LOCAL' | 'MEMORY' { return pickBackend(); }
+
+function readItem(key: string): string | null {
+  if (pickBackend() === 'MEMORY') return memory.get(key) ?? null;
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function writeItem(key: string, value: string): void {
+  if (pickBackend() === 'MEMORY') { memory.set(key, value); return; }
+  try { localStorage.setItem(key, value); } catch { memory.set(key, value); }
+}
+function removeItem(key: string): void {
+  memory.delete(key);
+  if (pickBackend() === 'MEMORY') return;
+  try { localStorage.removeItem(key); } catch { /* nothing to undo */ }
 }
 
 /** Defensive load: unknown/older versions and corrupt JSON fall back to defaults. */
 export function loadSave(): SaveFile {
-  if (!hasStorage()) return defaultSave();
-  let raw: string | null = null;
-  try { raw = localStorage.getItem(SAVE_KEY); } catch { return defaultSave(); }
+  const raw = readItem(SAVE_KEY);
   if (!raw) return defaultSave();
   try {
     const parsed = JSON.parse(raw) as Partial<SaveFile>;
@@ -122,7 +176,7 @@ export function loadSave(): SaveFile {
       lastTeams: { ...base.lastTeams, ...(parsed.lastTeams ?? {}) },
     };
   } catch {
-    try { localStorage.setItem(`${SAVE_KEY}.corrupt`, raw); } catch { /* ignore */ }
+    writeItem(`${SAVE_KEY}.corrupt`, raw);
     return defaultSave();
   }
 }
@@ -146,14 +200,12 @@ export function getSave(): SaveFile {
 export function writeSave(next?: Partial<SaveFile>): void {
   const s = getSave();
   if (next) Object.assign(s, next);
-  if (!hasStorage()) return;
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch { /* quota — ignore */ }
+  writeItem(SAVE_KEY, JSON.stringify(s));
 }
 
 export function resetSave(): void {
   cache = defaultSave();
-  if (!hasStorage()) return;
-  try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
+  removeItem(SAVE_KEY);
 }
 
 export { KEYBOARD_P1, KEYBOARD_P2 };

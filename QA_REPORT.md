@@ -23,7 +23,7 @@ called out wherever it distorts a number.
 | Rematch works | **PASS** | smoke check `rematch starts cleanly` |
 | Returning to the menu works | **PASS** | smoke check `quit to menu works` |
 | Core controls work on keyboard | **PASS** | smoke reads the produced intent: `moveZ=1, held=8209` (TURBO+TARGET_M+UP) |
-| Core controls work on a gamepad | **UNVERIFIED HERE** | no controller can be attached in this container — see §9 |
+| Core controls work on a gamepad | **UNVERIFIED HERE** | no controller can be attached in this container — see §10 |
 | Pause and resume work | **PASS** | smoke checks `pause opens` / `resume returns to the match` |
 | No permanent stuck-ball state | **PASS** | ball invariant asserted every 7th tick over 200 games: 0 violations |
 | No permanent stuck-athlete state | **PASS** | scenario `no athlete leaves the world bounds`; 0 watchdog trips in 200 games |
@@ -35,6 +35,7 @@ called out wherever it distorts a number.
 | Settings persist | **PASS** | smoke writes `cameraShake=0.42` and reads it back from local storage |
 | Low graphics preset remains playable | **PASS** | LOW: 35 draw calls, 47 k triangles, post off (see §5) |
 | Important console errors resolved | **PASS** | smoke: `no console errors — clean` |
+| Plays as one self-contained file | **PASS** | 10/10 artifact checks in a sandboxed iframe, §8 |
 | No critical TODO or stub | **PASS** | `grep -rn "TODO\|FIXME\|coming soon" src/` → none |
 | No proprietary asset or branding | **PASS** | zero binary assets (test-enforced); league-name test; see IP_SAFETY.md |
 | README commands tested from clean | **PASS** | every script in §7 was run to produce this document |
@@ -278,7 +279,7 @@ Budgets: ≤180 draw calls (hard fail >320), ≤420 k triangles (hard fail >900 
 - **The frame times are software-rendered and should not be read as performance figures.** They are
   reported because hiding them would be worse. The sampling windows were short (5–21 frames) because
   each sample costs a browser round-trip on a machine already saturated by rasterising in software.
-  Frame timing on real hardware is untested — see §9.
+  Frame timing on real hardware is untested — see §10.
 - Boot to interactive measured **19.4 s** here against a 2.5 s budget. Most of that is procedural
   texture generation plus software-rendered first frames; it is not comparable to a GPU machine, and
   it is also not proof that the budget is met.
@@ -345,7 +346,7 @@ What each row is and why it moved:
 The shipped `FramePacer` and the shipped accumulator arithmetic, run over synthetic delta
 sequences. **This is not a browser benchmark and deliberately so**: an in-browser timing run in
 this container measures the software rasteriser, not the pacer (frames arrive roughly 2.4 s apart,
-see §9). Pacing is a pure function of the delta sequence, so it can be measured exactly here.
+see §10). Pacing is a pure function of the delta sequence, so it can be measured exactly here.
 
 The model has two clocks: the true interval a frame is on screen, and the noisy delta the loop
 reads. The metric is the standard deviation of *simulated time advanced ÷ time the frame was
@@ -542,7 +543,53 @@ shot.
 
 ---
 
-## 8. WHAT WAS RUN TO PRODUCE THIS
+## 8. SINGLE-FILE ARTIFACT — 10 / 10
+
+`npm run artifact` folds the whole game into one HTML document; `npm run artifact:check` proves it
+works. The check exists because passing the normal browser smoke says nothing about this build —
+it is a different bundle (one IIFE chunk instead of two ES modules) delivered a different way.
+
+The file is loaded the way a player actually gets it: **inside a sandboxed iframe on a different
+origin, with every path other than the document itself returning 404.** Anything still reaching for
+a module, a font or an asset fails rather than silently succeeding.
+
+```
+PASS  one file, no external references                     980 kB
+PASS  boots inside a sandboxed iframe
+PASS  reaches a screen                                     screen=title
+PASS  settings survive a write and read back               cameraShake=0.37
+PASS  a match starts                                       phase=PREGAME
+PASS  the scene actually draws                             drawCalls=28
+PASS  keyboard reaches the game inside the frame           {"moveZ":1,"held":8192}
+PASS  plays through to a valid final                       2-9 in 11 007 ticks, watchdogs=0
+PASS  made zero network requests
+PASS  no console errors                                    clean
+```
+
+Three things the embedded build has to handle that the normal one does not:
+
+1. **Focus.** A framed document receives no keystrokes until something in it has focus, and
+   nothing claims focus on its own. A prelude takes it on load and on every pointer press, so the
+   first click a player makes is also what makes the keyboard live. The check presses a key at the
+   *page* level and reads the produced `PlayerIntent` inside the *frame*, which is the only way to
+   prove that path end to end.
+2. **Storage.** A sandboxed frame can throw on `localStorage` access — and the throw happens on
+   access, not on lookup, so testing that the object exists is not enough. The save layer now
+   probes with a real write and falls back to an in-memory backend. Previously it simply gave up,
+   which meant a setting changed during a session was forgotten the moment you left the settings
+   screen. This also fixes private browsing and a full quota.
+3. **Defaults.** The artifact starts at MEDIUM rather than HIGH, because it runs inside a page
+   that is already busy. Changeable in Settings like everything else.
+
+**Honest limits of this artifact.** It has never been played by a human at a real frame rate —
+this container has no GPU, so the same caveat in §7 applies. Gamepads are not expected to work
+inside a sandboxed frame (the Gamepad API is gated by permissions policy); keyboard is the path
+that is tested. Nothing survives a reload when the host frame blocks storage, and the hint line
+says so on screen rather than letting a player lose a season to it.
+
+---
+
+## 9. WHAT WAS RUN TO PRODUCE THIS
 
 ```bash
 npm install
@@ -559,11 +606,13 @@ npm run smoothness       # motion quality, §6
 npm run pacing           # frame pacing, §6
 npm run capture          # visual review set
 npm run shot -- --phase LIVE --live 0.9   # single frame, with motion, §7
+npm run artifact         # one self-contained HTML file, §8
+npm run artifact:check   # boots and plays that file in a sandboxed iframe, §8
 ```
 
 ---
 
-## 9. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
+## 10. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
 
 Stated as failures rather than omissions:
 

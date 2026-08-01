@@ -34,6 +34,7 @@ how the game *moves*, measured by two new harnesses rather than asserted.
 | Motion: ground-locked stride, state hysteresis, pose cross-fade, lean/bank, eased camera | done |
 | Frame pacing, adaptive resolution, shader prewarm, goalpost occlusion fade | done |
 | Harness: motion-quality metrics (`smoothness`), frame-pacing metrics (`pacing`) | done |
+| Single-file artifact build + sandboxed-iframe verification | done |
 | Per-vertex surface shading, venue environment map, rim light | done |
 | Post chain: HDR + MSAA target, two-level bloom, ACES, per-venue grade, vignette, aberration | done |
 | Turf: analytic mow bands, procedural micro-normal, wear, weather response, paint sheen | done |
@@ -92,7 +93,10 @@ Full detail in QA_REPORT.md. Headline numbers:
     between two polls used to vanish entirely.
 15. **Every browser tool builds before it serves.** They serve `dist/`; three work streams lost an
     iteration each to measuring the previous build.
-16. **The kick meter is edge-triggered and arms on release.** The snap and the kick share a button;
+16. **Saved data falls back to memory when storage is refused.** A sandboxed frame throws on
+    `localStorage` ACCESS, not on lookup, so the probe has to be a real write. Giving up entirely
+    — which is what it used to do — meant settings were forgotten within a single session.
+17. **The kick meter is edge-triggered and arms on release.** The snap and the kick share a button;
     accepting the held button made every human field goal fire instantly at 22 % power.
 12. **Gait is driven by ground covered, not by velocity.** Shoves, pile separation and sideline
     clamps move a body without touching its velocity, so a velocity-driven run cycle showed a
@@ -131,4 +135,5 @@ npm run typecheck  npm test           npm run scenarios  npm run replay
 npm run sim        npm run sim:batch  npm run invariants
 npm run smoke      npm run capture    npm run perf       npm run qa
 npm run smoothness npm run pacing     npm run perf:sim
+npm run artifact   npm run artifact:check
 ```
