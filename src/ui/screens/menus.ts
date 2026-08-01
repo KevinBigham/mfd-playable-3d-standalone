@@ -361,7 +361,14 @@ export class SettingsScreen implements Screen {
       optionRow<boolean>({
         label: 'FULLSCREEN', values: [false, true], format: (v) => (v ? 'ON' : 'OFF'),
         get: () => !!document.fullscreenElement,
-        set: (v) => { if (v) document.documentElement.requestFullscreen?.().catch(() => {}); else document.exitFullscreen?.().catch(() => {}); },
+        // An embedded page is usually denied fullscreen, and browsers disagree about whether the
+        // refusal is a rejected promise or a synchronous throw. Both are non-events here.
+        set: (v) => {
+          try {
+            const p = v ? document.documentElement.requestFullscreen?.() : document.exitFullscreen?.();
+            p?.catch(() => { /* refused */ });
+          } catch { /* refused synchronously */ }
+        },
       }),
       button('RESET SAVED DATA', () => {
         resetSave();

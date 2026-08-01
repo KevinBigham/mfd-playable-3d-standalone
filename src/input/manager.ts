@@ -16,6 +16,33 @@ export interface SeatDevice {
 
 const DEADZONE = 0.22;
 
+/**
+ * `navigator.getGamepads()` THROWS a SecurityError when the gamepad feature is disabled by a
+ * permissions policy — which is what an embedded page normally gets. Testing that the method
+ * exists is not enough; the throw happens on the CALL. Uncaught, it killed boot inside an
+ * artifact frame, because the input manager is constructed before the first frame is drawn.
+ *
+ * One failure is enough to stop asking: this runs every frame, and an exception per frame is
+ * both slow and unreadable in a console.
+ */
+let gamepadsDenied = false;
+
+function safeGetGamepads(): ReadonlyArray<Gamepad | null> {
+  if (gamepadsDenied) return EMPTY_PADS;
+  try {
+    if (typeof navigator === 'undefined' || !navigator.getGamepads) { gamepadsDenied = true; return EMPTY_PADS; }
+    return navigator.getGamepads();
+  } catch {
+    gamepadsDenied = true;
+    return EMPTY_PADS;
+  }
+}
+
+const EMPTY_PADS: ReadonlyArray<Gamepad | null> = [];
+
+/** True when this page is not allowed to see controllers at all. */
+export function gamepadsBlocked(): boolean { return gamepadsDenied; }
+
 function blank(): PlayerIntent { return { moveX: 0, moveZ: 0, held: 0, pressed: 0, released: 0 }; }
 
 /**
@@ -87,7 +114,7 @@ export class InputManager {
 
   connectedPads(): number[] {
     const out: number[] = [];
-    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
+    const pads = safeGetGamepads();
     for (let i = 0; i < pads.length; i++) if (pads[i]) out.push(i);
     return out;
   }
@@ -113,7 +140,7 @@ export class InputManager {
   }
 
   poll(): void {
-    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
+    const pads = safeGetGamepads();
     for (let seat = 0; seat < 4; seat++) {
       const dev = this.seats[seat];
       const it = this.intents[seat];

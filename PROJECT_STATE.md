@@ -93,10 +93,14 @@ Full detail in QA_REPORT.md. Headline numbers:
     between two polls used to vanish entirely.
 15. **Every browser tool builds before it serves.** They serve `dist/`; three work streams lost an
     iteration each to measuring the previous build.
-16. **Saved data falls back to memory when storage is refused.** A sandboxed frame throws on
+16. **A capability that exists may still be forbidden.** `navigator.getGamepads()` throws a
+    SecurityError under a restrictive permissions policy, and `localStorage` throws on access in
+    a sandboxed frame. Both were guarded by existence checks, and both failed. Probe by USING the
+    capability, inside a try/catch, and remember the answer.
+17. **Saved data falls back to memory when storage is refused.** A sandboxed frame throws on
     `localStorage` ACCESS, not on lookup, so the probe has to be a real write. Giving up entirely
     — which is what it used to do — meant settings were forgotten within a single session.
-17. **The kick meter is edge-triggered and arms on release.** The snap and the kick share a button;
+18. **The kick meter is edge-triggered and arms on release.** The snap and the kick share a button;
     accepting the held button made every human field goal fire instantly at 22 % power.
 12. **Gait is driven by ground covered, not by velocity.** Shoves, pile separation and sideline
     clamps move a body without touching its velocity, so a velocity-driven run cycle showed a

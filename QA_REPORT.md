@@ -543,7 +543,7 @@ shot.
 
 ---
 
-## 8. SINGLE-FILE ARTIFACT — 10 / 10
+## 8. SINGLE-FILE ARTIFACT — 11 / 11
 
 `npm run artifact` folds the whole game into one HTML document; `npm run artifact:check` proves it
 works. The check exists because passing the normal browser smoke says nothing about this build —
@@ -557,6 +557,7 @@ a module, a font or an asset fails rather than silently succeeding.
 PASS  one file, no external references                     980 kB
 PASS  boots inside a sandboxed iframe
 PASS  reaches a screen                                     screen=title
+PASS  survives a host that forbids the gamepad API         getGamepads throws, poll ok, pads=0
 PASS  settings survive a write and read back               cameraShake=0.37
 PASS  a match starts                                       phase=PREGAME
 PASS  the scene actually draws                             drawCalls=28
@@ -565,6 +566,36 @@ PASS  plays through to a valid final                       2-9 in 11 007 ticks, 
 PASS  made zero network requests
 PASS  no console errors                                    clean
 ```
+
+### The one that shipped broken, and why the harness missed it
+
+The first artifact **did not boot in a real host.** `navigator.getGamepads()` does not merely return
+nothing when a permissions policy forbids the gamepad feature — it throws a `SecurityError`, and it
+throws on the CALL, not on the lookup, so the existing `navigator.getGamepads ? … : []` guard sailed
+straight past it. The input manager is constructed before the first frame is drawn, so the throw
+was uncaught and the game stopped on the loading bar.
+
+The check above had passed. It was loading the file in a sandboxed iframe, which is right, but
+Chromium did not apply the gamepad restriction to a same-origin `srcdoc` frame, so the harness was
+testing a *more permissive* environment than the one players get. Adding `allow=""` did not change
+that either — it still reported "gamepad permitted in this run".
+
+So the harness now **injects the failure**: before the game script runs, `navigator.getGamepads` is
+replaced with one that throws exactly the `SecurityError` a real embedded host produces. That is a
+simulation and it is labelled as one, but it is deterministic and it fails loudly against the old
+code. Every gamepad access is now non-throwing and gives up permanently after the first refusal,
+because this runs every frame.
+
+Two neighbours were hardened at the same time, for the same reason — an embedded page is denied
+things, and the denial is not always a polite `undefined`:
+
+- **Fullscreen.** Browsers disagree about whether a refusal is a rejected promise or a synchronous
+  throw. Both are now non-events.
+- **Audio.** Already guarded: the context is created lazily inside `unlock()` behind a try/catch.
+
+The general lesson is written here because it is the second time this exact shape of bug has
+appeared in this project: **a capability test that checks for existence does not test for
+permission.** `localStorage` failed the same way, in the same build, for the same reason.
 
 Three things the embedded build has to handle that the normal one does not:
 

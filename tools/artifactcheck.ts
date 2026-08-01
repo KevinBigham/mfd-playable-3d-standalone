@@ -30,9 +30,22 @@ function serve(html: string): Server {
     html,body{margin:0;height:100%;background:#05070c}
     iframe{border:0;width:100vw;height:100vh;display:block}
   </style></head><body>
-  <iframe id="f" sandbox="allow-scripts allow-same-origin" srcdoc="__DOC__"></iframe>
+  <!-- allow= denies every powerful feature, which is what an embedded host actually does.
+       Without it the frame keeps the gamepad permission and this harness cannot see the
+       SecurityError that navigator.getGamepads throws when denied - which is exactly how a
+       boot-killing bug reached a player. -->
+  <iframe id="f" allow="" sandbox="allow-scripts allow-same-origin" srcdoc="__DOC__"></iframe>
   </body></html>`;
-  const doc = html.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  // Chromium does not always honour allow= for gamepad on a same-origin srcdoc frame, so the
+  // restriction is ALSO applied directly: getGamepads is replaced with one that throws exactly
+  // the SecurityError a real embedded host produces, before the game script runs. Without this
+  // the harness cannot see the failure at all — which is how it shipped.
+  const deny = `<script>(function(){
+    var err = function(){ var e = new Error('Access to the feature "gamepad" is disallowed by permissions policy.'); e.name = 'SecurityError'; throw e; };
+    try { Object.defineProperty(navigator, 'getGamepads', { value: err, configurable: true }); } catch (e) {}
+  })();<\/script>`;
+  const hostile = html.replace('<head>', `<head>${deny}`);
+  const doc = hostile.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   const page = shell.replace('__DOC__', doc);
   const server = createServer((req, res) => {
     if (req.url === '/' || req.url === '/index.html') {
@@ -87,6 +100,20 @@ async function main(): Promise<void> {
 
     let p = await probe();
     check('reaches a screen', p.screen.length > 0, `screen=${p.screen}`);
+
+    // The host denies every permission. Anything that THROWS rather than degrading — the gamepad
+    // API is the one that does — takes the whole boot with it.
+    const denied = await frame.evaluate(() => {
+      let threw = false;
+      try { (navigator as Navigator).getGamepads(); } catch { threw = true; }
+      const g = (window as unknown as { GO: any }).GO;
+      let polled = true;
+      try { g.input.poll(); } catch { polled = false; }
+      return { threw, polled, pads: g.input.connectedPads().length };
+    });
+    check('survives a host that forbids the gamepad API',
+      denied.polled && denied.pads === 0,
+      `getGamepads ${denied.threw ? 'throws' : 'is permitted'}, poll ${denied.polled ? 'ok' : 'FAILED'}, pads=${denied.pads}`);
 
     // Storage: whichever backend won, changing a setting must survive a read-back. This is the
     // thing that silently breaks in a frame, and the in-memory fallback is what fixes it.
