@@ -3,11 +3,12 @@ import type {
   Conditions, GameEvent, MatchState, StadiumDef, TeamDef, TeamSide,
 } from '../core/types.ts';
 import { SceneRegistry, QUALITY_PRESETS, type QualitySettings, type QualityTier } from './registry.ts';
-import { buildAthleteRig, type AthleteRig } from './athleteRig.ts';
+import { buildAthleteRig, rimUniforms, type AthleteRig } from './athleteRig.ts';
 import {
   poseAthlete, capturePose, blendPose, fadeTimeFor, POSE_FLOATS, type AnimSample,
 } from './athletePose.ts';
 import { GameCamera } from './camera.ts';
+import { PostFX, defaultGrade, type Grade } from './post.ts';
 import { Effects } from './effects.ts';
 import { buildBall, buildMarkers, makeNumberSprite, type Markers } from './props.ts';
 import { resolveKits } from './kits.ts';
@@ -71,6 +72,8 @@ export class GameRenderer {
   private lastAnimState: string[] = new Array(14).fill('');
   private motion: RigMotion[] = Array.from({ length: 14 }, makeMotion);
   private flashOverlay: HTMLDivElement | null = null;
+  private envRT: THREE.WebGLRenderTarget | null = null;
+  private post: PostFX | null = null;
   private disposed = false;
 
   constructor(canvas: HTMLCanvasElement, opts: RendererOptions) {
@@ -89,6 +92,8 @@ export class GameRenderer {
     this.scene = new THREE.Scene();
     this.registry = new SceneRegistry(this.scene);
     this.gameCamera = new GameCamera(16 / 9, { shake: opts.shake, reducedMotion: opts.reducedMotion });
+    if (this.quality.postProcessing) this.post = new PostFX(this.renderer, this.quality);
+    this.applyToneMapping();
     this.resize();
   }
 
@@ -98,6 +103,30 @@ export class GameRenderer {
     this.opts.resolutionScale = resolutionScale;
     this.renderer.setPixelRatio(Math.min(this.quality.pixelRatio * resolutionScale, 2));
     this.renderer.shadowMap.enabled = this.quality.shadows;
+    if (this.quality.postProcessing) {
+      if (!this.post) this.post = new PostFX(this.renderer, this.quality);
+      else this.post.setQuality(this.quality);
+      this.post.setGrade(this.grade);
+    } else if (this.post) {
+      this.post.dispose();
+      this.post = null;
+    }
+    this.applyToneMapping();
+  }
+
+  /**
+   * Tone mapping belongs to whoever writes the final pixel. With the post chain on, that is the
+   * composite pass; leaving it on the renderer as well would apply the curve twice and crush
+   * every highlight the bloom is supposed to be picking up.
+   */
+  private applyToneMapping(): void {
+    if (this.post) {
+      this.renderer.toneMapping = THREE.NoToneMapping;
+      this.renderer.toneMappingExposure = 1;
+    } else {
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = 1.06;
+    }
   }
 
   /** Change only the resolution multiplier. Used by the adaptive-resolution governor. */
@@ -120,12 +149,25 @@ export class GameRenderer {
     const h = el.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.gameCamera.resize(w / Math.max(1, h));
+    this.post?.resize();
   }
 
   /** Build (or rebuild) the world for a match. */
   loadMatch(home: TeamDef, away: TeamDef, stadium: StadiumDef, conditions: Conditions): void {
     this.unloadMatch();
     this.env = buildEnvironment(this.registry, { home, away, stadium, conditions, quality: this.quality });
+    // Capture the finished venue into an environment map BEFORE any athlete exists, so the
+    // reflections in a helmet are the sky, the stands and the turf — and not fourteen other
+    // helmets. Physically-shaded materials get their whole ambient response from this.
+    this.buildEnvMap();
+    // The image-based light is a fill, not a second key: at full strength it flattens the hard
+    // key the whole look is built on.
+    this.scene.environmentIntensity = 0.55;
+    // The edge light that keeps bodies off the turf takes its colour from the venue.
+    const pal = this.env.palette;
+    rimUniforms.uRimColor.value.copy(pal.rimColor);
+    rimUniforms.uRimGain.value = clamp(pal.rimIntensity * 0.42 + 0.16, 0.12, 0.72);
+    this.gradeForVenue(pal, conditions);
     this.effects = new Effects(this.registry, this.quality);
     this.ball = buildBall(this.registry);
     this.markers = buildMarkers(this.registry, [home.colors, away.colors], this.quality);
@@ -158,6 +200,58 @@ export class GameRenderer {
   }
 
   /**
+   * Each venue grades differently. A floodlit night game wants deeper corners, hotter bloom and
+   * a cool cast; a bright afternoon wants the opposite. Snow lifts the blacks because a field
+   * full of it genuinely does bounce light back into the shadows.
+   */
+  private gradeForVenue(pal: { emissiveGain: number; fog: THREE.Color; ambient: number }, cond: Conditions): void {
+    const night = clamp01((pal.emissiveGain - 0.6) / 1.4);
+    const g = defaultGrade();
+    g.bloom = lerp(0.30, 0.72, night);
+    g.threshold = lerp(0.95, 0.70, night);
+    g.vignette = lerp(0.32, 0.58, night);
+    g.contrast = lerp(1.06, 1.13, night);
+    g.saturation = lerp(1.14, 1.07, night);
+    g.exposure = lerp(1.02, 1.12, night);
+    if (cond.weather === 'SNOW') {
+      g.lift.setRGB(0.020, 0.024, 0.034);
+      g.gain.setRGB(0.98, 1.0, 1.04);
+      g.saturation *= 0.88;
+    } else if (cond.weather === 'RAIN') {
+      g.lift.setRGB(0.010, 0.014, 0.022);
+      g.gain.setRGB(0.96, 1.0, 1.05);
+      g.contrast += 0.03;
+    } else if (cond.weather === 'WIND') {
+      g.gain.setRGB(1.03, 1.0, 0.96);
+    }
+    this.grade = g;
+    this.post?.setGrade(g);
+  }
+
+  /**
+   * Pre-filtered radiance from the venue itself. One render at match load; nothing per frame.
+   * Without it every metallic and glossy surface has nothing to reflect and reads as plastic.
+   */
+  private buildEnvMap(): void {
+    this.envRT?.dispose();
+    this.envRT = null;
+    this.scene.environment = null;
+    let pmrem: THREE.PMREMGenerator | null = null;
+    try {
+      pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.envRT = pmrem.fromScene(this.scene, 0.03, 1, 600);
+      this.scene.environment = this.envRT.texture;
+    } catch {
+      // A driver that refuses the float target is not a reason to lose the match; standard
+      // materials fall back to the analytic lights alone.
+      this.envRT = null;
+      this.scene.environment = null;
+    } finally {
+      pmrem?.dispose();
+    }
+  }
+
+  /**
    * Compile every material the match will use before the first frame of it is shown.
    * Without this the first snap stalls for a few hundred milliseconds while the driver links
    * the athlete, crowd and turf programs — the single worst hitch in a session.
@@ -172,6 +266,9 @@ export class GameRenderer {
   }
 
   unloadMatch(): void {
+    this.scene.environment = null;
+    this.envRT?.dispose();
+    this.envRT = null;
     for (const m of this.motion) { m.visible = false; m.fadeDur = 0; m.rigKey = -1; }
     for (const m of this.rigs) { for (const r of m.values()) r.dispose(); m.clear(); }
     this.numberSprites.length = 0;
@@ -190,6 +287,7 @@ export class GameRenderer {
     switch (e.type) {
       case 'camera.impulse':
         this.gameCamera.impulse(e.power);
+        this.post?.impulse(e.power);
         this.effects.burst(e.at.x, 0.2, e.at.z, clamp01(e.power), 'TURF');
         if (e.power > 0.55) this.effects.ring(e.at.x, 0, e.at.z, 2 + e.power * 2.4, 0xfff0b0);
         break;
@@ -323,6 +421,7 @@ export class GameRenderer {
 
     this.effects.update(dt);
     this.gameCamera.update(world, dt, celebrating);
+    this.lastDt = dt;
   }
 
   private syncMarkers(world: World, match: MatchState, alpha: number): void {
@@ -447,9 +546,13 @@ export class GameRenderer {
     this.env?.stadium.setScore(h, a, q, clock);
   }
 
+  private grade: Grade = defaultGrade();
+  private lastDt = 1 / 60;
+
   render(): void {
     if (this.disposed) return;
-    this.renderer.render(this.scene, this.gameCamera.camera);
+    if (this.post) this.post.render(this.scene, this.gameCamera.camera, this.lastDt);
+    else this.renderer.render(this.scene, this.gameCamera.camera);
   }
 
   renderMenu(t: number): void {
@@ -472,6 +575,8 @@ export class GameRenderer {
     this.unloadMatch();
     this.effects?.dispose();
     this.markers?.dispose();
+    this.post?.dispose();
+    this.post = null;
     this.registry.dispose();
     this.renderer.dispose();
   }
