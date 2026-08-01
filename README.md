@@ -2,6 +2,26 @@
 
 **An original 7-on-7 arcade football game that runs in your browser.**
 
+> ### Picking this up on a new machine
+>
+> ```bash
+> git clone https://github.com/KevinBigham/mfd-playable-3d-standalone.git
+> cd mfd-playable-3d-standalone
+> npm install
+> npm run dev          # then open the printed URL
+> ```
+>
+> **Want to just play it, no toolchain?** Open
+> [`dist-artifact/gridiron-overdrive.html`](dist-artifact/gridiron-overdrive.html) in any browser.
+> That one file is the entire game — engine, 3D renderer, audio, sixteen teams, every mode — with
+> no network access of any kind. Download it and double-click it.
+>
+> **Where things are:** [`DESIGN.md`](DESIGN.md) is what the game is trying to be.
+> [`ARCHITECTURE.md`](ARCHITECTURE.md) is the code's contracts and the rules it must not break.
+> [`QA_REPORT.md`](QA_REPORT.md) is every measurement, including the failures.
+> [`PROJECT_STATE.md`](PROJECT_STATE.md) is where the work stopped and what is still open —
+> **read that one first if you have been away.**
+
 Seven a side. Thirty yards for a first down. Two-minute quarters. No penalties, no referees, no
 huddle. Turbo you have to manage, hurdles and spins and stiff arms, hits that shake the camera, and
 a momentum state called **OVERDRIVE** that turns a hot streak into a genuine threat. Up to four
