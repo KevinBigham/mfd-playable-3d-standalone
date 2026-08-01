@@ -22,14 +22,18 @@
     "smoke": "tsx tools/smoke.ts",
     "capture": "tsx tools/capture.ts",
     "perf": "tsx tools/perf.ts",
-    "qa": "npm run typecheck && npm test && npm run scenarios && npm run replay && npm run sim:batch && npm run smoothness && npm run artifact && npm run artifact:check",
+    "qa": "npm run typecheck && npm test && npm run scenarios && npm run replay && npm run human && npm run sim:batch && npm run smoothness && npm run artifact && npm run artifact:check",
     "replay": "tsx tools/determinism.ts",
     "perf:sim": "tsx tools/simperf.ts",
     "smoothness": "tsx tools/smoothness.ts",
     "pacing": "tsx tools/framepacing.ts",
     "shot": "tsx tools/shot.ts",
     "artifact": "tsx tools/artifact.ts",
-    "artifact:check": "tsx tools/artifactcheck.ts"
+    "artifact:check": "tsx tools/artifactcheck.ts",
+    "human": "tsx tools/humanprobe.ts",
+    "gait": "tsx tools/gait.ts",
+    "poses": "tsx tools/poses.ts",
+    "footslip": "tsx tools/footslip.ts"
   },
   "dependencies": {
     "three": "^0.169.0"

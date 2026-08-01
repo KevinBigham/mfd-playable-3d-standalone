@@ -28,6 +28,14 @@ import { SURF, applySurfaceShader, makeRimUniforms, type Surface, type RimUnifor
  *    in this file and there must never be one.
  */
 
+/**
+ * The cleat, in foot-bone space: how far the sole sits below the ankle, and where the toe and
+ * heel ends of it are. The pose solver needs these to keep a planted shoe on the turf instead of
+ * hovering over it or sinking through it, and they have to agree with the geometry built below —
+ * see the cleat section of the leg loop.
+ */
+export const SHOE = { drop: 0.108, toe: 0.2525, heel: -0.1325 } as const;
+
 export const BONE_NAMES = [
   'root', 'hips', 'chest', 'neck', 'head',
   'shoulderL', 'elbowL', 'handL', 'shoulderR', 'elbowR', 'handR',

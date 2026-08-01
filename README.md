@@ -59,8 +59,12 @@ npm run invariants   # 50 games with per-tick rules-invariant checking
 npm run smoke        # boots the real build in Chromium and plays a match to a final score
 npm run capture      # regenerates the 30-image visual review set in docs/captures/
 npm run perf         # frame-time profile of moving gameplay at every quality preset
-npm run smoothness   # motion quality: animation churn, heading and position jerk, foot-slide
+npm run smoothness   # motion quality: animation churn, heading and position jerk, stride cadence
 npm run pacing       # frame pacing: apparent-speed jitter across eight display models
+npm run human        # scripts a PLAYER onto the sticks and checks what the game does about it
+npm run footslip     # do planted feet actually grip the turf, measured at the shoe
+npm run poses        # contact sheet: one frame of every animation state
+npm run gait         # contact sheet: one sprint stride, frame by frame
 npm run artifact     # folds the whole game into ONE self-contained HTML file
 npm run artifact:check  # boots that file in a sandboxed iframe and plays a match in it
 npm run qa           # typecheck + tests + scenarios + batch + motion + the artifact build

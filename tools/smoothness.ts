@@ -144,7 +144,7 @@ function sample(m: Match): void {
     if (hist[i] >= 2) {
       // Foot-slide the OLD velocity-driven stride would have shown: the gap between the ground
       // an athlete really covers and the speed his velocity claims. The shipped stride is
-      // derived from ground travel, so its own slip is zero by construction — this measures
+      // derived from ground travel, so this particular error is zero for it — this measures
       // how much slide that structural change removes.
       const trueGround = Math.hypot(px[0][i] - px[1][i], pz[0][i] - pz[1][i]) / DT;
       const slip = Math.abs(trueGround - Math.hypot(a.vx, a.vz));
@@ -225,9 +225,11 @@ position jerk (RMS)   ${out.posJerkRms} yd/s³
 positional pops       ${out.popsPerAthleteSec.toFixed(3)} / athlete / s   mean ${out.meanPopYd} yd   worst ${out.worstPopYd} yd
 body overlap          ${out.overlapPairPct}% of live pairs, mean ${out.meanPenetrationYd} yd, worst ${out.worstPenetrationYd} yd
                       (a body is ${(BODY_RADIUS * 2).toFixed(2)} yd across)
-stride slip removed   a velocity-driven stride misses ${out.strideSlipMean} yd/s mean, ${out.strideSlipP95} p95,
-                      over 1 yd/s on ${out.strideSlipOver1Pct}% of athlete-ticks. The shipped stride reads
-                      ground covered, so its slip is zero by construction.
+stride cadence error  a velocity-driven stride would misjudge the ground covered by
+                      ${out.strideSlipMean} yd/s mean, ${out.strideSlipP95} p95, over 1 yd/s on ${out.strideSlipOver1Pct}% of
+                      athlete-ticks. The shipped cadence reads ground travel, so this
+                      term is zero for it. That is CADENCE only, not what the shoe does
+                      on the turf — for that, run: npm run footslip
 ──────────────────────────────────────────────────────────────
 lower is smoother in every row.`);
 }

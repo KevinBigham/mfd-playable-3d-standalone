@@ -99,6 +99,10 @@ export class Match {
   private conversionTwoActive = false;
   private conversionActive = false;
   private freeKickAfterSafety = false;
+  /** Snap button state: armed once released, so a held button cannot snap. */
+  private snapArmed = false;
+  private snapHeldPrev = true;
+  private snapRequested = false;
 
   constructor(opts: MatchOptions) {
     this.config = opts.config;
@@ -154,17 +158,29 @@ export class Match {
   isHuman(side: TeamSide): boolean { return this.seatsFor(side).length > 0; }
   anyHuman(): boolean { return this.config.seats.some((x) => x.active); }
 
-  /** Reassign which athlete each seat drives. Called every tick while a play is live. */
+  /**
+   * Reassign which athlete each seat drives. Called every tick while a play is live.
+   *
+   * Control follows WHO HAS THE BALL, not whose down it nominally is. Those are the same thing on
+   * a scrimmage play and different on every kick: `w.possession` names the kicking team for the
+   * whole of a kickoff, so keying off it handed the receiving player a coverage defender and left
+   * him there — the returner ran himself, and a human on the receiving team could not touch a
+   * kick return at all.
+   */
   private updateControlAssignment(): void {
     const w = this.world;
     for (const a of w.athletes) a.controlledBySeat = -1;
+    const car = carrier(w);
+    const ballSide: TeamSide = car ? car.side : w.ball.possession;
     for (const side of [0, 1] as TeamSide[]) {
       const seats = this.seatsFor(side);
       if (seats.length === 0) continue;
-      const onOffense = side === w.possession;
+      const onOffense = side === ballSide;
       if (onOffense) {
-        const car = carrier(w);
-        const primary = car && car.side === side ? car.id : w.athletes[OFF_START].id;
+        // The quarterback, not slot zero — they coincide on a scrimmage down and do not on a kick.
+        const fallback = w.athletes[w.qbId] && w.athletes[w.qbId].side === side
+          ? w.qbId : w.athletes[OFF_START].id;
+        const primary = car && car.side === side ? car.id : fallback;
         w.athletes[primary].controlledBySeat = seats[0] as 0 | 1 | 2 | 3;
         if (seats.length > 1) {
           // Teammate drives a skill player who is not the carrier.
@@ -246,6 +262,11 @@ export class Match {
       this.world.special = null;
       if (!this.isHuman(m.possession)) this.autoPickOffense();
       if (!this.isHuman(other(m.possession))) this.autoPickDefense();
+    } else if (p === 'PRE_SNAP') {
+      // Fresh snap state every down: the button must be seen released, then pressed.
+      this.snapArmed = false;
+      this.snapHeldPrev = true;
+      this.snapRequested = false;
     } else if (p === 'CONVERSION_CALL') {
       this.pendingConversion = null;
       if (!this.isHuman(m.possession)) {
@@ -468,15 +489,29 @@ export class Match {
   private tickPreSnap(): void {
     const m = this.state; const w = this.world;
     // Athletes hold formation; humans may motion. Snap on ACTION or auto.
-    stepPlay(this.world, this.controllers);
+    // Assignment first: running it after the step means the seat drives the PREVIOUS play's
+    // athlete for the opening tick of every down.
     this.updateControlAssignment();
+    stepPlay(this.world, this.controllers);
 
     let snapNow = false;
     if (this.isHuman(m.possession)) {
+      // Edge-triggered, and it has to see a RELEASE first. The same button picks the play, so
+      // accepting a held button snapped the ball the instant the call was made — the player
+      // never got a pre-snap at all, and on a run play the exchange fired 0.3 s later, which
+      // reads exactly like the ball starting in somebody else's hands.
+      let anyHeld = false;
       for (const seat of this.seatsFor(m.possession)) {
         const it = this.seatIntent(seat);
-        if (it && has(it.held, Action.ACTION)) snapNow = true;
+        if (it && has(it.held, Action.ACTION)) anyHeld = true;
       }
+      if (!anyHeld) this.snapArmed = true;
+      // The press is LATCHED, not consumed. There is a short settle before a snap is legal, and
+      // a player who presses inside it — which is most players, the button is already in their
+      // hand — would otherwise have their press swallowed and have to press again.
+      if (this.snapArmed && anyHeld && !this.snapHeldPrev) this.snapRequested = true;
+      this.snapHeldPrev = anyHeld;
+      if (this.snapRequested) snapNow = true;
       if (this.config.playClock && m.phaseTicks > m.playClockTicks) snapNow = true;
       if (m.phaseTicks > s(14)) snapNow = true;
     } else if (m.phaseTicks > s(0.8) + Math.round(this.rng.range(0, 12))) {

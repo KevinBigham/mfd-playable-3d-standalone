@@ -620,21 +620,200 @@ says so on screen rather than letting a player lose a season to it.
 
 ---
 
-## 9. WHAT WAS RUN TO PRODUCE THIS
+## 9. FIVE BUGS FOUND BY PLAYING IT, AND THE ANIMATION REBUILD
+
+Everything above this section was produced by harnesses that play the game CPU against CPU. Two
+hundred clean games, twenty-four scenarios, nineteen browser checks — and every one of them missed
+five faults that a person found in the first few minutes with a controller in his hands:
+
+> on Offense the ball automatically starts in the wrong player's hands when it's snapped · you can
+> run across the line before snapping the ball and you magically have the ball and a lot of yards ·
+> kickoffs/returns seem to be broken · throwing doesn't seem to work for either team · running looks
+> awkward for all characters in all animation
+
+That is the honest headline of this section: **a test suite that never presses a button cannot find
+a bug in what happens when you press a button.** All five were real and all five were reproducible;
+none of them required a human to reproduce once the right harness existed.
+
+### The harness that was missing — `npm run human`, 17 / 17
+
+`tools/humanprobe.ts` drives a real `Match` with a scripted human in seat 0. It holds the buttons a
+person holds, through the same `PlayerIntent` a keyboard produces, and the match computes press and
+release edges itself exactly as it does for a real seat. It went from 6 / 12 to 17 / 17 as the
+fixes landed.
+
+```
+PASS  at pre-snap the player controls the quarterback        controlling=0 (QB) qb=0
+PASS  at pre-snap the quarterback has the ball               ball=0 (QB)
+PASS  the quarterback starts behind the line of scrimmage    qb is -1.6 yd relative to the line
+PASS  pre-snap movement cannot cross the line of scrimmage   moved 1.3 yd, ended -0.3 yd past
+PASS  a held button left over from play select does not snap the ball
+PASS  a fresh press snaps the ball                           phase=LIVE
+PASS  pressing a receiver button throws the ball             passThrown=true
+PASS  a human-offence game reaches a final                   53 418 ticks, 80 snaps
+PASS  a human offence throws repeatedly across a game        53 throws in 80 snaps
+PASS  those throws are actually caught                       34 catches, 1 picked, from 53 throws
+PASS  a human offence scores                                 final 16-35, 2 human touchdowns
+PASS  a kickoff phase is reached                             phase=KICKOFF_SETUP
+PASS  the kickoff leaves the setup phase                     after 352 ticks
+PASS  the kickoff resolves to a live scrimmage down          possession=1 (kicked by 0) los=91.4
+PASS  the kick changes possession to the receiving team
+PASS  the receiving player is given an athlete during the return
+PASS  the receiving player ends up controlling the returner
+```
+
+### What each one actually was
+
+1. **The wrong player has the ball at the snap.** Not a ball bug — a *camera-on-the-wrong-man* bug.
+   `updateControlAssignment` decided which athlete a seat drives by comparing the seat's side to
+   `world.possession`, which during a kickoff names the **kicking** team for the entire play. A
+   human on the receiving team was therefore handed a coverage defender and never the returner, and
+   at a scrimmage snap the fallback could hand him a blocker rather than the quarterback. Now the
+   assignment keys off whoever actually holds the ball, with the quarterback as the explicit
+   offensive fallback.
+
+2. **The ball snapped the instant the play was called.** The snap read `held` on ACTION — the same
+   button that selects a play. The player's thumb was still down from the menu, so the ball left
+   the centre's hands before he could look up. Fixed with an arm-on-release edge: the snap now
+   requires ACTION to be *released* after the play call and pressed again. A second fault surfaced
+   immediately behind it — the fresh press was being eaten by the 0.3 s pre-snap settle window, so
+   an eager player's press vanished. The request is now latched and fires the moment the window
+   opens.
+
+3. **Running downfield before the snap.** Pre-snap locomotion had no constraint at all: a player
+   could jog 18.4 yards downfield, snap, and bank the yards. `holdTheLine()` in the play runner now
+   holds every athlete on his own side of a 0.35 yd neutral zone until the ball is live.
+
+4. **Throwing "didn't work".** It worked; bug 3 was disabling it. A quarterback past the line of
+   scrimmage correctly loses the ability to pass, so walking over the line pre-snap silently turned
+   the pass game off. Fixing the line constraint fixed the throw. The probe now throws 53 times in
+   80 snaps and completes 34.
+
+5. **The animation.** Its own subsection, below — it was the largest of the five.
+
+### The animation: a whole-file sign error
+
+The poses are procedural, written directly as bone rotations. Every rotation in the file is about
+X, and a bone's child hangs at local −Y for a limb and +Y for the spine — so **the same positive
+number means opposite things on a leg and on a back**. That was never written down, and the file
+had it inverted almost everywhere:
+
+- **Knees hyperextended.** Every state bent the knees with a negative angle, which swings the shin
+  *forward*. Fourteen athletes stood, ran, blocked and got tackled with their knees bending the
+  wrong way.
+- **The lean leaned backwards.** `bodyLean` was applied as a negative X rotation on the hips, so a
+  positive lean tipped the torso *away* from the direction of travel. A dive — 1.45 rad of it —
+  was a man falling on his back with his legs shot out in front.
+- **Both arms crossed inward.** The abduction sign was flipped on both shoulders, so both arms
+  angled in toward the chest instead of hanging clear of it.
+- **The forward lean was on the pelvis**, which carries the legs, so leaning rotated the whole
+  lower body and the feet never reached the turf.
+
+None of these reads as one obvious fault in a 40-pixel-tall athlete. It reads as "awkward", which
+is exactly what was reported.
+
+### The tools built to see it
+
+Two contact sheets, because a pose cannot be judged from a wide gameplay shot:
+
+- **`npm run poses`** parks a camera on one athlete, forces each of the nineteen animation states
+  in turn and writes one frame each → `docs/captures/poses.png`. This is what found the sign
+  errors in states nobody looks at directly.
+- **`npm run gait`** steps a sprinting athlete tick by tick and writes a strip across a full stride
+  → `docs/captures/gait-side.png`, `gait-front.png`. `--view side|front|threequarter`.
+
+### The run cycle is now solved, not swept
+
+The old cycle drove each joint with a sine wave. The new one gives each foot a **target path** —
+flat on the turf through stance, an arc through swing — and a two-link solve turns that into thigh
+and knee angles. Three properties fall out of it:
+
+- **Contact time is derived, not chosen.** The duty factor is set so a planted foot travels
+  backwards at exactly the speed the body travels forwards, using the same ground-covered figure
+  the stride cadence already reads.
+- **Stride length is bounded by the leg, and the toe counts.** The reach behind the athlete is much
+  longer than the reach in front, because at push-off he is up on his toes. The first version of
+  this pass ignored that and lost about a third of the stride to it — small mincing steps under a
+  body sliding forward.
+- **What is held still is the sole, not the ankle.** A version that rolled the contact reference
+  from heel to toe through the stance looked correct in stills and measured 4.7 yd/s of slip: a
+  flat sole cannot roll, and migrating the reference along it scrubs the shoe against the turf at
+  exactly the migration rate. One fixed contact point at the ball of the foot is stationary by
+  construction. The price is the heel sinking about 3 cm at the strike and the toe about 5 cm at
+  push-off, which on a cleat reads as digging in.
+
+A second, separate pass **plants the feet in every standing pose** — set, block, throw, catch, get
+up. It measures where the lower ankle actually landed and drops the pelvis onto it, bounded so a
+pose that is deliberately airborne cannot be dragged down. Hand-tuning a hip height into each of
+nineteen cases would have gone stale the first time a knee angle changed.
+
+### A cross-fade that was freezing the legs
+
+RUN and SPRINT are one continuous solved cycle that differs only by amplitude, and athletes flip
+between them **0.569 times per second each**. Every flip started a 130 ms pose cross-fade that
+blended back toward the pose being "left" — which froze the legs for nearly half a stride at speed
+and then snapped them forward to catch up. States that are the same pose at different amplitudes no
+longer fade between each other.
+
+### Measured: `npm run footslip`
+
+The question "do the feet grip the turf" is not answerable from a still frame, so it is measured.
+`tools/footslip.ts` drives a real match, and each tick takes the lowest point of each running
+athlete's shoe; when a foot is on the ground on two consecutive ticks, the distance **that same
+piece of sole** travelled between them is slip. Same tool, same seed, same 2 400 ticks, run against
+the build before this pass and after it:
+
+| | before | after |
+|---|---|---|
+| ticks with a foot actually on the turf | **6.4 %** | **39.1 %** |
+| slip, median | 6.86 yd/s | **1.16 yd/s** |
+| slip, mean | 8.68 yd/s | **2.90 yd/s** |
+| slip as a share of ground speed | **116 %** | **29 %** |
+| slip while running straight, mean | 6.23 yd/s | **1.19 yd/s** |
+
+The first row is the headline: before this pass the athletes' feet were **almost never touching the
+ground** — they hovered, which is what the first gait contact sheet showed and what made the whole
+thing read as floating. The 116 % figure means that on the rare tick a shoe did touch, it was
+moving faster than the athlete was.
+
+Two honest caveats on the "after" column:
+
+- **1.19 yd/s is not zero**, even running straight. The residual is the stride being resized as the
+  athlete's smoothed speed changes, plus the pelvis yaw and roll swinging the leg's solve plane.
+- **The tail is cutting, and it is a real limitation.** The 11.0 yd/s p95 is athletes travelling in
+  one direction while facing another — during a hard cut the median offset between heading and
+  velocity reaches a radian. The stride is solved in the body's own frame, so those feet cannot
+  both point where the athlete is looking and travel where he is going. Fixing it properly means
+  solving foot placement in world space rather than body space, which is a larger change than this
+  pass. It is measured and reported rather than hidden.
+
+### What was not fixed here
+
+The safeties figure moved from 2.73 to **2.96 a game** across the 200-game batch. That is within
+run-to-run noise for this statistic and it is still far above the ≤ 1 target; the root cause
+described in §11 is unchanged and no attempt was made at it in this pass.
+
+---
+
+## 10. WHAT WAS RUN TO PRODUCE THIS
 
 ```bash
 npm install
 npm run typecheck        # clean
-npm test                 # 206 / 206
+npm test                 # 214 / 214
 npm run scenarios        # 24 / 24
 npm run replay           # 12 / 12
+npm run human            # 17 / 17  scripted human on the sticks, §9
 npm run sim -- --games 200 --invariants
 npm run perf:sim
 npm run build
 npm run smoke            # 19 / 19
 npm run perf
 npm run smoothness       # motion quality, §6
+npm run footslip         # do planted feet grip the turf, §9
 npm run pacing           # frame pacing, §6
+npm run poses            # one frame per animation state, §9
+npm run gait             # one stride, frame by frame, §9
 npm run capture          # visual review set
 npm run shot -- --phase LIVE --live 0.9   # single frame, with motion, §7
 npm run artifact         # one self-contained HTML file, §8
@@ -643,7 +822,7 @@ npm run artifact:check   # boots and plays that file in a sandboxed iframe, §8
 
 ---
 
-## 10. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
+## 11. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
 
 Stated as failures rather than omissions:
 
@@ -667,8 +846,8 @@ Stated as failures rather than omissions:
 5. **Audio is verified functionally, not aurally.** The Node suite proves every cue can be triggered
    without throwing and that the headless no-op path is safe; nobody has listened to it. Levels,
    mix balance and whether the touchdown sting actually lands are unjudged.
-6. **Safeties are still too common at 2.73 a game** (2.56 before the motion work; the small
-   improvement is a side effect, not a fix). Real football sees about 0.05. This is the one
+6. **Safeties are still too common at 2.96 a game** (2.73 before the player-reported bug round;
+   the movement between passes is run-to-run noise, not a change). Real football sees about 0.05. This is the one
    balance target the shipped build misses, and it is a genuine defect, not a rounding error. The
    illegal cases are fixed — possession gained in your own end zone is a touchback now, and nobody
    lines up behind their own goal line — so what remains are *legal* safeties: an offence pinned
@@ -696,3 +875,11 @@ Stated as failures rather than omissions:
 14. **Adaptive resolution assumes a 60 Hz target.** On a 30 Hz-locked display it would scale down to
     its 60 % floor and stay there. Rare on desktop, and switchable, but it is a real limitation of
     the heuristic rather than an oversight.
+15. **Foot slip during a cut is unsolved.** Planted feet grip the turf while an athlete runs
+    straight (1.19 yd/s, §9) but skate during a hard change of direction (11.0 yd/s at the 95th
+    percentile), because the stride is solved in the athlete's own frame and a cutting athlete is
+    travelling somewhere other than where he is facing. Measured, reported, not fixed.
+16. **The nineteen animation states were reviewed as still frames, not in motion.** `npm run poses`
+    renders one instant of each. The one-shot poses — dive, tackle, get-up, kick — were checked at a
+    single point in their timeline, so their *timing* is unverified even though their shapes are
+    now right.

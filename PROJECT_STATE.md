@@ -6,6 +6,14 @@
 
 ## CURRENT MILESTONE
 
+**M12 — the first bug round from real play.** A player picked the game up and found five faults in
+minutes that two hundred CPU-vs-CPU games never touched: control assignment at the snap and on
+kickoffs, a leftover button snapping the ball, unrestricted pre-snap movement (which also silently
+disabled passing), and the animation. All five are fixed and all five now have a regression check.
+The animation was rebuilt — the pose file had its rotation signs inverted almost everywhere.
+
+**M11 — playable artifact.** The whole game folded into one self-contained HTML file.
+
 **M10 — graphics.** M9 was motion polish; M10 rebuilt how the game is lit and shaded.
 
 **M9 — motion polish.** M0–M8 are complete: the deterministic core, a full match, the playbook,
@@ -34,6 +42,9 @@ how the game *moves*, measured by two new harnesses rather than asserted.
 | Motion: ground-locked stride, state hysteresis, pose cross-fade, lean/bank, eased camera | done |
 | Frame pacing, adaptive resolution, shader prewarm, goalpost occlusion fade | done |
 | Harness: motion-quality metrics (`smoothness`), frame-pacing metrics (`pacing`) | done |
+| Harness: scripted human on the sticks (`human`), planted-foot slip (`footslip`) | done |
+| Harness: per-state pose contact sheet (`poses`), stride contact sheet (`gait`) | done |
+| Animation: solved run cycle with contact-point foot planting, pose families, ground pass | done |
 | Single-file artifact build + sandboxed-iframe verification | done |
 | Per-vertex surface shading, venue environment map, rim light | done |
 | Post chain: HDR + MSAA target, two-level bloom, ACES, per-venue grade, vignette, aberration | done |
@@ -112,6 +123,25 @@ Full detail in QA_REPORT.md. Headline numbers:
     60 Hz — and a touchdown is celebrated by fourteen statues.
 14. **The frame pacer distinguishes cadence changes from timestamp noise.** Averaging a genuinely
     dropped frame smears it across the next four and is worse than the problem being solved.
+15. **A test suite that never presses a button cannot test what pressing a button does.** Two
+    hundred clean CPU-vs-CPU games coexisted with five faults a person hit in his first minutes.
+    `npm run human` scripts a player onto the sticks; it is now the first thing to run after any
+    change to control, phase or input handling.
+16. **Which athlete a seat drives must key off who has the BALL, not `world.possession`.** During a
+    kickoff `possession` names the kicking team for the whole play, so a human receiving the kick
+    was handed a coverage defender and never the returner.
+17. **A button that both selects and acts needs an arm-on-release edge, and the request must be
+    latched.** ACTION picks the play and snaps the ball; reading it as held snapped instantly, and
+    the first fix then had the fresh press eaten by the pre-snap settle window.
+18. **Rotation sign conventions have to be written down.** A bone's child hangs at −Y for a limb and
+    +Y for the spine, so positive X bends a knee one way and a back the other. Getting it backwards
+    is invisible in review and shows up on screen only as "the animation looks awkward".
+19. **What a run cycle must hold still is the sole, not the ankle.** And a flat sole cannot roll:
+    migrating the contact reference from heel to toe scrubs the shoe against the turf at exactly
+    the rate it migrates. One fixed contact point at the ball of the foot is stationary by
+    construction.
+20. **Do not cross-fade between two states that are the same pose at different amplitudes.** RUN and
+    SPRINT flip about twice a second per athlete; fading froze the legs for half a stride each time.
 
 ## ACTIVE BLOCKERS
 
@@ -130,6 +160,12 @@ None.
   drives a game; comeback assist bounds it rather than removing it.
 - The crowd is instanced billboards; it reads as a crowd, not as individuals.
 - Instant replay covers scores and turnovers only, not arbitrary rewind.
+- Planted feet grip the turf when an athlete runs straight, but slip during a hard cut: the stride
+  is solved in the body's own frame, and a cutting athlete travels somewhere other than where he
+  faces. Measured in `npm run footslip` (QA_REPORT.md §9); fixing it needs world-space foot
+  placement.
+- Safeties remain far too common at ~3 a game against a target of ≤ 1. Root cause is field
+  compression, not a bug; it is a rules change nobody has made yet.
 
 ## COMMANDS
 

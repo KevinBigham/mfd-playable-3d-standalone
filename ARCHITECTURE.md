@@ -273,9 +273,24 @@ interface AnimSample {
   phase: number;       // 0..1 within the state, interpolated between ticks
   speed01: number;     // smoothed gait, from GROUND COVERED not velocity
   lean: number;        // from the athlete's own forward acceleration
+  stride: number;      // yards per stride cycle, from the sim's own cadence
   fire: number; t: number;
 }
 ```
+
+**Rotation signs.** Every pose rotation is about X. A bone's child hangs at local −Y for a limb and
++Y for the spine, so the same positive number means opposite things on the two:
+
+| | positive X means |
+|---|---|
+| thigh, knee, foot, shoulder, elbow | limb swings **backward** |
+| hips→chest, chest→neck→head | torso leans **forward** |
+| shoulder/thigh Z | right limb swings **away** from the body (left is negative) |
+
+The poses are therefore authored in **world angles** relative to the athlete's own upright facing,
+and `poseLeg` / `poseArm` subtract the parent's pitch. That is what lets the lean be retuned without
+re-tuning nineteen states — and it is a direct response to having had every one of those signs
+inverted at once, which is invisible in code and reads on screen only as "awkward".
 
 Sim owns `athlete.anim`: `{ state, phase, prevPhase, speed01, accelFwd, accelLat, ground, … }`.
 Rendering must not infer state from positions.
@@ -288,7 +303,18 @@ Three rules the renderer must keep:
 2. **Locomotion state changes need hysteresis** (`syncAnim`). A pose change restarts the pose.
 3. **Pose changes cross-fade** (`capturePose` / `blendPose`). Poses write bone rotations
    absolutely, so an un-faded change teleports every limb in one frame. The renderer owns the
-   fade; the simulation never sees it.
+   fade; the simulation never sees it. **Except within a pose family** (`samePoseFamily`): RUN and
+   SPRINT are one continuous cycle differing only in amplitude, and athletes flip between them
+   about twice a second, so fading between them froze the legs for half a stride and then snapped
+   them forward.
+4. **The run cycle is solved, not swept.** Each foot gets a target path — a fixed contact point
+   held still on the turf through stance, an arc through swing — and a two-link solve produces the
+   thigh and knee angles. Contact time is derived from `stride` so a planted foot travels backwards
+   at exactly the speed the body travels forwards. `SHOE` in `athleteRig.ts` is the shared cleat
+   geometry the solve needs; it has to agree with the geometry built there.
+5. **Standing poses are planted after the fact.** A bounded pass measures where the lower ankle
+   landed and drops the pelvis onto it, so a bent knee does not leave an athlete hovering. States
+   that are legitimately airborne opt out.
 
 Everything in this section is presentation. None of it may change a rules outcome, and the
 between-plays `idleStep` explicitly saves and restores turbo for that reason.

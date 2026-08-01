@@ -522,6 +522,34 @@ const steerScratch = { x: 0, z: 0, turbo: false };
  * saved and restored around the locomotion call rather than left to the fact that `setupPlay`
  * happens to reset it, so a future change to turbo carry-over cannot quietly break this.
  */
+/**
+ * Nobody crosses the line of scrimmage before the snap.
+ *
+ * Pre-snap motion is a real part of the game — shifting a receiver, walking the quarterback to
+ * a better angle — and it ran with full unrestricted locomotion, which meant a human could
+ * simply jog the ball twenty yards downfield and then snap it. The yardage counted, because
+ * gain is measured from the line, and the quarterback arrived past the line already, where the
+ * rules correctly refuse to let him throw. One missing constraint produced three separate
+ * complaints.
+ *
+ * The neutral zone is a third of a yard either side, which is enough to keep the two lines from
+ * interpenetrating without making legal motion feel sticky.
+ */
+const NEUTRAL_ZONE = 0.35;
+
+function holdTheLine(w: World): void {
+  const dir = dirOf(w.possession);
+  for (let i = 0; i < w.athletes.length; i++) {
+    const a = w.athletes[i];
+    // `own` points from the line toward the athlete's own half of the field.
+    const own = a.side === w.possession ? dir : -dir;
+    if ((a.z - w.losZ) * own > -NEUTRAL_ZONE) {
+      a.z = w.losZ - own * NEUTRAL_ZONE;
+      if (a.vz * own > 0) a.vz = 0;
+    }
+  }
+}
+
 export function idleStep(w: World, celebrateSide: TeamSide | null = null): void {
   savePrev(w);
   // The camera's orientation comes from `dirOf(w.possession)`, and possession still holds the
@@ -577,6 +605,8 @@ export function stepPlay(w: World, controllers: (Controller | null)[]): DeadReas
     tickMoveState(a);
     syncAnim(a, sp);
   }
+
+  if (w.playPhase === 'PRESNAP') holdTheLine(w);
 
   if (w.playPhase === 'LIVE') {
     updateBlocking(w);

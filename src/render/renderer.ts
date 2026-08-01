@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import type {
-  Conditions, GameEvent, MatchState, StadiumDef, TeamDef, TeamSide,
+  AnimState, Conditions, GameEvent, MatchState, StadiumDef, TeamDef, TeamSide,
 } from '../core/types.ts';
 import { SceneRegistry, QUALITY_PRESETS, type QualitySettings, type QualityTier } from './registry.ts';
 import { buildAthleteRig, rimUniforms, type AthleteRig } from './athleteRig.ts';
 import {
-  poseAthlete, capturePose, blendPose, fadeTimeFor, POSE_FLOATS, type AnimSample,
+  poseAthlete, capturePose, blendPose, fadeTimeFor, samePoseFamily, POSE_FLOATS,
+  type AnimSample,
 } from './athletePose.ts';
 import { GameCamera } from './camera.ts';
 import { PostFX, defaultGrade, type Grade } from './post.ts';
@@ -16,6 +17,7 @@ import { buildEnvironment, type Environment } from './env/index.ts';
 import type { ReplayView } from './replay.ts';
 import type { World } from '../sim/world.ts';
 import { carrier, dirOf } from '../sim/world.ts';
+import { strideLengthFor } from '../sim/movement.ts';
 import { clamp, clamp01, lerp, angLerp, angDelta, damp, smoothstep } from '../core/math.ts';
 import { FIXED_DT } from '../core/constants.ts';
 
@@ -27,7 +29,9 @@ export interface RendererOptions {
   resolutionScale: number;
 }
 
-const sample: AnimSample = { state: 'IDLE', phase: 0, speed01: 0, lean: 0, fire: 0, t: 0 };
+const sample: AnimSample = {
+  state: 'IDLE', phase: 0, speed01: 0, lean: 0, fire: 0, t: 0, stride: 3,
+};
 
 /** Per-athlete presentation state: pose cross-fade, smoothed yaw, body lean and bank. */
 interface RigMotion {
@@ -351,11 +355,14 @@ export class GameRenderer {
 
       const st = a.anim.state;
       if (this.lastAnimState[i] !== st) {
-        // Snapshot the pose being left BEFORE the new one overwrites the bones.
-        capturePose(rig, mo.fadeFrom);
-        mo.fadeT = 0;
-        mo.fadeDur = fadeTimeFor(st);
-        this.animT[i] = 0;
+        // Snapshot the pose being left BEFORE the new one overwrites the bones — unless the two
+        // states are the same cycle at different amplitudes, which is only a stutter to blend.
+        if (!samePoseFamily(this.lastAnimState[i] as AnimState, st)) {
+          capturePose(rig, mo.fadeFrom);
+          mo.fadeT = 0;
+          mo.fadeDur = fadeTimeFor(st);
+          this.animT[i] = 0;
+        }
         this.lastAnimState[i] = st;
       }
       this.animT[i] += dt;
@@ -368,6 +375,7 @@ export class GameRenderer {
       sample.state = st;
       sample.speed01 = a.anim.speed01;
       sample.lean = clamp(a.anim.accelFwd * LEAN_PER_ACCEL, -0.16, 0.24);
+      sample.stride = strideLengthFor(a.anim.ground);
       sample.fire = a.onFire ? 1 : 0;
       sample.t = this.animT[i];
       poseAthlete(rig, sample);
@@ -516,6 +524,7 @@ export class GameRenderer {
       sample.phase = a.phase;
       sample.speed01 = 0.5;
       sample.lean = 0;
+      sample.stride = 2.6;
       sample.fire = 0;
       sample.t = this.animT[i] += dt;
       poseAthlete(rig, sample);

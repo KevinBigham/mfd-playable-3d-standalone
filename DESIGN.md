@@ -65,6 +65,13 @@ Three verbs, context-sensitive, exactly like the arcade games this descends from
 | **SPIN/Y** | spin | — | power tackle |
 | **◀ ▲ ▶** | — | throw left / middle / right | — |
 
+**At the line.** The snap is **edge-triggered and arms on release**: ACTION also picks the play, so
+a thumb still down from the play-call screen must come off the button before the ball will move.
+Once armed, the press is latched, so an eager snap fires the instant the pre-snap window opens
+rather than being swallowed by it. And nobody crosses the line of scrimmage before the snap — a
+0.35 yd neutral zone holds both sides — which is a rule, but it is also what stops a player walking
+his quarterback twenty yards downfield and banking them.
+
 **Icon passing** binds the three throw buttons to the receivers' *pre-snap* alignment and keeps that
 binding for the whole play, even when routes cross. That is deliberate: it makes crossing concepts a
 memory test instead of a targeting test, which is the point of them. A **DIRECTIONAL** passing mode
@@ -256,9 +263,20 @@ Everything below is presentation only; none of it changes a rules outcome.
   velocity-driven run cycle showed a defender strolling while he slid several yards a second.
 - **Locomotion states carry hysteresis.** Fixed speed thresholds meant an athlete holding a speed
   near a boundary changed animation state every tick, and every change restarts a procedural pose.
+- **The run cycle is solved, not swept.** Each foot is given a path — a contact point held still on
+  the turf through stance, an arc through swing — and a two-link solve produces the joint angles.
+  Contact time is derived so that a planted foot travels backwards at exactly the speed the body
+  travels forwards. Stride length is bounded by how far the leg can actually reach, which is much
+  further behind the athlete than in front of him because at push-off he is up on his toes.
+- **The feet are planted, not posed.** Every standing pose bends the knees, and a bent knee shortens
+  the leg; a bounded pass measures where the lower ankle landed and drops the pelvis onto it rather
+  than a hip height being hand-tuned into each of nineteen cases.
 - **Poses cross-fade.** Each pose writes bone rotations absolutely, so a state change used to
   teleport every limb on one frame. The renderer snapshots the pose being left and eases out of it
   over 50–140 ms depending on the state; impacts stay short so a tackle still lands like a tackle.
+  Two states that are the same pose at different amplitudes — RUN and SPRINT — do **not** fade
+  between each other: athletes flip between them about twice a second, and fading froze the legs
+  for nearly half a stride every time.
 - **Bodies lean and bank.** Forward and lateral acceleration in the athlete's own frame drive body
   lean and a roll into the turn.
 - **Between plays the world still breathes.** Match phases that do not run a simulation step now run

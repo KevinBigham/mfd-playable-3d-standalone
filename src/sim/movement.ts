@@ -396,7 +396,18 @@ const SPRINT_IN = 0.80, SPRINT_OUT = 0.71;
 const RUN_IN = 0.10, RUN_OUT = 0.055;
 /** Yards covered by one full stride cycle. Cadence is derived from ground speed so feet
  *  travel with the turf instead of buzzing at a fixed rate. */
-const STRIDE_YARDS = 3.4;
+export const STRIDE_YARDS = 3.4;
+
+/**
+ * Yards covered by one full stride cycle at a given ground speed. Below the cadence floor the
+ * stride shortens instead of the legs slowing further, so this is not simply STRIDE_YARDS. The
+ * renderer needs the real figure: its run cycle plants each foot for exactly the fraction of the
+ * cycle that keeps the foot still against the turf.
+ */
+export function strideLengthFor(ground: number): number {
+  const hz = clamp(ground / STRIDE_YARDS, 1.15, 4.6);
+  return ground / hz;
+}
 
 export function syncAnim(a: Athlete, speed01: number): void {
   const st = a.anim;
