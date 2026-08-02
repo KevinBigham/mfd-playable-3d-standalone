@@ -274,10 +274,11 @@ None.
 - Mid-match save is a single slot with no manual slot management, and it is cleared the moment the
   game is resumed. That is deliberate — it is "put the controller down", not a save-state library —
   but it means there is no way to keep two games going at once.
-- Planted feet grip the turf when an athlete runs straight, but slip during a hard cut: the stride
-  is solved in the body's own frame, and a cutting athlete travels somewhere other than where he
-  faces. Measured in `npm run footslip` (QA_REPORT.md §9); fixing it needs world-space foot
-  placement.
+- Planted feet still slip about a yard a second even running straight, and about 2.3 yd/s on
+  average. The swing plane now follows the path rather than the chest, which took 15 % off the mean
+  (QA_REPORT.md §12.11); the rest is structural — stride length is derived from smoothed ground
+  speed, so a cadence mismatch scrubs the shoe. Removing it needs world-space foot placement and a
+  leg solved to reach it, which is a different architecture for the pose layer.
 - **First downs are still rare at 4.3 per team per game.** Not the chain — `FIRST_DOWN_YARDS` was
   swept at 30 / 24 / 20 and first downs measured 3.6 / 3.6 / 3.4. Drives end before the chain is in
   question: 15 a game, 3.1 plays each. Improved twice in M15, not solved.

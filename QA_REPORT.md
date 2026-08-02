@@ -1332,7 +1332,46 @@ exist while sitting in the file.
 > Acceptance **42 pass / 0 fail / 19 N/A** · unit tests **222** · browser smoke **21/21**, including
 > pause → save → menu → continue landing back in the same score, quarter and tick
 
-### 12.11 What is still open
+### 12.11 The feet, on a cut
+
+The last thing left over from the animation rebuild in §9: planted feet grip the turf when an
+athlete runs straight and slip when he cuts. The reason was known and written down — the stride is
+solved in the body's own sagittal plane, so a man travelling in one direction while facing another
+has a "planted" foot held still relative to his chest while the chest slides sideways through the
+world.
+
+The swing plane now follows the PATH rather than the chest, rotated by the angle between where the
+athlete is drawn pointing and where he is actually going. Two details decided whether it worked at
+all:
+
+- **Measure the drift against the RENDER yaw, not the simulation's `facing`.** The rig eases into a
+  turn on purpose so the body never snaps round, so those two differ by design — and the feet are
+  attached to the drawn body, not to the simulated heading.
+- **The yaw has to be the outermost rotation.** Composed after the pitch, which is what three.js
+  `XYZ` order does, it rotates about an axis already tilted forward by however far the leg is swung
+  — so it twists the thigh instead of steering it, and the foot path barely moves. `YXZ`.
+
+A/B on the same harness, `npm run footslip`:
+
+| | before | after |
+|---|---|---|
+| mean slip | 2.717 yd/s | **2.305** |
+| median | 1.206 | 1.111 |
+| p95 | 10.679 | 9.895 |
+| running straight | 1.032 | 1.032 |
+| grounded share of running ticks | 37.3 % | 38.9 % |
+
+Fifteen percent off the mean, and the running-straight figure is unchanged, which is the check that
+says the change did what it claimed rather than something else — drift is zero when facing and
+travel agree, so that row *must* not move.
+
+**Not solved.** A yard per second of slip remains even running dead straight, and that one is
+structural: stride length is derived from smoothed ground speed, so any mismatch between the assumed
+cadence and the actual travel scrubs the shoe. Removing it needs the contact point placed in world
+space and the leg solved to reach it, which is a different architecture for the pose layer rather
+than a tuning of this one.
+
+### 12.12 What is still open
 
 - **First downs are 4.3, not the 8–12 that would make the chain a pulse.** Up from 3.8, having gone
   the wrong way twice on the road there, but drives still average 3.1 plays and still score too
@@ -1353,6 +1392,8 @@ exist while sitting in the file.
   caller, now that it rates honestly, has stopped calling it — the same failure the quick game has.
 - **Sacks are 4.3 a game against a 4–9 band.** The hot read bought the quick game's life with sack
   pressure and the margin is now thin.
+- **Feet still slip about a yard a second even running straight** (§12.11), which needs world-space
+  foot placement rather than a body-frame solve.
 - **Runs still lose yardage on roughly a quarter of carries** even with all seven blockers working,
   and designed-run yards fell to 3.26/play once zone defenders started sprinting — coverage that
   runs also arrives in run support faster.

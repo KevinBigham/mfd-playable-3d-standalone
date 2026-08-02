@@ -30,7 +30,7 @@ export interface RendererOptions {
 }
 
 const sample: AnimSample = {
-  state: 'IDLE', phase: 0, speed01: 0, lean: 0, fire: 0, t: 0, stride: 3,
+  state: 'IDLE', phase: 0, speed01: 0, lean: 0, fire: 0, t: 0, stride: 3, drift: 0,
 };
 
 /** Per-athlete presentation state: pose cross-fade, smoothed yaw, body lean and bank. */
@@ -376,6 +376,13 @@ export class GameRenderer {
       sample.speed01 = a.anim.speed01;
       sample.lean = clamp(a.anim.accelFwd * LEAN_PER_ACCEL, -0.16, 0.24);
       sample.stride = strideLengthFor(a.anim.ground);
+      // Where he is going, minus where the BODY IS DRAWN pointing. Deliberately measured against
+      // the smoothed render yaw rather than the simulation's `facing`: the two differ by design —
+      // the rig eases into a turn so the body never snaps round — and the feet are attached to the
+      // drawn body, not to the simulated heading. Using `facing` here leaves the yaw-easing lag as
+      // slip, which `npm run footslip` reports separately and which is a third of the problem.
+      const spd = Math.hypot(a.vx, a.vz);
+      sample.drift = spd > 0.4 ? angDelta(mo.yaw, Math.atan2(a.vx, a.vz)) : 0;
       sample.fire = a.onFire ? 1 : 0;
       sample.t = this.animT[i];
       poseAthlete(rig, sample);
@@ -525,6 +532,7 @@ export class GameRenderer {
       sample.speed01 = 0.5;
       sample.lean = 0;
       sample.stride = 2.6;
+      sample.drift = 0;             // replay frames carry no velocity; the stride runs true ahead
       sample.fire = 0;
       sample.t = this.animT[i] += dt;
       poseAthlete(rig, sample);

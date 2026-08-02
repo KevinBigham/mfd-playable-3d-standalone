@@ -20,6 +20,19 @@ export interface AnimSample {
    * and skating.
    */
   stride: number;
+  /**
+   * Angle between where the athlete is FACING and where he is actually TRAVELLING, in radians.
+   *
+   * The run cycle is solved in the sagittal plane — the foot swings straight forward and back
+   * along the body's own axis — which is correct only while those two directions agree. A man
+   * cutting hard travels somewhere other than where he is looking, so his "planted" foot was
+   * being held still relative to his chest while the whole chest slid sideways through the world.
+   * Measured by `npm run footslip`: 1.03 yd/s of slip running straight against 2.72 yd/s overall.
+   *
+   * Feeding the drift in rotates the swing PLANE onto the path, so the contact point tracks the
+   * direction the body is going rather than the direction it is pointing.
+   */
+  drift: number;
 }
 
 /*
@@ -51,8 +64,8 @@ export interface AnimSample {
 const E = new THREE.Euler();
 const READ = new THREE.Euler();
 
-function set(b: THREE.Bone, x: number, y: number, z: number): void {
-  E.set(x, y, z); b.quaternion.setFromEuler(E);
+function set(b: THREE.Bone, x: number, y: number, z: number, order: THREE.EulerOrder = 'XYZ'): void {
+  E.set(x, y, z, order); b.quaternion.setFromEuler(E);
 }
 
 type Bones = AthleteRig['bones'];
@@ -60,9 +73,13 @@ type Bones = AthleteRig['bones'];
 /** Place one leg from world angles. `toe` is the foot's world pitch, positive = toes down. */
 function poseLeg(
   b: Bones, right: boolean, hipsX: number,
-  thighW: number, knee: number, toe: number, splay = 0,
+  thighW: number, knee: number, toe: number, splay = 0, yaw = 0,
 ): void {
-  set(right ? b.thighR : b.thighL, thighW - hipsX, 0, right ? splay : -splay);
+  // YXZ, not XYZ: the yaw has to be the OUTERMOST rotation so it turns the leg's whole swing
+  // plane about the body's vertical. Composed after the pitch — which is what XYZ does — it
+  // rotates about an axis that is already tilted forward by however far the leg is swung, so it
+  // twists the thigh instead of steering it, and the foot path barely moves.
+  set(right ? b.thighR : b.thighL, thighW - hipsX, yaw, right ? splay : -splay, 'YXZ');
   set(right ? b.kneeR : b.kneeL, knee, 0, 0);
   set(right ? b.footR : b.footL, toe - thighW - knee, 0, 0);
 }
@@ -89,6 +106,8 @@ function poseArm(
  * about 5cm at push-off, which on a cleat reads as digging in.
  */
 const PSI_STRIKE = -0.10, PSI_PUSH = 0.70;
+/** How far the swing plane will rotate off the chest to follow the path, radians. */
+const DRIFT_MAX = 0.9;
 const CREF = SHOE.toe * 0.67;
 
 /** Ankle position relative to a contact point at `cRef` on the sole, with the foot pitched `psi`. */
@@ -175,6 +194,12 @@ export function poseAthlete(rig: AthleteRig, s: AnimSample): void {
       // Contact length is capped by that reach; the duty factor follows from it. Clamping duty
       // rather than contact keeps the no-slide property in both directions: a very long stride
       // just gets a shorter contact, never a sliding one.
+      // Swing the legs along the PATH, not along the chest. Clamped: past about fifty degrees the
+      // athlete is not running in that direction any more, he is backpedalling or shuffling, and
+      // those have their own poses — rotating a full sprint cycle 180 degrees would look like a
+      // man running backwards on purpose. Scaled by speed too, because the drift angle is noisy
+      // and meaningless when he is barely moving.
+      const driftYaw = clamp(s.drift, -DRIFT_MAX, DRIFT_MAX) * clamp01(sp * 2.2);
       const duty = clamp(span / stride, 0.20, 0.52);
       const contact = duty * stride;
       const front = contact * (frontMax / (frontMax + backMax));
@@ -222,7 +247,7 @@ export function poseAthlete(rig: AthleteRig, s: AnimSample): void {
         const inner = Math.acos(clamp(
           (thighLen * thighLen + shinLen * shinLen - d * d) / (2 * thighLen * shinLen), -1, 1));
         const alpha = Math.asin(clamp((shinLen * Math.sin(inner)) / d, -1, 1));
-        poseLeg(b, right, bodyLean, line - alpha, Math.PI - inner, toe);
+        poseLeg(b, right, bodyLean, line - alpha, Math.PI - inner, toe, 0, driftYaw);
         (rig as any).__dbg = (rig as any).__dbg || {};
         (rig as any).__dbg[right ? 'R' : 'L'] = { u, az, ay, toe, duty, contact, front, stride, thighW: line - alpha, knee: Math.PI - inner };
       }
