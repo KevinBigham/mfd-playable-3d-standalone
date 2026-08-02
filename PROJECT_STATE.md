@@ -6,14 +6,21 @@
 
 ## CURRENT MILESTONE
 
-**M15 — the move economy, the bobble, and a chain that did not move.** Added the juke, ball
-protection and the bobble (a juggled or batted pass that stays live in the air but is still legally
-a forward pass, so the ground ends it as incomplete and never as a fumble). Four mechanism-level
-bugs found by building two new instruments: only three of seven players could block, the
-quarterback's drop depth was a string match on the formation name, man coverage never spent turbo,
-and `down.change` was declared and handled but emitted by nobody. Play-level quality improved
-measurably. **The milestone's own goal — more first downs — was not met**: 3.8 → 3.6 across 120
-games, and three hypotheses for why were tested and rejected in QA_REPORT.md §12.
+**M15 — the move economy, the bobble, and the deep zone.** Added the juke, ball protection and the
+bobble (a juggled or batted pass that stays live in the air but is still legally a forward pass, so
+the ground ends it as incomplete and never as a fumble). Five mechanism-level bugs found by building
+four new instruments: only three of seven players could block, the quarterback's drop depth was a
+string match on the formation name, man coverage never spent turbo, `down.change` was declared and
+handled but emitted by nobody — and, the big one, **a deep zone defender was tied to his landmark
+for the whole play**, so a forty-yard route ran past him and kept going. A deep receiver had 7.9
+yards of separation at the release while his nearest defender jogged at 9.5 yd/s with 70 % of his
+meter unspent. A deep zone now defends a ceiling, not a post.
+
+Over 120 games: first downs 3.8 → 3.9, pass yards 194.9 → 181.0, deep concepts 23.6 → 20.1 yd/play,
+separation at the catch on deep balls 4.5 → 2.6 yd, combined points 52.4 → 49.1, overtimes 6 → 12.
+Every balance target holds and rules violations stayed at zero. The milestone's headline goal — a
+chain with a pulse — is **improved, not met**: drives still average 3.2 plays and 43 % still score.
+Three other hypotheses were tested and rejected along the way (QA_REPORT.md §12).
 
 **M14 — one button, two actions.** Reported from play as "the ball starts with the WR on Ripcord
 Mesh". ACTION snaps the ball and ACTION throws it, and both were resolving in the same tick, so the
@@ -225,15 +232,18 @@ None.
   is solved in the body's own frame, and a cutting athlete travels somewhere other than where he
   faces. Measured in `npm run footslip` (QA_REPORT.md §9); fixing it needs world-space foot
   placement.
-- **First downs are still rare at 3.6 per team per game, and the cause is now known.** It is not
-  the chain: `FIRST_DOWN_YARDS` was swept at 30 / 24 / 20 and first downs measured 3.6 / 3.6 / 3.4.
-  Drives end before the chain is in question — 16 a game, 3.2 plays each, 44 % of them scoring —
-  because the deep shot completes 81 % of the time for 23-25 yards a play with half of all attempts
-  going twenty-plus. Diagnosed in QA_REPORT.md §12; not fixed.
-- Third and short converts *worse* than third and long (roughly 9-21 % against 27-31 %), for the
-  same reason: the only concept that reliably gains is the one that gains thirty.
+- **First downs are still rare at 3.9 per team per game.** Not the chain — `FIRST_DOWN_YARDS` was
+  swept at 30 / 24 / 20 and first downs measured 3.6 / 3.6 / 3.4. Drives end before the chain is in
+  question: 16 a game, 3.2 plays each, 43 % of them scoring. Improved by the deep-zone fix
+  (QA_REPORT.md §12.6), not solved.
+- Third and short converts *worse* than third and long (about 7 % against 36 %), and the deep-zone
+  fix widened the gap rather than closing it. The only concept that reliably gains is still the one
+  that gains thirty.
+- Goal-to-go on third down converts 8 %. Nothing in the playbook is built for a defence with the end
+  zone at its back.
 - A designed run still loses yardage on about a quarter of carries even with all seven blockers
-  working.
+  working, and fell to 3.26 yd/play once zone defenders started sprinting — coverage that runs also
+  arrives in run support faster.
 
 ## COMMANDS
 

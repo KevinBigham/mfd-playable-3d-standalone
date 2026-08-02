@@ -1078,17 +1078,70 @@ distance into the next one and mislabelled every play until something non-scorin
 number is **6 for 41**. The probe now reads match state at the snap. An instrument that lies is worse
 than no instrument, and this one nearly sent the whole pass after a phantom.
 
-### 12.5 What is still open
+### 12.6 Nobody gets behind a deep zone
 
-- **The deep game is the game.** 81 % completion at 23–25 yards a play is the single largest
-  distortion left in this build, and it is what holds drives to three plays and first downs to 3.6.
-  Diagnosed, not fixed. The mechanism appears to be space rather than tuning: seven-on-seven across a
-  53-yard field leaves more grass than the coverage available can account for, and the receiver
-  relocates to the exact landing point of a badly thrown ball, so throw error costs nothing.
-- **Third and short is still harder than third and long** — 3rd-and-1-to-8 converts around 9–21 %
-  against 27–31 % on 3rd-and-25-plus, because the only concept that reliably gains is the one that
-  gains thirty. The inversion narrowed but did not close.
-- **Runs still lose yardage on roughly a quarter of carries** even with all seven blockers working.
+The section above ended by calling the deep game the largest distortion left and saying the cause
+looked like space rather than tuning. That was a guess, and a third instrument — `npm run deepprobe`,
+plus a trace of separation against play time — replaced it with a cause.
+
+On throws of 18 or more air yards, averaging 40.6 air yards and 2.1 seconds of flight, the receiver
+had **7.9 yards of separation at the moment of release**. He was not getting open during the flight;
+he was already gone before the ball left the hand. The trace says why:
+
+| play time | receiver | nearest defender | that defender's turbo |
+|---|---|---|---|
+| 1.25 s | 13.7 yd/s | 9.7 yd/s | 78 |
+| 2.00 s | 12.0 yd/s | 9.1 yd/s | 70 |
+| 3.00 s | 9.9 yd/s | 10.6 yd/s | 60 |
+
+A receiver sprinting at 13.5 yd/s, a defender running at 9.5, and **seventy percent of the
+defender's meter unspent**. And the nearest defender to a deep receiver was a **zone** defender on
+72 % of samples — which is why fixing man coverage in §12.3 was invisible at the batch level. It was
+27 % of the problem.
+
+A deep zone landmark in this playbook sits 22 to 34 yards past the line, and the defender was tied
+to it for the whole play. A forty-yard route simply ran past him and kept going. **The landmark is
+where he starts; the ceiling is what he defends.** A deep-zone defender now takes his depth from the
+deepest route in his share of the width and stays on top of it, and — like man coverage — spends
+turbo to get there rather than inferring from `pursue` that a point beside his own feet is not worth
+sprinting to.
+
+Measured over 120 games, against the same 120 games before this pass began:
+
+| metric | before the pass | after §12.3 | after the deep-zone fix |
+|---|---|---|---|
+| first downs / team | 3.8 | 3.6 | **3.9** |
+| pass yards / team | 194.9 | 197.0 | **181.0** |
+| deep concept yd/play | 23.6 | 23.1 | **20.1** |
+| separation at the catch, deep | 4.5 yd | 4.3 yd | **2.6 yd** |
+| combined points | 52.4 | 53.0 | **49.1** |
+| touchdowns | 7.4 | 7.5 | **6.8** |
+| overtimes / 120 games | 6 | 6 | **12** |
+| shutouts / 120 games | 6 | 2 | 4 |
+| rules violations | 0 | 0 | **0** |
+
+Every balance target holds: points 49.1 against a 44–60 band, sacks 6.6 against 4–9, interceptions
+2.5 against 1.5–4, safeties 0.12 against ≤1, plays 60.6 against 55–70. Twelve of 120 games needed
+overtime, against six before — the games got closer, which is the shape you want from taking the
+easy explosive away rather than from clamping scoring directly.
+
+### 12.7 What is still open
+
+- **First downs are 3.9, not the 8–12 that would make the chain a pulse.** The deep-zone fix moved
+  the number in the right direction for the first time in this pass, but drives still average 3.2
+  plays and 43 % of them still score. This is better, not solved.
+- **Third and short is still harder than third and long** — 3rd-and-1-to-8 converts around 7 %
+  against 36 % on 3rd-and-25-plus, and the deep-zone fix made the gap *wider*, not narrower, because
+  it took yards out of the intermediate game as well. The only concept that reliably gains is still
+  the one that gains thirty.
+- **Goal-to-go on third down converts 8 %.** The end zone is a hard ceiling behind the defence and
+  nothing in the playbook is built for that specific problem.
+- **Runs still lose yardage on roughly a quarter of carries** even with all seven blockers working,
+  and designed-run yards fell to 3.26/play once zone defenders started sprinting — coverage that
+  runs also arrives in run support faster.
+- **`npm run driveprobe`'s completion percentage excludes interceptions**, so its per-concept comp%
+  reads high; `deepprobe` counts them and is the number to trust for passing outcomes. Recorded
+  rather than quietly fixed because the earlier figures in this section were read off it.
 
 ---
 

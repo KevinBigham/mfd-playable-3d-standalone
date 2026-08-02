@@ -525,7 +525,28 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
     }
     case 'ZONE': {
       const cx = w.spotX + assign.x * dir;
-      const cz = w.losZ + assign.z * dir;
+      let cz = w.losZ + assign.z * dir;
+      // NOBODY GETS BEHIND A DEEP ZONE. That is the entire job, and it was missing: a deep
+      // landmark sits 22 to 34 yards past the line and the defender was tied to it forever, so a
+      // receiver running a forty-yard route simply went past him and kept going. Measured over ten
+      // games, a receiver twelve or more yards downfield was running at 13.5 yd/s with the nearest
+      // defender at 9.5 and 70-85% of his turbo unspent, and the nearest defender was a zone
+      // defender on 72% of samples. That is where the deep game's separation came from.
+      //
+      // The landmark is where he STARTS. The ceiling is what he defends.
+      if (assign.z >= DEEP_ZONE_DEPTH) {
+        let deepest = -1e9;
+        for (let i = 0; i < 7; i++) {
+          const r = w.athletes[OFF_START + i];
+          if (r.targetButton === null) continue;
+          if (Math.abs(r.x - cx) > assign.r * 1.35) continue;   // only his share of the width
+          deepest = Math.max(deepest, (r.z - w.losZ) * dir);
+        }
+        if (deepest > -1e8) {
+          const capZ = w.losZ + (deepest + DEEP_ZONE_CUSHION) * dir;
+          cz = dir > 0 ? Math.max(cz, capZ) : Math.min(cz, capZ);
+        }
+      }
       // Drive on the most dangerous receiver in the zone.
       let threat: Athlete | null = null; let bestD = assign.r;
       for (let i = 0; i < 7; i++) {
@@ -538,7 +559,13 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
         // Zone defenders drive on the threat but stay anchored to the landmark until
         // the ball is actually in the air.
         const drive = w.ball.state.kind === 'inAir' ? 0.95 : p.coverageDiscipline * 0.6;
-        pursue(w, a, lerp(cx, threat.x, drive), lerp(cz, threat.z + dir * 1.4, drive), out, ctx, 1);
+        const tx = lerp(cx, threat.x, drive);
+        const tz = lerp(cz, threat.z + dir * 1.4, drive);
+        pursue(w, a, tx, tz, out, ctx, 1);
+        // Getting to the top of the coverage is worth turbo. Same reasoning as man coverage:
+        // `pursue` reads closing distance from the point it was handed, and a defender being
+        // outrun is not "closing" on anything.
+        if (matchTheRelease(a, threat) || dist(a.x, a.z, tx, tz) > 3.5) out.held |= Action.TURBO;
       } else {
         holdZone(w, a, cx, cz, out, ctx);
       }
@@ -586,6 +613,10 @@ function matchTheRelease(a: Athlete, r: Athlete): boolean {
 const COVER_MATCH_SPEED = 11.0;
 /** Meter a cover man keeps back for the tackle rather than spending on the chase. */
 const COVER_MATCH_RESERVE = 22;
+/** A zone landmark this far past the line is a DEEP zone: its job is the ceiling, not the spot. */
+const DEEP_ZONE_DEPTH = 18;
+/** How far on top of the deepest route in his area a deep-zone defender tries to stay. */
+const DEEP_ZONE_CUSHION = 3.0;
 
 function pursue(w: World, a: Athlete, tx: number, tz: number, out: PlayerIntent, ctx: AiContext, urgency: number): void {
   const dx = tx - a.x, dz = tz - a.z;

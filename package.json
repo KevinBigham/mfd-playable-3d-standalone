@@ -38,7 +38,8 @@
     "acceptance": "tsx tools/acceptance.ts",
     "passprobe": "tsx tools/passprobe.ts",
     "driveprobe": "tsx tools/driveprobe.ts",
-    "runprobe": "tsx tools/runprobe.ts"
+    "runprobe": "tsx tools/runprobe.ts",
+    "deepprobe": "tsx tools/deepprobe.ts"
   },
   "dependencies": {
     "three": "^0.169.0"
