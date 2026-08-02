@@ -34,7 +34,8 @@
     "gait": "tsx tools/gait.ts",
     "poses": "tsx tools/poses.ts",
     "footslip": "tsx tools/footslip.ts",
-    "fieldpos": "tsx tools/fieldpos.ts"
+    "fieldpos": "tsx tools/fieldpos.ts",
+    "acceptance": "tsx tools/acceptance.ts"
   },
   "dependencies": {
     "three": "^0.169.0"
