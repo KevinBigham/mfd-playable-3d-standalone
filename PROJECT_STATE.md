@@ -42,11 +42,13 @@ Every balance target in range, two of them on their floor and flagged as such. T
 headline goal — a chain with a pulse — is **improved, not met**: drives still average about 3
 plays. Three other hypotheses were tested and rejected along the way (QA_REPORT.md §12).
 
-The human probe caught the cost: after the coverage work a scripted human who hammers one receiver
-button gained 113 yards and scored nothing, down from 214 and 14 points. Changing only which
-receiver he throws to — the one the play names as its primary read — produced 271 yards and 21
-points in the same harness on the same seed. The game got harder for a player who ignores it and no
-harder for one who uses it, and that contrast is now its own assertion.
+The human probe caught a cost, and then caught me over-reading it. After the coverage work a
+scripted human gained 113 yards and scored nothing on one seed, down from 214 and 14; switching him
+to throw at each play's named primary read produced 271 and 21 on that same seed, which I wrote up
+as "harder only for players who ignore the game". Over ten seeds per arm it is not true — reading
+the read gains 205 yards and 10.2 points a game against 223 and 11.1 for hammering the middle
+button. The human offence really is weaker than it was, and there is no evidence that skill recovers
+it. The false assertion is gone; the comparison is kept as a printed measurement.
 
 **M14 — one button, two actions.** Reported from play as "the ball starts with the WR on Ripcord
 Mesh". ACTION snaps the ball and ACTION throws it, and both were resolving in the same tick, so the
@@ -251,8 +253,18 @@ Full detail in QA_REPORT.md. Headline numbers:
     advance is correct; forward progress armed at the SNAP spotted every sack at the line and took
     sacks from 4.3 a game to 0.0. It protects a runner being driven back, not a passer retreating.
 40. **When a harness fails after a change, ask what the harness is a model OF.** The scripted human
-    hammered one receiver button on every concept. That is not "a player", it is the one player the
-    change was supposed to stop rewarding. The same script reading the play scored 21 instead of 0.
+    hammered one receiver button on every concept — not "a player", but the one player the change
+    was supposed to stop rewarding.
+41. **One seed is not a measurement.** The same scripted human gained between 107 and 353 yards
+    across six seeds. A threshold set just under a single observed value is an over-fit that fails
+    on the next commit, and a CONCLUSION drawn from a single seed is worse: "reading the play beats
+    hammering one button" survived exactly as long as it took to run ten seeds per arm, and then
+    turned out to point the other way.
+42. **A design claim you want to be true is the one to measure hardest.** Ten minutes of measurement
+    turned a headline result into a retraction, and the retraction is the more useful artefact.
+43. **`array.map(fn)` passes the INDEX as the second argument.** `seeds.map(playAGame)` quietly ran
+    games two and three of the control arm in the wrong mode. Only the typechecker caught it; the
+    numbers just looked like variance.
 
 ## ACTIVE BLOCKERS
 

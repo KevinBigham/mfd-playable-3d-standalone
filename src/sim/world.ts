@@ -119,7 +119,7 @@ function blankAthlete(id: number): Athlete {
     },
     hasBall: false, turbo: 100, turboHeld: false, protecting: false, turboLockTicks: 0, stamina: 100,
     downTicks: 0, stunTicks: 0, blockedBy: -1, engagedWith: -1, onFire: false,
-    role: 'WIDE', route: null, routeIdx: 0, routeHold: 0, assign: null, blockDir: 0, targetButton: null,
+    role: 'WIDE', route: null, routeIdx: 0, routeHold: 0, assign: null, blockDir: 0, blockClock: 0, targetButton: null,
     homeX: 0, homeZ: 0,
     controlledBySeat: -1, reactionQueue: 0, aiMemoryTick: 0, aiScratch: 0,
   };
@@ -184,7 +184,7 @@ export function resetAthlete(a: Athlete, side: TeamSide, slot: number, unit: 'OF
   a.anim.ground = 0; a.anim.lastX = a.x; a.anim.lastZ = a.z;
   a.hasBall = false; a.turbo = 100; a.turboHeld = false; a.protecting = false; a.turboLockTicks = 0;
   a.downTicks = 0; a.stunTicks = 0; a.blockedBy = -1; a.engagedWith = -1;
-  a.route = null; a.routeIdx = 0; a.routeHold = 0; a.assign = null; a.blockDir = 0; a.targetButton = null;
+  a.route = null; a.routeIdx = 0; a.routeHold = 0; a.assign = null; a.blockDir = 0; a.blockClock = 0; a.targetButton = null;
   a.reactionQueue = 0; a.aiScratch = 0;
 }
 

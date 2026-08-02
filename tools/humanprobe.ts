@@ -214,10 +214,16 @@ console.log('\nGRIDIRON OVERDRIVE — scripted human\n'
 }
 
 // ── 4. a whole game on the sticks, throwing to the play's own primary read ─
+//
+// Run over several seeds, and asserted on the aggregate. One game is not a measurement of this:
+// the same script across six seeds gained between 107 and 353 yards, so a threshold set just under
+// a single observed value fails the next time the dice land differently. What is stable — and what
+// is actually worth asserting — is that a person holding these buttons catches passes, moves the
+// ball, and is never shut out.
 let readingYards = 0; let readingScore = 0;
-{
+function playAGame(seed: number, blind = false): { yards: number; score: number; catches: number; throws: number; picks: number; tds: number } {
   clearInput();
-  const m = makeMatch(0);
+  const m = makeMatch(0, seed);
   let throws = 0; let snaps = 0; let catches = 0; let picks = 0; let tds = 0;
   m.bus.on('throw', () => { throws++; });
   m.bus.on('snap', () => { snaps++; });
@@ -264,9 +270,11 @@ let readingYards = 0; let readingScore = 0;
       // to one who does not, which is the trade this whole pass was making. The naive version is
       // kept as its own check below rather than deleted, because how far a button-masher gets is
       // worth knowing on purpose.
-      const readIdx = w.offensePlay ? w.offensePlay.reads[0] : -1;
+      // `blind` is the control arm: the same player, the same seed, the only difference being that
+      // he hammers the middle button instead of throwing to the read the play names.
+      const readIdx = w.offensePlay && !blind ? w.offensePlay.reads[0] : -1;
       const readId = readIdx >= 0 ? (w.athletes[OFF_START + readIdx]?.id ?? -1) : -1;
-      const slot = w.passTargets.indexOf(readId);
+      const slot = blind ? 1 : w.passTargets.indexOf(readId);
       const btn = slot === 0 ? Action.TARGET_L : slot === 2 ? Action.TARGET_R : Action.TARGET_M;
       for (const b of [Action.TARGET_L, Action.TARGET_M, Action.TARGET_R]) release(b);
       if (holdingIt && (w.playTicks > readAt || hurried)) press(btn);
@@ -280,10 +288,24 @@ let readingYards = 0; let readingScore = 0;
     }
     m.tick(); t++;
   }
+  clearInput();
+  return {
+    yards: m.state.teams[0].stats.totalYds, score: m.state.teams[0].score,
+    catches, throws, picks, tds,
+  };
+}
+{
+  const seeds = [8801, 8802, 8803];
+  const runs = seeds.map((sd) => playAGame(sd));
+  const sum = (f: (r: typeof runs[0]) => number): number => runs.reduce((a, r) => a + f(r), 0);
+  const yards = sum((r) => r.yards), catches = sum((r) => r.catches);
+  const throws = sum((r) => r.throws), picks = sum((r) => r.picks), tds = sum((r) => r.tds);
+  const shutouts = runs.filter((r) => r.score === 0).length;
+  readingYards = yards; readingScore = sum((r) => r.score);
   check('a human-offence game reaches a final',
-    m.state.finished, `${t} ticks, ${snaps} snaps`);
+    runs.length === seeds.length, `${seeds.length} full games on the sticks`);
   check('a human offence throws repeatedly across a game',
-    throws >= 8, `${throws} throws in ${snaps} snaps`);
+    throws >= 8 * seeds.length, `${throws} throws over ${seeds.length} games`);
   check('those throws are actually caught',
     catches >= Math.max(3, throws * 0.25),
     `${catches} catches, ${picks} picked, from ${throws} throws`);
@@ -292,62 +314,43 @@ let readingYards = 0; let readingScore = 0;
   // quarterback's hand at playTicks=0, uncontested, and the scripted human moved the ball by
   // exploiting a bug. What is worth asserting is that a person holding these buttons can MOVE
   // THE BALL — and, since this script now reads the play, that it can score doing it.
-  const yards = m.state.teams[0].stats.totalYds;
-  readingYards = yards; readingScore = m.state.teams[0].score;
-  check('a human offence moves the ball',
-    catches >= 8 && yards > 200 && m.state.teams[0].score > 0,
-    `${Math.round(yards)} yards, ${catches} catches, ${m.state.teams[0].score}-${m.state.teams[1].score}`
-      + ` (${tds} human touchdowns)`);
+  check('a human offence moves the ball, every time out',
+    catches >= 8 * seeds.length && yards > 120 * seeds.length && shutouts === 0,
+    `${Math.round(yards / seeds.length)} yards and ${(readingScore / seeds.length).toFixed(1)} points a game,`
+      + ` ${catches} catches, ${tds} touchdowns, ${shutouts} shutouts`);
   clearInput();
 }
 
-// ── 4b. reading the play has to be worth more than hammering one button ────
+// ── 4b. does reading the play actually pay? ────────────────────────────────
 //
-// The design claim behind the coverage work: a deep zone that defends a ceiling and a cover man
-// who spends turbo make the game harder for a player who ignores the play and no harder for one
-// who uses it. That is a claim about the difference between two players, so it is measured as one
-// — the same harness, the same seed, the only change being which receiver the script throws to.
-// If this ever inverts, coverage has stopped rewarding the read and started taxing everybody.
+// It does not, and this block exists to keep saying so.
+//
+// The claim I made when the coverage work landed was that a deep zone defending a ceiling and a
+// cover man who spends turbo make the game harder for a player who ignores the play and no harder
+// for one who uses it. The evidence was one seed: 271 yards and three touchdowns throwing to each
+// play's named primary read, against 113 and nothing hammering the middle button. Convincing, and
+// noise. Over TEN seeds per arm, same script, same games, the only difference being which receiver
+// he throws to:
+//
+//     reading the primary read   205 yards, 10.2 points a game
+//     always the middle button   223 yards, 11.1 points a game
+//
+// The effect is not there. If anything it points the other way, which is not surprising once said
+// out loud: the middle receiver is the slot, the slot runs the shortest routes, and "throw it to
+// the slot" is a perfectly good heuristic in a game with this much grass in the middle of the
+// field. So this is recorded as a MEASUREMENT rather than an assertion — it prints the gap and
+// only fails if the two arms diverge wildly, which would mean something has changed enough to go
+// and look at.
 {
-  clearInput();
-  const m = makeMatch(0);
-  let catches = 0;
-  m.bus.on('catch', () => { catches++; });
-  let t = 0; let armed = false; let snaps = 0;
-  m.bus.on('snap', () => { snaps++; });
-  while (!m.state.finished && t < 60 * 60 * 25) {
-    const w = m.world;
-    if (m.state.phase === 'PLAY_CALL' && m.pendingOffense === null && m.state.possession === 0) {
-      m.submitOffense(m.offensePlays[(snaps * 5) % m.offensePlays.length]);
-    }
-    if (m.state.phase === 'PRE_SNAP' && m.state.possession === 0) {
-      if (!armed) { release(Action.ACTION); armed = true; } else press(Action.ACTION);
-    } else if (w.playPhase === 'LIVE' && m.state.possession === 0) {
-      release(Action.ACTION); armed = false;
-      const qb = w.athletes[w.qbId];
-      let pressure = 99;
-      for (const d of w.athletes) {
-        if (d.side === qb.side || d.move === 'DOWN') continue;
-        pressure = Math.min(pressure, Math.hypot(d.x - qb.x, d.z - qb.z));
-      }
-      const readAt = w.offensePlay?.timing?.primary ?? ticks(1.5);
-      const holdingIt = !w.passThrown && carrier(w)?.id === w.qbId;
-      const hurried = w.playTicks > ticks(0.7) && pressure < 3.2;
-      // The only difference from §4: always the middle button, whatever the play is.
-      if (holdingIt && (w.playTicks > readAt || hurried)) press(Action.TARGET_M);
-      else release(Action.TARGET_M);
-      const car = carrier(w);
-      const mine = car && car.controlledBySeat === 0 && car.id !== w.qbId;
-      held.moveZ = mine ? 1 : 0;
-      if (mine) press(Action.TURBO); else release(Action.TURBO);
-    } else { clearInput(); armed = false; }
-    m.tick(); t++;
-  }
-  const blindYards = m.state.teams[0].stats.totalYds;
-  check('reading the play beats hammering one button',
-    blindYards < readingYards,
-    `${Math.round(blindYards)} yards blind vs ${Math.round(readingYards)} reading`
-      + ` (${m.state.teams[0].score} pts vs ${readingScore})`);
+  const blind = [8801, 8802, 8803].map((sd) => playAGame(sd, true));
+  const blindYards = blind.reduce((a, r) => a + r.yards, 0);
+  const blindScore = blind.reduce((a, r) => a + r.score, 0);
+  const ratio = blindYards / Math.max(1, readingYards);
+  check('reading the play and hammering one button are within a factor of two',
+    ratio > 0.5 && ratio < 2,
+    `${Math.round(blindYards / 3)} yd / ${(blindScore / 3).toFixed(1)} pts a game blind`
+      + ` vs ${Math.round(readingYards / 3)} / ${(readingScore / 3).toFixed(1)} reading`
+      + '  — the read is NOT worth more; see the comment');
   clearInput();
 }
 

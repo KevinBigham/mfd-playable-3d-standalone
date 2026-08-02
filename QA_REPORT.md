@@ -1269,21 +1269,41 @@ the ball` failed: 113 yards, 15 catches, **0 points** across a full game, down f
 points. That looked like a serious regression in what the game feels like in a person's hands, and
 it was worth being alarmed by.
 
-It was the script. It pressed the *middle receiver button* on every snap of every concept, whatever
-the play was — which worked when a deep zone was tied to a landmark and cover men never sprinted,
-and stops working the moment coverage covers. Changing one thing about it — throw to the receiver
-**the play itself names as its primary read**, which is the minimum a person with the diagram in
-front of them does — in the same harness on the same seed:
+It looked like the script. It pressed the *middle receiver button* on every snap of every concept,
+whatever the play was — which worked when a deep zone was tied to a landmark and cover men never
+sprinted, and ought to stop working the moment coverage covers. Changing one thing about it — throw
+to the receiver **the play itself names as its primary read** — produced, on the same seed, 271
+yards and three touchdowns against 113 and nothing. I wrote that up as the trade this whole pass was
+making, and turned it into a passing assertion.
 
-| the same scripted human | yards | score | touchdowns |
-|---|---|---|---|
-| hammers the middle button | 113 | 0 | 0 |
-| throws to the play's primary read | **271** | **21** | **3** |
+**It was noise, and the assertion was false.** Run properly — ten seeds per arm, same script, same
+games, the only difference being which receiver he throws to:
 
-That is the trade this whole pass was making, stated as a number for the first time: the game got
-harder for a player who ignores it and no harder for one who uses it. It is now its own assertion —
-`reading the play beats hammering one button` — so if coverage ever stops rewarding the read and
-starts taxing everybody, a harness says so instead of a person noticing months later.
+| the same scripted human, 10 games each | yards / game | points / game |
+|---|---|---|
+| throws to the play's primary read | 205 | 10.2 |
+| hammers the middle button | **223** | **11.1** |
+
+Reading the play is not worth more. If anything it points the other way, which stops being
+surprising once said out loud: the middle receiver is the slot, the slot runs the shortest routes,
+and "throw it to the slot" is a perfectly good heuristic on a field with this much grass in the
+middle of it.
+
+Two things follow, and both are worse than the story I nearly shipped:
+
+1. **The human offence really is weaker after the coverage work** — around 200 yards and 10 points a
+   game against 214 and 14 before it — and I have **no evidence that skill recovers it**. The
+   defensive fixes are right on their own terms and the CPU offence still scores 27 a game, but
+   "harder only for players who ignore the game" was a claim I wanted to be true rather than one I
+   had measured.
+2. **A single seed is not a measurement of anything here.** The same script across six seeds gained
+   between 107 and 353 yards. The threshold I first wrote — "more than 200 yards" — was pinned to a
+   single observed value and failed on the next commit, which is how the over-fit surfaced at all.
+
+The harness now runs the scripted human over three seeds and asserts on the aggregate: eight-plus
+catches a game, real yardage, and **never shut out**. The read-versus-blind comparison is kept, but
+demoted from an assertion to a printed measurement with the real numbers in the comment above it,
+because the honest job of that block now is to keep repeating a result I got wrong the first time.
 
 ### 12.10 Saving the game you are actually in
 
@@ -1392,6 +1412,10 @@ than a tuning of this one.
   caller, now that it rates honestly, has stopped calling it — the same failure the quick game has.
 - **Sacks are 4.3 a game against a 4–9 band.** The hot read bought the quick game's life with sack
   pressure and the margin is now thin.
+- **The human offence is measurably weaker than before the coverage work** — about 200 yards and 10
+  points a game against 214 and 14 — and reading the play does not recover it (§12.9). The defensive
+  fixes are right on their own terms; what is missing is a way for a player's skill to matter more
+  than it currently does.
 - **Feet still slip about a yard a second even running straight** (§12.11), which needs world-space
   foot placement rather than a body-frame solve.
 - **Runs still lose yardage on roughly a quarter of carries** even with all seven blockers working,

@@ -100,6 +100,7 @@ export function setupPlay(w: World, setup: PlaySetup): void {
     a.role = plan.role;
     a.route = plan.route;
     a.blockDir = plan.blockDir ?? 0;
+    a.blockClock = 0;
     a.routeIdx = 0;
     a.routeHold = 0;
     a.targetButton = plan.target;
@@ -127,6 +128,7 @@ export function setupPlay(w: World, setup: PlaySetup): void {
     d.role = 'DEF';
     d.route = null;
     d.blockDir = 0;
+    d.blockClock = 0;
     d.assign = plan.assign;
     d.targetButton = null;
     d.x = setup.spotX + plan.align.x * mir * dir;
@@ -439,6 +441,18 @@ export function routeSteer(w: World, a: Athlete, out: { x: number; z: number; tu
   // to the landmark meant lead blockers arrived at an empty square of turf and held it while the
   // man they were supposed to wall off ran past them to the tackle.
   if (node.action === 'BLOCK' && !a.hasBall) {
+    // A BLOCK node's `hold` is a SHIFT, not a pause. A screen's pulling lineman is written as
+    // "block here for a third of a second, then get out in front" — and holding the node while a
+    // mark was in reach made that first third of a second last the whole play, so the puller never
+    // pulled and there was nobody in front of the back. Screens measured 2.60 yards a play before
+    // this block existed and 0.54 after, which is what sent me looking.
+    //
+    // A BLOCK node with no hold is open-ended: block until the play ends. That is the lead blocker
+    // and the offensive line, and it is the common case.
+    if (node.hold !== undefined && node.hold > 0) {
+      a.blockClock = (a.blockClock || 0) + 1;
+      if (a.blockClock >= node.hold) { a.routeIdx++; a.routeHold = 0; a.blockClock = 0; return; }
+    }
     const mark = blockMark(w, a, tx, tz);
     if (mark) {
       // Get to the far side of him — between the defender and the ball, not merely next to him.

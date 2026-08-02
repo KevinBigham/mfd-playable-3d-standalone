@@ -271,6 +271,8 @@ export interface Athlete {
    * every run play's blocking scheme was decoration and a run had no designed hole.
    */
   blockDir: -1 | 0 | 1;
+  /** Ticks spent on the current BLOCK route node, so a timed block can expire and release. */
+  blockClock: number;
   targetButton: 0 | 1 | 2 | null;
   homeX: number; homeZ: number;   // snap alignment in world space
 
