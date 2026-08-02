@@ -466,6 +466,23 @@ export type GameEventType = GameEvent['type'];
 export interface PlayerIntent {
   moveX: number;
   moveZ: number;
+  /**
+   * Where the ball is being placed, separately from where the passer is running.
+   *
+   * These used to be the same two numbers: `throwTo` read `moveX/moveZ` at the moment of
+   * release, so the stick that moved the quarterback also placed the throw. That coupling is
+   * the root of three separate problems — one thumb cannot steer and aim at once, so touch is
+   * impossible; no script can hold the passer still and vary the placement, so placement
+   * shipped unverified; and placement noise is indistinguishable from steering, so reading the
+   * play does not pay.
+   *
+   * A device decides what aim means. Keyboard and gamepad copy movement into it, which is
+   * exactly what the old code did and keeps fixed-seed replays identical. The AI leaves it at
+   * zero, which is also what it did — every AI throw returns before it sets movement. Touch
+   * will supply it independently. No pointer coordinate ever reaches the simulation.
+   */
+  aimX: number;
+  aimZ: number;
   held: number;
   pressed: number;
   released: number;

@@ -61,7 +61,7 @@ export interface MatchOptions {
   bus?: EventBus;
 }
 
-const BLANK: PlayerIntent = { moveX: 0, moveZ: 0, held: 0, pressed: 0, released: 0 };
+const BLANK: PlayerIntent = { moveX: 0, moveZ: 0, aimX: 0, aimZ: 0, held: 0, pressed: 0, released: 0 };
 
 export class Match {
   readonly config: MatchConfig;
@@ -167,11 +167,12 @@ export class Match {
           const src = self.seatIntent(a.controlledBySeat);
           if (src) {
             out.moveX = src.moveX; out.moveZ = src.moveZ;
+            out.aimX = src.aimX; out.aimZ = src.aimZ;
             out.held = self.actionSpent.has(a.controlledBySeat)
               ? src.held & ~Action.ACTION : src.held;
             return;
           }
-          out.moveX = 0; out.moveZ = 0; out.held = 0;
+          out.moveX = 0; out.moveZ = 0; out.aimX = 0; out.aimZ = 0; out.held = 0;
           return;
         }
         self.ai.produce(w, id, out);

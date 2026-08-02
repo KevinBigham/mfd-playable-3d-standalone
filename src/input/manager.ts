@@ -44,7 +44,7 @@ const EMPTY_PADS: ReadonlyArray<Gamepad | null> = [];
 /** True when this page is not allowed to see controllers at all. */
 export function gamepadsBlocked(): boolean { return gamepadsDenied; }
 
-function blank(): PlayerIntent { return { moveX: 0, moveZ: 0, held: 0, pressed: 0, released: 0 }; }
+function blank(): PlayerIntent { return { moveX: 0, moveZ: 0, aimX: 0, aimZ: 0, held: 0, pressed: 0, released: 0 }; }
 
 /**
  * Polls keyboard + gamepads once per frame and produces one PlayerIntent per seat.
@@ -201,6 +201,11 @@ export class InputManager {
       const mag = Math.hypot(mx, mz);
       if (mag > 1) { mx /= mag; mz /= mag; }
       it.moveX = mx; it.moveZ = mz;
+      // A keyboard and a gamepad have one stick between them and the throw, so aim is movement —
+      // which is precisely what `throwTo` used to read directly. Copying it here instead of
+      // reading movement there moves the coupling into the device, where a touch source can
+      // simply not have it, and leaves desktop replays bit-for-bit identical.
+      it.aimX = mx; it.aimZ = mz;
       it.held = held;
       it.pressed = held & ~prev;
       it.released = prev & ~held;

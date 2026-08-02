@@ -19,8 +19,8 @@ import type { OffensePlay, PlayerIntent, TeamSide } from '../src/core/types.ts';
 
 function offensePlaysAll(): OffensePlay[] { return OFFENSE_PLAYS as OffensePlay[]; }
 
-const held = { mask: 0, moveX: 0, moveZ: 0 };
-const intent: PlayerIntent = { moveX: 0, moveZ: 0, held: 0, pressed: 0, released: 0 };
+const held = { mask: 0, moveX: 0, moveZ: 0, aimX: 0, aimZ: 0 };
+const intent: PlayerIntent = { moveX: 0, moveZ: 0, aimX: 0, aimZ: 0, held: 0, pressed: 0, released: 0 };
 
 function makeMatch(humanSide: TeamSide, seed = 8801): Match {
   const cfg = defaultMatchConfig({
@@ -37,7 +37,12 @@ function makeMatch(humanSide: TeamSide, seed = 8801): Match {
     away: getTeam(cfg.away!),
     seatIntent: (seat) => {
       if (seat !== 0) return null;
-      intent.moveX = held.moveX; intent.moveZ = held.moveZ; intent.held = held.mask;
+      intent.moveX = held.moveX; intent.moveZ = held.moveZ;
+      // Aim is carried separately from movement, so a script can now hold the passer still and
+      // vary only the placement. That was impossible while `throwTo` read the movement stick,
+      // which is why placement shipped unmeasured (QA_REPORT.md §12.12).
+      intent.aimX = held.aimX; intent.aimZ = held.aimZ;
+      intent.held = held.mask;
       return intent;
     },
   });
@@ -45,7 +50,7 @@ function makeMatch(humanSide: TeamSide, seed = 8801): Match {
 
 function press(mask: number): void { held.mask |= mask; }
 function release(mask: number): void { held.mask &= ~mask; }
-function clearInput(): void { held.mask = 0; held.moveX = 0; held.moveZ = 0; }
+function clearInput(): void { held.mask = 0; held.moveX = 0; held.moveZ = 0; held.aimX = 0; held.aimZ = 0; }
 
 function runTo(m: Match, phase: string, cap = 40000): boolean {
   let t = 0;

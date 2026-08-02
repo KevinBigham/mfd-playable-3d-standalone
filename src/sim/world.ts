@@ -126,7 +126,7 @@ function blankAthlete(id: number): Athlete {
 }
 
 function blankIntent(): PlayerIntent {
-  return { moveX: 0, moveZ: 0, held: 0, pressed: 0, released: 0 };
+  return { moveX: 0, moveZ: 0, aimX: 0, aimZ: 0, held: 0, pressed: 0, released: 0 };
 }
 
 export function createWorld(

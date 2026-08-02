@@ -24,7 +24,7 @@ export class AiController {
 
   produce(w: World, id: AthleteId, out: PlayerIntent): void {
     const a = w.athletes[id];
-    out.moveX = 0; out.moveZ = 0; out.held = 0;
+    out.moveX = 0; out.moveZ = 0; out.aimX = 0; out.aimZ = 0; out.held = 0;
     if (w.playPhase === 'SETUP' || w.playPhase === 'PRESNAP') { presnap(w, a, out); return; }
     if (w.playPhase === 'POST') { postPlay(w, a, out); return; }
     if (w.playPhase !== 'LIVE') return;

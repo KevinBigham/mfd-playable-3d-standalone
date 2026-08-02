@@ -314,9 +314,13 @@ export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
       if (tgt >= 0) {
         const kind: PassKind = turbo ? 'BULLET' : has(it.held, Action.LOB) ? 'TOUCH' : 'NORMAL';
         if (kind === 'BULLET') spendTurbo(a, TURBO_COST.BULLET);
-        // The stick at the moment of release places the ball. Icon passing only: in directional
-        // mode the stick is already spoken for — it is how you picked the receiver.
-        throwTo(w, a, w.athletes[tgt], kind, 0, it.moveX, it.moveZ);
+        // The aim channel at the moment of release places the ball. It used to be `moveX/moveZ`
+        // read straight off the movement stick, which meant the passer could not be steered and
+        // the throw placed as two decisions — and meant no harness could vary one while holding
+        // the other, so placement was never measured. A device now decides what aim is: a stick
+        // copies its own movement into it and nothing changes, a thumb supplies it separately.
+        // Icon passing only: in directional mode the stick is how you picked the receiver.
+        throwTo(w, a, w.athletes[tgt], kind, 0, it.aimX, it.aimZ);
         return;
       }
       // Directional passing: stick picks the receiver whose bearing best matches.

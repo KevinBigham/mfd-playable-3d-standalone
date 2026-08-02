@@ -53,8 +53,8 @@ function na(id: string, gate: string, area: string, reason: string): void {
 
 // ── shared rig ─────────────────────────────────────────────────────────────
 
-const held = { mask: 0, moveX: 0, moveZ: 0 };
-const intent: PlayerIntent = { moveX: 0, moveZ: 0, held: 0, pressed: 0, released: 0 };
+const held = { mask: 0, moveX: 0, moveZ: 0, aimX: 0, aimZ: 0 };
+const intent: PlayerIntent = { moveX: 0, moveZ: 0, aimX: 0, aimZ: 0, held: 0, pressed: 0, released: 0 };
 
 function makeMatch(opts: { seed?: number; human?: TeamSide | null } = {}): Match {
   const cfg = defaultMatchConfig({
@@ -69,12 +69,14 @@ function makeMatch(opts: { seed?: number; human?: TeamSide | null } = {}): Match
     config: cfg, home: getTeam(cfg.home!), away: getTeam(cfg.away!),
     seatIntent: (seat) => {
       if (seat !== 0) return null;
-      intent.moveX = held.moveX; intent.moveZ = held.moveZ; intent.held = held.mask;
+      intent.moveX = held.moveX; intent.moveZ = held.moveZ;
+      intent.aimX = held.aimX; intent.aimZ = held.aimZ;
+      intent.held = held.mask;
       return intent;
     },
   });
 }
-function clearInput(): void { held.mask = 0; held.moveX = 0; held.moveZ = 0; }
+function clearInput(): void { held.mask = 0; held.moveX = 0; held.moveZ = 0; held.aimX = 0; held.aimZ = 0; }
 
 /** A deterministic digest of everything the simulation authoritatively owns. */
 function hashWorld(m: Match): number {
