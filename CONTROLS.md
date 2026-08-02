@@ -28,7 +28,20 @@ JUMP and you can play.
 | TURBO + A | **bullet pass** (QB) · **stiff arm** (carrier past the line) · **shove** (defence) |
 | TURBO + B | **high hurdle** (carrier) · **power tackle** (defence) |
 | LB + A | **touch pass** — high, soft, easier to catch, easier to jump |
+| STICK + a receiver button | **place the ball** — see below |
 | UP + TURBO + JUMP, held before a kickoff | **onside kick** |
+
+**Placing the ball.** Where the stick is pointing at the moment you throw moves the ball off the
+receiver: push toward where he is running to lead him, pull back to throw it behind him, push away
+from the defender to keep it on the far shoulder. How much it moves scales with how far the throw
+is, so it is a nudge on a quick out and a real decision on a deep post — and it is never enough to
+put the ball somewhere he cannot get to. Icon passing only; in DIRECTIONAL passing mode the stick
+is already how you pick the receiver.
+
+Note that the stick is also how you move the quarterback, so placing a ball means stepping that way
+as you release it. That is the trade, and it is deliberate — a free placement with no cost to the
+pocket would be strictly better than not using it, and a move that is strictly better is not a
+decision.
 
 ---
 
@@ -44,6 +57,7 @@ JUMP and you can play.
 | **L** | spin / power tackle |
 | **U I O** | throw to the left / middle / right receiver |
 | **N** | touch (lob) pass modifier |
+| *hold a direction as you throw* | **place the ball** — lead him, throw it back-shoulder, or put it away from the defender |
 | **Q** | audible |
 | **E** | motion a receiver |
 | **Tab** | next play page |
