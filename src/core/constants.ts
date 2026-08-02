@@ -100,8 +100,23 @@ export const FG_MAX_YARDS = 50;
 export const FG_METER_PERIOD = s(1.05);
 export const PUNT_POWER_PERIOD = s(1.0);
 export const KICKOFF_FROM_Z = 30;         // own 30
-export const KICKOFF_TARGET_MIN = 3;
-export const KICKOFF_TARGET_MAX = 16;
+/**
+ * Where a kickoff comes down, as a yard line for the receiving team.
+ *
+ * The floor used to be the 3. Measured over sixty games, that put the median catch on the four
+ * and a tenth of them inside the goal line, which is not a return, it is an ambush — the coverage
+ * arrives before the returner has taken a stride, and the game was paying out two points for it
+ * two and a half times a match. A kick has to leave the man a runway or it should simply be a
+ * touchback.
+ */
+export const KICKOFF_TARGET_MIN = 9;
+export const KICKOFF_TARGET_MAX = 22;
+/**
+ * How far from his own goal line a player may take possession of somebody else's ball and still
+ * be granted a touchback rather than a safety when he is driven back over it. Football's momentum
+ * exception, widened from five because the ball was routinely being fielded just outside it.
+ */
+export const MOMENTUM_YARDS = 10;
 export const ONSIDE_YARDS = 11;
 export const TOUCHBACK_Z = 20;
 export const PAT_MAKE_BASE = 0.965;

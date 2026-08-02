@@ -356,8 +356,21 @@ export const SCENARIOS: Scenario[] = [
     runUntil(m, (x) => x.phase === 'LIVE', s(30));
     killBall(m.world);
     const before = m.state.teams[0].score;
-    for (let i = 0; i < s(6); i++) m.tick();
-    return { pass: m.state.teams[0].score === before, detail: `before=${before} after=${m.state.teams[0].score}` };
+    // Only the dead-ball window counts. This used to tick a flat six seconds and compare the
+    // score at the end, which is not what its name says: six seconds from the 95 contains two
+    // further snaps, so a perfectly legal touchdown on the NEXT play was being reported as a
+    // dead ball scoring. The window now ends when the whistle does.
+    let ticks = 0;
+    let snaps = 0;
+    const off = m.bus.on('snap', () => { snaps++; });
+    while (m.state.phase === 'LIVE' && ticks++ < s(6)) m.tick();
+    for (let i = 0; i < 12; i++) m.tick();          // let the spot and the whistle resolve
+    off();
+    const after = m.state.teams[0].score;
+    return {
+      pass: after === before && snaps === 0,
+      detail: `before=${before} after=${after} over ${ticks} ticks, ${snaps} snaps`,
+    };
   }),
 
   scenario('a controller vanishing mid-play does not stall the match', (m) => {

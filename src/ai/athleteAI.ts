@@ -29,11 +29,43 @@ export class AiController {
     if (w.playPhase === 'POST') { postPlay(w, a, out); return; }
     if (w.playPhase !== 'LIVE') return;
 
+    // Kick duties are decided BEFORE the offence/defence split, because on a kick play the two
+    // words mean nothing useful: the kicking team has possession and is therefore "offence", so
+    // eleven — seven — cover men were being handed pass-protection and route-running logic while
+    // a kickoff sailed over their heads. Only the man actually holding the ball is exempt; he is
+    // either the punter or the returner, and both want the carrier's brain, not a cover man's.
+    const kick = w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT';
+    if (kick && !a.hasBall) {
+      const st = w.ball.state;
+      // The punting team protects until the ball is gone; a kickoff has nothing to protect.
+      const away = st.kind === 'kicked' || st.kind === 'loose' || st.kind === 'dead';
+      // Gunners. The two widest men on a punt team do not block anybody — they release on the
+      // snap and race the ball. Without them the whole coverage starts a second and a half late,
+      // arrives after the catch, and every punt return is a footrace the returner wins.
+      const gunner = w.special === 'PUNT' && a.side === w.possession && isGunner(w, a);
+      if (w.special !== 'PUNT' || away || gunner) { kickTeamAI(w, a, out, this.ctx); return; }
+    }
+
     const onOffense = a.side === w.possession;
     if (a.hasBall) { carrierAI(w, a, out, this.ctx); return; }
     if (onOffense) { offenseAI(w, a, out, this.ctx); return; }
     defenseAI(w, a, out, this.ctx);
   }
+}
+
+/**
+ * The two widest men on the punting team. Decided from alignment rather than a roster flag so it
+ * survives any formation, and it is a pure function of the world, which the replay harness needs.
+ */
+function isGunner(w: World, a: Athlete): boolean {
+  let wider = 0;
+  for (let i = 0; i < w.athletes.length; i++) {
+    const o = w.athletes[i];
+    if (o.side !== a.side || o.id === a.id) continue;
+    const d = Math.abs(o.homeX) - Math.abs(a.homeX);
+    if (d > 0.001 || (Math.abs(d) <= 0.001 && o.id < a.id)) wider++;
+  }
+  return wider < 2;
 }
 
 /** Simple steering helper: head toward a world point at the given urgency. */
@@ -122,7 +154,7 @@ function offenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
       out.moveX = (b.x - a.x) / Math.max(0.001, d);
       out.moveZ = (b.z - a.z) / Math.max(0.001, d);
       out.held |= Action.TURBO;
-      if (d < 2.2) out.held |= Action.DIVE;
+      if (shouldDiveOnLoose(w, a, d)) out.held |= Action.DIVE;
     }
   } else if (w.passThrown === false && w.playTicks > s(1.4)) {
     // Nobody blocking for a scrambling QB: come back to the ball.
@@ -386,7 +418,7 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
     const d = dist(a.x, a.z, b.x, b.z);
     if (d < 22) {
       pursue(w, a, b.x, b.z, out, ctx, 1);
-      if (d < 2.2) out.held |= Action.DIVE;
+      if (shouldDiveOnLoose(w, a, d)) out.held |= Action.DIVE;
       return;
     }
   }
@@ -524,6 +556,65 @@ function holdZone(w: World, a: Athlete, cx: number, cz: number, out: PlayerInten
   if (d > 1.4) pursue(w, a, cx, cz, out, ctx, clamp01(d / 6));
 }
 
+/**
+ * Blocking a kick return.
+ *
+ * Every blocker used to aim at the same point three yards beside the returner and six ahead of
+ * him, which put all six of them in one scrum around the man they were supposed to be freeing.
+ * Instead each takes a COVER MAN — the cheapest one to reach that is still a threat — and gets
+ * between him and the returner.
+ *
+ * They spread without talking to each other: the cost of a target includes how far it is from the
+ * blocker's own alignment, and the return formation lines them up across the field, so the man on
+ * the left naturally takes the left-hand coverage. No assignment table, no shared state, and it
+ * stays deterministic, which the replay harness requires.
+ */
+function returnBlockAI(w: World, a: Athlete, car: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  const dir = dirOf(a.side);
+  let target: Athlete | null = null;
+  let bestCost = Infinity;
+  for (let i = 0; i < w.athletes.length; i++) {
+    const d = w.athletes[i];
+    if (d.side === a.side || d.move === 'DOWN') continue;
+    const ahead = (d.z - car.z) * dir;
+    if (ahead < -4 || ahead > 34) continue;        // already beaten, or not yet relevant
+    const cost = dist(a.x, a.z, d.x, d.z)
+      + Math.abs(d.x - car.x) * 0.45               // prefer men in the returner's path
+      + Math.abs(d.x - a.homeX) * 0.60;            // and men on my own side of the field
+    if (cost < bestCost) { bestCost = cost; target = d; }
+  }
+  if (target === null) {
+    // Nobody left to block: get out in front and lead him up the field.
+    pursue(w, a, car.x, car.z + dir * 12, out, ctx, 1);
+    return;
+  }
+  // Take a position a quarter of the way from the cover man toward the returner: goal side of
+  // him, which is the side that actually obstructs.
+  pursue(w, a, target.x + (car.x - target.x) * 0.25, target.z + (car.z - target.z) * 0.25,
+    out, ctx, 1);
+  if (a.turbo > 12) out.held |= Action.TURBO;
+}
+
+/**
+ * Whether to leave your feet for a loose ball.
+ *
+ * A dive buys certainty and pays for it with the entire rest of the play: it is a committed move
+ * that ends with the diver on the ground, wherever he lands. That is the right trade when someone
+ * else can reach the ball too, and a terrible one when nobody can — the kick returner used to
+ * dive on every kickoff he fielded and tackle himself with the nearest cover man twenty-five
+ * yards away and running the other direction. Uncontested, you pick it up and go.
+ */
+function shouldDiveOnLoose(w: World, a: Athlete, d: number): boolean {
+  if (d > 2.2 || w.ball.y > 1.1) return false;
+  const b = w.ball;
+  for (let i = 0; i < w.athletes.length; i++) {
+    const o = w.athletes[i];
+    if (o.id === a.id || o.side === a.side || o.move === 'DOWN') continue;
+    if (dist(o.x, o.z, b.x, b.z) < d + 3.0) return true;
+  }
+  return false;
+}
+
 function kickTeamAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
   const b = w.ball;
   const st = b.state;
@@ -532,11 +623,7 @@ function kickTeamAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): vo
 
   if (car) {
     if (car.side === a.side) {
-      // Block for the returner.
-      const lead = 6;
-      const tx = car.x + (a.homeX > car.x ? 3 : -3);
-      const tz = car.z + dirOf(car.side) * lead;
-      pursue(w, a, tx, tz, out, ctx, 1);
+      returnBlockAI(w, a, car, out, ctx);
     } else {
       pursueCarrier(w, a, car, out, ctx);
     }
@@ -548,11 +635,26 @@ function kickTeamAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): vo
     // The two deepest returners chase; everyone else forms up.
     if (receiving !== null && d < 30) {
       pursue(w, a, b.x + b.vx * 0.3, b.z + b.vz * 0.3, out, ctx, 1);
-      if (d < 2.4 && b.y < 2.2) out.held |= Action.DIVE;
+      if (st.kind === 'loose' && shouldDiveOnLoose(w, a, d)) out.held |= Action.DIVE;
       return;
     }
     if (receiving === null) {
-      pursue(w, a, b.x, b.z, out, ctx, 1);
+      // Coverage, running the ball down. They sprint the WHOLE way: `pursue` only spends turbo
+      // inside twenty-two yards, which is a sensible rule for a defender shadowing a play and a
+      // disastrous one on a kickoff, where the ball lands sixty yards away. They were jogging the
+      // first half of every kick and arriving thirty yards late.
+      // Lane discipline. Six men converging on one point is exactly what a return wall is built
+      // to beat — block the first two and the other four are already behind the play. Each cover
+      // man instead runs a share of the field's width, blended toward the ball as he closes, and
+      // only abandons his lane inside fourteen yards. Spread coverage cannot be walled off; it
+      // has to be beaten one man at a time.
+      const lane = clamp(a.homeX * 1.25, -FIELD_HALF_WIDTH + 3, FIELD_HALF_WIDTH - 3);
+      const close = clamp01((30 - d) / 16);
+      pursue(w, a, lane + (b.x - lane) * close, b.z, out, ctx, 1);
+      // Sprint down, but keep something back. Draining to empty on the way meant coverage
+      // arrived two yards from the returner and then watched him run away from them: the ball
+      // carrier gets a small speed bonus by design, and a gassed cover man cannot answer it.
+      if (a.turbo > 28) out.held |= Action.TURBO;
       return;
     }
     pursue(w, a, a.homeX, a.homeZ, out, ctx, 0.6);

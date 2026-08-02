@@ -6,6 +6,11 @@
 
 ## CURRENT MILESTONE
 
+**M13 — special teams, and the safety that was never a safety.** The 2.96 safeties a game that had
+sat in the limitations list for two milestones were not a balance problem at all: 94% of them were
+kick returners, and four stacked faults in the kick-return code were producing them. Now 0.12 a
+game, with kickoff and punt returns that gain yards instead of losing them.
+
 **M12 — the first bug round from real play.** A player picked the game up and found five faults in
 minutes that two hundred CPU-vs-CPU games never touched: control assignment at the snap and on
 kickoffs, a leftover button snapping the ball, unrestricted pre-snap movement (which also silently
@@ -44,6 +49,8 @@ how the game *moves*, measured by two new harnesses rather than asserted.
 | Harness: motion-quality metrics (`smoothness`), frame-pacing metrics (`pacing`) | done |
 | Harness: scripted human on the sticks (`human`), planted-foot slip (`footslip`) | done |
 | Harness: per-state pose contact sheet (`poses`), stride contact sheet (`gait`) | done |
+| Harness: field-position economy and safety forensics (`fieldpos`) | done |
+| Special teams: kick-duty AI dispatch, gunners, coverage lanes, hang/coverage pairing | done |
 | Animation: solved run cycle with contact-point foot planting, pose families, ground pass | done |
 | Single-file artifact build + sandboxed-iframe verification | done |
 | Per-vertex surface shading, venue environment map, rim light | done |
@@ -142,6 +149,20 @@ Full detail in QA_REPORT.md. Headline numbers:
     construction.
 20. **Do not cross-fade between two states that are the same pose at different amplitudes.** RUN and
     SPRINT flip about twice a second per athlete; fading froze the legs for half a stride each time.
+21. **On a kick play, "offence" and "defence" mean nothing.** The kicking team has possession and
+    is therefore the offence, so kick duties must be dispatched BEFORE that split — otherwise the
+    cover team runs pass protection while the ball sails over its head.
+22. **A dive is a committed move that ends with the diver on the ground.** Only dive on a loose
+    ball somebody else can also reach. Diving on an uncontested one spends the whole rest of the
+    play to gain nothing — it is how the kick returner spent two years tackling himself.
+23. **Hang time and whether coverage sprints are ONE dial.** Set either alone and the kickoff is
+    broken: jogging coverage under a short kick means every return scores, sprinting coverage
+    under a long one means none ever does.
+24. **An aggregate cannot diagnose anything.** "2.96 safeties a game" was blamed on field
+    compression for two milestones. One distribution — who conceded them, on what play, from
+    where — answered it in a single run.
+25. **A test whose name does not match its assertion is worse than no test.** `dead ball never
+    scores` ticked six seconds and compared the score; six seconds contains two more snaps.
 
 ## ACTIVE BLOCKERS
 
@@ -164,8 +185,8 @@ None.
   is solved in the body's own frame, and a cutting athlete travels somewhere other than where he
   faces. Measured in `npm run footslip` (QA_REPORT.md §9); fixing it needs world-space foot
   placement.
-- Safeties remain far too common at ~3 a game against a target of ≤ 1. Root cause is field
-  compression, not a bug; it is a rules change nobody has made yet.
+- First downs are still rare at 3.7 per team per game. The 30-yard chain is a scoring gate more
+  than a rhythm; retuning it is a design decision nobody has made yet.
 
 ## COMMANDS
 

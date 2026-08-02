@@ -107,7 +107,7 @@ produce different games. RNG reseeds deterministically, stays in `[0,1)`, is unb
 | interceptions | **2.3** | 1.5–4 | pass |
 | sacks | **6.9** | 4–9 | pass |
 | forced fumbles | 3.2 | — | — |
-| **safeties** | **2.63** | ≤ 1 | **FAIL — see §8** |
+| **safeties** | **0.12** | ≤ 1 | **pass — was 2.96; see §10** |
 | Overdrive activations | 1.3 | ≥1 | pass |
 | field goals / punts | 1.3 / 3.8 | — | — |
 | ties | 0 | 0 | pass |
@@ -795,7 +795,97 @@ described in §11 is unchanged and no attempt was made at it in this pass.
 
 ---
 
-## 10. WHAT WAS RUN TO PRODUCE THIS
+## 10. THE SAFETY THAT WAS NEVER A SAFETY
+
+Two hundred games said **2.96 safeties a game**. Real football sees about 0.05. That number sat in
+the limitations list for two milestones, blamed on field compression — a 30-yard chain on a
+100-yard field putting teams inside their own ten too often. That explanation was wrong, and no
+amount of retuning field position would ever have fixed it, because none of it was a balance
+problem.
+
+`npm run fieldpos` prints the distribution underneath the aggregate: where every drive starts, how
+the ball got there, and for each safety the geometry at the instant it fired. The first run said:
+
+```
+  conceded by      DEFENCE-turned-carrier 94%
+  play was         KICKOFF 77%
+  carrier got it at  median own 6.3      ball died at  median own -2.4
+```
+
+Ninety-four per cent of the safeties in this game were **kick returners**, fielding the ball around
+their own six and being downed three yards deep in their own end zone. Not a defence pinning an
+offence. Not field compression. One broken play, happening twice a match.
+
+### Four faults stacked on top of each other
+
+**1. The returner had no return behaviour at all.** `AiController.produce` dispatches on
+possession — carrier, then offence, then defence — and a kick play makes those words meaningless,
+because the KICKING team has possession and is therefore "offence". The coverage team was being
+handed pass-protection and route-running logic while a kickoff sailed over their heads, and the
+returner, who does hold the ball, went to the generic carrier brain. The one function written for
+kick duties could only ever be reached by the return team's blockers.
+
+**2. The returner tackled himself.** A trace of one return, tick by tick:
+
+```
+  t= 240 car z=83.7 v=19.8 move=DIVE_TACKLE anim=DIVE nearestDef=24.9yd  blockersEngaged=0/6
+  t= 276 car z=91.8 v= 4.5 move=DOWN        anim=TACKLED nearestDef=35.7yd
+  ENDED: deadReason=TACKLE
+```
+
+He dives to field the kick. A dive is a *committed* move that ends with the diver on the ground —
+so the play ended, every time, with the nearest cover man twenty-five yards away and running the
+other direction. The AI dove for any loose ball within 2.2 yards, contested or not. Diving on a
+ball somebody else can reach is correct. Diving on one nobody else can reach spends the entire
+rest of the play to gain nothing.
+
+**3. Coverage jogged.** `pursue` only spends turbo inside twenty-two yards — right for a defender
+shadowing a play, disastrous on a kickoff where the ball lands sixty yards away. The cover team
+walked the first half of every kick.
+
+**4. Hang time and coverage speed are one dial, not two.** Fixing 2 and 3 without touching hang
+sent it the other way: *every* return became a touchdown, 76 yards mean, and the combined score
+went from 48.9 to 125.1. A 2.75-second kick with sprinting coverage is as broken as a 4.15-second
+one with jogging coverage. The pair has to be set together.
+
+The momentum rule was widened as well, from five yards to ten — a player who takes possession of
+somebody else's ball inside his own ten and is driven back over the line gets a touchback. Kicks
+were being fielded around the six, so nearly every return fell a yard outside the old exception
+and paid two points for it.
+
+### What it cost and what it bought
+
+| | before | after |
+|---|---|---|
+| safeties per game (200-game batch) | **2.96** | **0.12** |
+| safeties conceded by a kick returner | 94% | 0% |
+| kickoff return, net | −0.4 mean, 63% went backwards | **+6.2 mean, 15% went backwards** |
+| punt return, net | −4.6 mean, 86% went backwards | **+3.0 mean, 60% went backwards** |
+| first downs per team | 3.3 | 3.7 |
+| combined score | 48.9 | 48.5 |
+| average margin | 14.9 | 11.9 |
+| violations / watchdogs over 200 games | 0 / 0 | 0 / 0 |
+
+Two design additions came out of this rather than out of tuning. **Gunners**: the two widest men on
+a punt team no longer block anybody, they release at the snap and race the ball — without them the
+coverage starts a second and a half late and every punt return is a footrace the returner wins.
+And **lane discipline**: cover men run a share of the field's width and only abandon it inside
+fourteen yards, because six men converging on one point is precisely what a return wall is built
+to beat.
+
+### One test was wrong, and it is worth saying so
+
+`dead ball never scores` failed during this pass. It did not find a bug. It killed the ball, ticked
+a flat six seconds and compared the score — but six seconds from the 95 contains **two more
+snaps**, so a perfectly legal touchdown on a later play was being read as a dead ball scoring. It
+had been passing by luck; the AI changes perturbed the RNG stream enough to expose it. The
+assertion now ends when the whistle does, and additionally asserts that no snap happened inside
+the window. A test whose name does not match its assertion is worse than no test, because it
+spends trust it has not earned.
+
+---
+
+## 11. WHAT WAS RUN TO PRODUCE THIS
 
 ```bash
 npm install
@@ -811,6 +901,7 @@ npm run smoke            # 19 / 19
 npm run perf
 npm run smoothness       # motion quality, §6
 npm run footslip         # do planted feet grip the turf, §9
+npm run fieldpos         # drive starts, kick returns and every safety, §10
 npm run pacing           # frame pacing, §6
 npm run poses            # one frame per animation state, §9
 npm run gait             # one stride, frame by frame, §9
@@ -822,7 +913,7 @@ npm run artifact:check   # boots and plays that file in a sandboxed iframe, §8
 
 ---
 
-## 11. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
+## 12. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
 
 Stated as failures rather than omissions:
 
@@ -846,9 +937,11 @@ Stated as failures rather than omissions:
 5. **Audio is verified functionally, not aurally.** The Node suite proves every cue can be triggered
    without throwing and that the headless no-op path is safe; nobody has listened to it. Levels,
    mix balance and whether the touchdown sting actually lands are unjudged.
-6. **Safeties are still too common at 2.96 a game** (2.73 before the player-reported bug round;
-   the movement between passes is run-to-run noise, not a change). Real football sees about 0.05. This is the one
-   balance target the shipped build misses, and it is a genuine defect, not a rounding error. The
+6. ~~**Safeties are still too common**~~ — **fixed in §10; now 0.12 a game.** The explanation that
+   stood in this slot for two milestones was wrong. It blamed field compression; the real cause was
+   four stacked faults in the kick-return code, and 94% of the safeties were kick returners rather
+   than pinned offences. Left visible rather than deleted, because a confident wrong diagnosis
+   surviving two rounds of review is the more useful thing to remember. What it used to say: the
    illegal cases are fixed — possession gained in your own end zone is a touchback now, and nobody
    lines up behind their own goal line — so what remains are *legal* safeties: an offence pinned
    inside its own five by a turnover or a punt, taking a sack. The root cause is that a 30-yard

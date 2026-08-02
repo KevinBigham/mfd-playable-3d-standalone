@@ -4,7 +4,7 @@ import type {
 import { Action, has } from '../input/actions.ts';
 import {
   FIELD_HALF_WIDTH, MOVE_TICKS, TURBO_COST, LEAD_TIME_SCALE, PASS_SPEED,
-  OVERDRIVE_ACCURACY, s, FIXED_DT,
+  OVERDRIVE_ACCURACY, s, FIXED_DT, MOMENTUM_YARDS,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist, heading, angDelta } from '../core/math.ts';
 import type { World } from './world.ts';
@@ -433,12 +433,18 @@ export function detectDead(w: World): DeadReason | null {
     // GAINED possession in his own end zone (a returner fielding a kick, a defender picking off
     // a goal-line throw) takes a touchback, not two points against his own team.
     if (inOwnEndZone && (a.move === 'DOWN' || oob)) {
-      // Forgiving by design: a defender who picks the ball off inside his own five and gets
-      // carried back into the end zone takes a touchback. Only a team that already had the ball,
-      // or one that retreats there from real field position, concedes two points.
+      // The momentum rule. A man who did not choose to be back here does not hand over two
+      // points: if he took possession of somebody else's ball inside his own ten — fielding a
+      // kick, picking off a goal-line throw — and got driven back over the line, it is a
+      // touchback. Only a team that already had the ball, or one that retreats into its own end
+      // zone from real field position, concedes a safety.
+      //
+      // The window used to be five yards, which sounds close enough and is not: kicks were being
+      // fielded around the six, so the overwhelming majority of returns fell a yard outside the
+      // exception and paid two points for it.
       const ownGoalZ = a.side === 0 ? 0 : 100;
-      const gainedThere = Math.abs(w.gainOriginZ - ownGoalZ) <= 5;
-      if (a.side !== w.possession && gainedThere) return 'TOUCHBACK';
+      const gainedAt = Math.abs(w.gainOriginZ - ownGoalZ);
+      if (a.side !== w.possession && gainedAt <= MOMENTUM_YARDS) return 'TOUCHBACK';
       return 'SAFETY';
     }
     if (oob) return 'OUT_OF_BOUNDS';

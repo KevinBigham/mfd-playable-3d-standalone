@@ -83,6 +83,7 @@ npm run smoothness   # motion quality: animation churn, heading and position jer
 npm run pacing       # frame pacing: apparent-speed jitter across eight display models
 npm run human        # scripts a PLAYER onto the sticks and checks what the game does about it
 npm run footslip     # do planted feet actually grip the turf, measured at the shoe
+npm run fieldpos     # where drives start, how kick returns go, and every safety explained
 npm run poses        # contact sheet: one frame of every animation state
 npm run gait         # contact sheet: one sprint stride, frame by frame
 npm run artifact     # folds the whole game into ONE self-contained HTML file

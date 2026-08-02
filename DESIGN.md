@@ -297,6 +297,28 @@ Everything below is presentation only; none of it changes a rules outcome.
 - **The near goalpost fades out** when it stands between the camera and the ball, which near a goal
   line otherwise draws a bright yellow bar across the play.
 
+## 10c. SPECIAL TEAMS
+
+A kick is the only play where both teams are running at full speed in the same direction, and it is
+the one place where "offence" and "defence" stop being useful words — the kicking team has the
+ball, so it is nominally the offence while doing nothing but chasing.
+
+- **Hang time and coverage speed are a single dial.** A kick that hangs too briefly for the cover
+  team arrives with an open field in front of the returner and every return scores. One that hangs
+  too long lands with the coverage already there and no return ever gets started. They are set
+  together or not at all.
+- **Coverage sprints the whole way and keeps a reserve.** Sixty yards is not a pursuit angle, it is
+  a race — but a cover man who arrives empty watches the returner run away from him, because the
+  ball carrier has a small speed advantage by design.
+- **Gunners.** The two widest men on a punt team never block. They release on the snap and race the
+  ball, which is the only reason punt coverage arrives at the same time as the punt.
+- **Lane discipline.** Cover men run a share of the field's width and converge only inside fourteen
+  yards. Six men converging early is what a return wall exists to beat.
+- **You do not dive on a ball nobody else can reach.** A dive guarantees possession and costs the
+  rest of the play. It is worth it in a crowd and never worth it alone.
+- **The momentum rule.** Take possession of somebody else's ball inside your own ten, get driven
+  back over the line, and it is a touchback rather than a safety. You did not choose to be there.
+
 ## 11. AUDIO
 
 Fully synthesised in the browser: layered impacts (sub thump + mid crack + high transient), a

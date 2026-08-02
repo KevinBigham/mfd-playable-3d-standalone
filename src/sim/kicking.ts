@@ -71,8 +71,11 @@ export function launchPunt(w: World, kicker: Athlete, plan: KickPlan): number {
   const dir = dirOf(kicker.side);
   const power = lerp(0.55, 1.0, plan.power);
   const distance = lerp(28, 52, power) * (0.88 + kicker.def.ratings.accuracy / 500);
-  // Hang time is the whole point of a punt: it is what lets coverage arrive.
-  const hang = lerp(2.0, 2.85, plan.quality);
+  // Hang time is the whole point of a punt: it is what lets coverage arrive. It was set for a
+  // coverage team that jogged; once they sprint, a 2.0s punt still puts them forty yards behind
+  // the catch and every return goes to the house. Real punts hang somewhere over four seconds
+  // and a bad one is a shank, not a line drive.
+  const hang = lerp(3.2, 4.3, plan.quality);
   const { vy, vz } = ballistic(distance, hang);
   launchKick(w, kicker.id, 'PUNT', plan.aim * 6 + w.conditions.windX * 0.4, vy, dir * vz);
   return distance;
@@ -90,7 +93,15 @@ export function launchKickoff(w: World, kicker: Athlete, onside: boolean): void 
   // Land `targetZ` yards short of the goal line, on the correct side of the field.
   const landing = goal - dir * targetZ;
   const travel = Math.abs(landing - w.losZ);
-  const hang = 2.75 + w.rng.range(-0.15, 0.2);
+  // Hang time is what makes a kickoff a contest. At 2.75s the coverage — which starts on its own
+  // 30 and has nearly sixty yards to run — was still thirty yards away when the ball came down,
+  // so the returner caught it with an open field in front of him every single time. Nothing but
+  // a bug in his own AI (he dove on the catch and tackled himself) had been hiding it. Four
+  // The number matters less than the pairing: hang time and whether coverage sprints are one
+  // dial, not two. Sprinting coverage under a four-second kick arrives WITH the ball and kills
+  // every return; jogging coverage under a 2.75s kick arrives thirty yards late and every return
+  // scores. Three and a bit seconds, sprinting, puts the first man about fifteen yards off.
+  const hang = 3.15 + w.rng.range(-0.2, 0.2);
   const { vy, vz } = ballistic(travel, hang);
   launchKick(w, kicker.id, 'KICKOFF', w.rng.spread(4), vy, dir * vz);
 }
