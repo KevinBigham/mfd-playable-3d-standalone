@@ -1130,17 +1130,81 @@ Every balance target holds: points 49.1 against a 44–60 band, sacks 6.6 agains
 overtime, against six before — the games got closer, which is the shape you want from taking the
 easy explosive away rather than from clamping scoring directly.
 
-### 12.7 What is still open
+### 12.7 Two more things the playbook said and the simulation never read
 
-- **First downs are 3.9, not the 8–12 that would make the chain a pulse.** The deep-zone fix moved
-  the number in the right direction for the first time in this pass, but drives still average 3.2
-  plays and 43 % of them still score. This is better, not solved.
-- **Third and short is still harder than third and long** — 3rd-and-1-to-8 converts around 7 %
-  against 36 % on 3rd-and-25-plus, and the deep-zone fix made the gap *wider*, not narrower, because
-  it took yards out of the intermediate game as well. The only concept that reliably gains is still
-  the one that gains thirty.
-- **Goal-to-go on third down converts 8 %.** The end zone is a hard ceiling behind the defence and
+The pattern from §12.3 — authored intent that never reaches the simulation — turned out to have two
+more instances, and between them they are the closest this pass got to its actual goal.
+
+**The play caller believed things about its own game that were wrong by a factor of three.** Its
+scoring function asks one question above all others: does this concept cover the distance? It
+answered with a table that said a run was worth **9 yards** and a quick concept **10**, against
+measured values of **3.3** and **3.6**. So it spent first down on runs, because nine yards is most
+of your share of a thirty-yard chain, and then faced second and twenty-seven. First down gained 4.0
+yards a play and converted 6 % while third down gained 11.8 and converted 25 % — exactly backwards.
+
+The table now holds measured values, re-measurable with `npm run driveprobe`. The effect on
+down-and-distance was immediate and is the single best result in this section:
+
+| third down | before | after |
+|---|---|---|
+| and 1–8 | 7 % | **16 %** |
+| and 9–16 | 3 % | 4 % |
+| and 17–24 | 23 % | 28 % |
+| and 25+ | 36 % | 26 % |
+
+The inversion — short yardage being *harder* than long — was 5× at its worst and is now roughly
+flat. First-down conversion went 6 % → 8 % on 6.03 yards a play.
+
+**`blockDir` was authored on every run play, mirrored correctly by the loader, exposed in the play
+editor — and read by nothing in the simulation.** Every run in the book specifies its scheme: down
+block left, reach right, everybody wall to the strong side. None of it reached the field. Blockers
+took the nearest man and shoved him straight backwards, which is a scrum, not a running play, and
+the playbook contained no designed hole anywhere.
+
+A blocker with a direction now works his man sideways as well as back. That lateral component *is*
+the lane.
+
+> designed runs **3.9 → 12.4 yd/play** in the run autopsy, runs losing yardage **24 % → 2 %**,
+> 20-plus-yard runs **3 % → 15 %**
+
+Both changes needed the caller's model re-tuned once the run actually worked — it is set at 7, which
+sits between the run's median of 4 and its long tail. Left at 4 the caller stopped running
+altogether and the game fell to 50.8 plays, under the 55 floor, with 23.5 rushing yards a team.
+
+Final 200-game balance, every target in range:
+
+| metric | before this pass | after |
+|---|---|---|
+| combined points | 52.4 | 51.4 |
+| plays per game | 59.6 | 55.7 |
+| first downs / team | 3.8 | **4.3** |
+| rush yards / team | 43.1 | 38.1 |
+| pass yards / team | 194.9 | 197.5 |
+| touchdowns | 7.4 | 7.3 |
+| interceptions | 2.4 | 2.6 |
+| sacks | 6.9 | 5.8 |
+| safeties | 0.17 | 0.20 |
+| shutouts / 200 | — | 4 |
+| rules violations | 0 | **0** |
+
+Plays per game at 55.7 is inside the 55–70 band but close to its floor, and that is worth watching:
+drives that score faster produce fewer snaps.
+
+### 12.8 What is still open
+
+- **First downs are 4.3, not the 8–12 that would make the chain a pulse.** Up from 3.8, having gone
+  the wrong way twice on the road there, but drives still average 3.1 plays and still score too
+  often for a chain to come up. Better, not solved.
+- **Third and 9–16 converts 4 %** — a hole in the middle of the distance curve that neither the
+  quick game nor the deep shot covers. Short yardage and long yardage both work now; the middle
+  does not.
+- **Goal-to-go on third down converts 6 %.** The end zone is a hard ceiling behind the defence and
   nothing in the playbook is built for that specific problem.
+- **Plays per game is 55.7 against a 55 floor.** In band, with no margin.
+- **The quick game has regressed to 2.7 yards a play on a 33 % sack rate**, on 2 calls a game — the
+  caller now rates it accurately and mostly declines to call it, which is honest but means a whole
+  concept family is effectively out of the game. `SNAP_HITCH` and `QUICK_NAILS` need work the way
+  the run just got it.
 - **Runs still lose yardage on roughly a quarter of carries** even with all seven blockers working,
   and designed-run yards fell to 3.26/play once zone defenders started sprinting — coverage that
   runs also arrives in run support faster.

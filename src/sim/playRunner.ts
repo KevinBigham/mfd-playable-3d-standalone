@@ -99,6 +99,7 @@ export function setupPlay(w: World, setup: PlaySetup): void {
     const plan = setup.offense.players[i];
     a.role = plan.role;
     a.route = plan.route;
+    a.blockDir = plan.blockDir ?? 0;
     a.routeIdx = 0;
     a.routeHold = 0;
     a.targetButton = plan.target;
@@ -125,6 +126,7 @@ export function setupPlay(w: World, setup: PlaySetup): void {
     const plan = setup.defense.players[i];
     d.role = 'DEF';
     d.route = null;
+    d.blockDir = 0;
     d.assign = plan.assign;
     d.targetButton = null;
     d.x = setup.spotX + plan.align.x * mir * dir;

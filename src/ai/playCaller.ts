@@ -89,6 +89,27 @@ export function chooseConversion(m: MatchState, side: TeamSide, rng: Rng, profil
   return rng.chance(0.10 + profile.riskTolerance * 0.12) ? 'TWO' : 'KICK';
 }
 
+/**
+ * What the play caller believes each concept is worth, in yards.
+ *
+ * These used to be aspirations — a run was 9 yards, a quick concept 10 — against measured values of
+ * 3.3 and 3.6. Being wrong by a factor of three is not a rounding error in a scoring function whose
+ * whole job is "does this concept cover the distance": the caller kept picking runs on first down
+ * because it believed nine yards was most of its share of a thirty-yard chain, and then faced
+ * second and twenty-seven. First down gained 4.0 yards a play and converted 6 % of the time while
+ * third down gained 11.8 and converted 25 %, which is exactly backwards.
+ *
+ * A play caller that believes true things about its own game is worth more than one tuned to
+ * compensate for believing false ones. Measured with `npm run driveprobe`; re-measure and update
+ * these when the concepts themselves change.
+ */
+function expectedYards(isRun: boolean, isQuick: boolean, isDeep: number): number {
+  if (isDeep > 0.5) return 20;
+  if (isRun) return 7;
+  if (isQuick) return 4;
+  return 8;
+}
+
 function scoreOffensePlay(p: OffensePlay, sit: Situation, profile: AiProfile, rng: Rng): number {
   const { down, toGo, yardsToGoal, scoreDiff, clockSeconds, quarter } = sit;
   let score = 0;
@@ -100,7 +121,7 @@ function scoreOffensePlay(p: OffensePlay, sit: Situation, profile: AiProfile, rn
   // you only need your share. On third and fourth down you need all of it now.
   const downsLeft = Math.max(1, 5 - down);
   const needed = down <= 2 ? clamp(toGo / downsLeft, 5, 34) : clamp(toGo, 5, 34);
-  const conceptYards = isRun ? 9 : isQuick ? 10 : isDeep > 0.5 ? 30 : 17;
+  const conceptYards = expectedYards(isRun, isQuick, isDeep);
   const diff = conceptYards - needed;
   // Coming up short is much worse than picking up a few extra.
   score -= diff < 0 ? -diff * 0.155 : diff * 0.042;

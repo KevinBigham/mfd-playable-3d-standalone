@@ -264,6 +264,13 @@ export interface Athlete {
   routeIdx: number;
   routeHold: number;
   assign: DefenseAssign | null;
+  /**
+   * Which way this blocker is told to seal his man, in the offence's own frame: -1 left, +1 right,
+   * 0 straight ahead. Authored on every run play in the book, mirrored correctly by the play
+   * loader, editable in the play editor — and, until now, read by nothing in the simulation, so
+   * every run play's blocking scheme was decoration and a run had no designed hole.
+   */
+  blockDir: -1 | 0 | 1;
   targetButton: 0 | 1 | 2 | null;
   homeX: number; homeZ: number;   // snap alignment in world space
 

@@ -8,11 +8,16 @@ import {
 } from '../core/constants.ts';
 import { clamp, clamp01, dist, angDelta, heading } from '../core/math.ts';
 import type { World } from './world.ts';
-import { OFF_START, DEF_START, carrier } from './world.ts';
+import { OFF_START, DEF_START, carrier, dirOf } from './world.ts';
 import { knockDown, stun, isLineman, isBlocking } from './movement.ts';
 import { dropLoose } from './ball.ts';
 
 const DOWN_TICKS = s(1.15);
+/**
+ * How hard a blocking assignment turns a shove into a seal. At 1.0 the lateral component equals
+ * the straight-back one, i.e. a 45-degree drive block, which is about what a down block looks like.
+ */
+const SCHEME_PUSH = 0.6;
 
 /**
  * Separate overlapping bodies so nobody occupies the same point.
@@ -136,7 +141,19 @@ export function updateBlocking(w: World): void {
       const push = (0.9 + strength) * 6.0 * FIXED_DT;
       const dx = target.x - bl.x, dz = target.z - bl.z;
       const d = Math.max(0.001, Math.hypot(dx, dz));
-      target.x += (dx / d) * push; target.z += (dz / d) * push;
+      // The SCHEME. Every run play in the book tells its blockers which way to seal — down block
+      // left, reach right, everybody wall to the strong side — and the simulation had never read
+      // the field. Blockers took the nearest man and shoved him straight back, which is a scrum,
+      // not a running play: there was no designed hole anywhere in the playbook, and a run gained
+      // four yards with a quarter of them going backwards.
+      //
+      // A blocker with a direction works his man sideways as well as backwards. That lateral
+      // component IS the lane.
+      const lane = bl.blockDir * dirOf(bl.side) * SCHEME_PUSH;
+      let sx = (dx / d) + lane, sz = (dz / d);
+      const sm = Math.max(0.001, Math.hypot(sx, sz));
+      sx /= sm; sz /= sm;
+      target.x += sx * push; target.z += sz * push;
       target.vx *= 0.62; target.vz *= 0.62;
 
       const car = carrier(w);

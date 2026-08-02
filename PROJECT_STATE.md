@@ -16,11 +16,18 @@ for the whole play**, so a forty-yard route ran past him and kept going. A deep 
 yards of separation at the release while his nearest defender jogged at 9.5 yd/s with 70 % of his
 meter unspent. A deep zone now defends a ceiling, not a post.
 
-Over 120 games: first downs 3.8 → 3.9, pass yards 194.9 → 181.0, deep concepts 23.6 → 20.1 yd/play,
-separation at the catch on deep balls 4.5 → 2.6 yd, combined points 52.4 → 49.1, overtimes 6 → 12.
-Every balance target holds and rules violations stayed at zero. The milestone's headline goal — a
-chain with a pulse — is **improved, not met**: drives still average 3.2 plays and 43 % still score.
-Three other hypotheses were tested and rejected along the way (QA_REPORT.md §12).
+Then two more instances of the same pattern — authored intent the simulation never read. The play
+caller's model of what each concept gains said a run was worth 9 yards and a quick concept 10,
+against measured 3.3 and 3.6, so it spent first down on runs and faced second and twenty-seven. And
+`blockDir` — the blocking scheme on every run play, mirrored by the loader and editable in the play
+editor — was read by nothing, so the playbook contained no designed hole anywhere. Both fixed:
+third-and-short conversion went 7 % → 16 % while third-and-long went 36 % → 26 %, closing an
+inversion that had short yardage 5× harder than long.
+
+Over 200 games: first downs 3.8 → 4.3, combined points 52.4 → 51.4, plays 59.6 → 55.7, sacks
+6.9 → 5.8, interceptions 2.4 → 2.6, rules violations 0 → 0. Every balance target in range. The
+milestone's headline goal — a chain with a pulse — is **improved, not met**: drives still average
+3.1 plays. Three other hypotheses were tested and rejected along the way (QA_REPORT.md §12).
 
 **M14 — one button, two actions.** Reported from play as "the ball starts with the WR on Ripcord
 Mesh". ACTION snaps the ball and ACTION throws it, and both were resolving in the same tick, so the
@@ -210,6 +217,15 @@ Full detail in QA_REPORT.md. Headline numbers:
 35. **Naming a play after its formation is not naming it after its job.** A three-step slant concept
     out of a formation called SPREAD got a five-and-a-half yard drop, and the quick game took a sack
     on 22 % of its snaps as a result.
+36. **Grep every authored field for a consumer.** Three separate systems in this codebase were data
+    with no reader: `blockDir` (every run play's blocking scheme), the `BLOCK` route action outside
+    the offensive line, and the `down.change` event. All three were authored, mirrored, tested and
+    exposed in the editor. None of them reached the field.
+37. **An AI that believes false things about its own game cannot be tuned, only compensated for.**
+    The play caller rated a run at 9 yards against a measured 3.3 and spent first down on it. Fix
+    the belief, then tune.
+38. **Screenshots do not belong in git.** PNGs do not delta-compress: 30 commits of a regenerable
+    capture set cost 736 MB of history for a repo whose source is under 2 MB.
 
 ## ACTIVE BLOCKERS
 
@@ -232,18 +248,17 @@ None.
   is solved in the body's own frame, and a cutting athlete travels somewhere other than where he
   faces. Measured in `npm run footslip` (QA_REPORT.md §9); fixing it needs world-space foot
   placement.
-- **First downs are still rare at 3.9 per team per game.** Not the chain — `FIRST_DOWN_YARDS` was
+- **First downs are still rare at 4.3 per team per game.** Not the chain — `FIRST_DOWN_YARDS` was
   swept at 30 / 24 / 20 and first downs measured 3.6 / 3.6 / 3.4. Drives end before the chain is in
-  question: 16 a game, 3.2 plays each, 43 % of them scoring. Improved by the deep-zone fix
-  (QA_REPORT.md §12.6), not solved.
-- Third and short converts *worse* than third and long (about 7 % against 36 %), and the deep-zone
-  fix widened the gap rather than closing it. The only concept that reliably gains is still the one
-  that gains thirty.
-- Goal-to-go on third down converts 8 %. Nothing in the playbook is built for a defence with the end
+  question: 15 a game, 3.1 plays each. Improved twice in M15, not solved.
+- Third and 9-16 converts 4 % — a hole in the middle of the distance curve. Short and long both work
+  now; the middle does not.
+- Goal-to-go on third down converts 6 %. Nothing in the playbook is built for a defence with the end
   zone at its back.
-- A designed run still loses yardage on about a quarter of carries even with all seven blockers
-  working, and fell to 3.26 yd/play once zone defenders started sprinting — coverage that runs also
-  arrives in run support faster.
+- Plays per game is 55.7 against a 55 floor. In band with no margin.
+- The quick game is down to 2.7 yd/play on a 33 % sack rate and about 2 calls a game — the caller
+  now rates it accurately and mostly declines to call it. A whole concept family effectively out of
+  the game.
 
 ## COMMANDS
 
