@@ -50,6 +50,13 @@ export class TendencyTracker {
   runRate(): number { return this.plays < 4 ? 0.45 : this.runs / this.plays; }
   deepRate(): number { return this.plays < 4 ? 0.25 : this.deep / this.plays; }
   reset(): void { this.runs = this.passes = this.deep = this.plays = 0; }
+  /** For mid-match snapshots: the defence should not forget your tendencies over a save. */
+  save(): { runs: number; passes: number; deep: number; plays: number } {
+    return { runs: this.runs, passes: this.passes, deep: this.deep, plays: this.plays };
+  }
+  load(s: { runs: number; passes: number; deep: number; plays: number }): void {
+    this.runs = s.runs; this.passes = s.passes; this.deep = s.deep; this.plays = s.plays;
+  }
 }
 
 export function chooseFourthDown(sit: Situation, profile: AiProfile, rng: Rng): FourthDownChoice {

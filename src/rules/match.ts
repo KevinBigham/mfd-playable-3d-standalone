@@ -1,6 +1,6 @@
 import type {
   AthleteId, DeadReason, DefensePlay, MatchConfig, MatchPhase, MatchResult, MatchState,
-  OffensePlay, PlayerIntent, SurfaceKind, TeamDef, TeamSide,
+  OffensePlay, PlayerDef, PlayerIntent, SurfaceKind, TeamDef, TeamSide,
 } from '../core/types.ts';
 import { Rng } from '../core/rng.ts';
 import { EventBus } from '../core/events.ts';
@@ -41,6 +41,7 @@ import { DEFENSE_PLAYS } from '../plays/defense.ts';
 import { Action, has } from '../input/actions.ts';
 import { ActionBuffer, inputDebug } from '../input/buffer.ts';
 import { getStadium } from '../data/stadiums.ts';
+import { SNAPSHOT_VERSION, playerKey, type MatchSnapshot } from './snapshot.ts';
 
 /** Phases whose handlers call `stepPlay` and therefore advance the world themselves. */
 const STEPPING_PHASES: ReadonlySet<string> = new Set([
@@ -589,6 +590,224 @@ export class Match {
   /** What a seat has pressed recently and nothing has claimed yet. For debugging and for tests. */
   bufferedFor(seat: number): number { return this.buffers[seat]?.pending() ?? 0; }
   get inputStats(): typeof inputDebug { return inputDebug; }
+
+  // ── mid-match snapshot ───────────────────────────────────────────────────
+
+  /**
+   * Freeze the whole match into plain data. See `snapshot.ts` for what is carried and why.
+   *
+   * Takeable at any phase. The natural place to call it is the pause menu, but nothing here cares:
+   * the world and the match state are both complete descriptions at every tick, which is the
+   * property a fixed-timestep deterministic simulation buys you.
+   */
+  captureSnapshot(): MatchSnapshot {
+    const w = this.world; const m = this.state;
+    return {
+      version: SNAPSHOT_VERSION,
+      seed: this.config.seed,
+      homeId: this.config.home, awayId: this.config.away, stadium: this.config.stadium,
+      quarterSeconds: this.config.quarterSeconds, difficulty: this.config.difficulty,
+      seats: this.config.seats.map((s) => ({ side: s.side, active: s.active })),
+      state: JSON.parse(JSON.stringify(m)) as MatchState,
+      world: {
+        tick: w.tick,
+        rng: w.rng.save(),
+        intents: w.intents.map((it) => it.held),
+        athletes: w.athletes.map((a) => ({
+          id: a.id, side: a.side, slotIndex: a.slotIndex, unit: a.unit,
+          defNumber: a.def.number, defName: a.def.name,
+          x: a.x, z: a.z, y: a.y, vx: a.vx, vz: a.vz, vy: a.vy,
+          facing: a.facing, turnVel: a.turnVel,
+          move: a.move, moveTicks: a.moveTicks,
+          animState: a.anim.state, animPhase: a.anim.phase, animTicks: a.anim.ticks,
+          animSpeed01: a.anim.speed01,
+          hasBall: a.hasBall, turbo: a.turbo, turboHeld: a.turboHeld, protecting: a.protecting,
+          turboLockTicks: a.turboLockTicks, stamina: a.stamina,
+          downTicks: a.downTicks, stunTicks: a.stunTicks,
+          blockedBy: a.blockedBy, engagedWith: a.engagedWith, onFire: a.onFire,
+          role: a.role, routeIdx: a.routeIdx, routeHold: a.routeHold, blockDir: a.blockDir,
+          targetButton: a.targetButton, homeX: a.homeX, homeZ: a.homeZ,
+          controlledBySeat: a.controlledBySeat,
+          reactionQueue: a.reactionQueue, aiMemoryTick: a.aiMemoryTick, aiScratch: a.aiScratch,
+        })),
+        ball: {
+          x: w.ball.x, y: w.ball.y, z: w.ball.z,
+          vx: w.ball.vx, vy: w.ball.vy, vz: w.ball.vz,
+          spin: w.ball.spin, possession: w.ball.possession,
+          state: JSON.parse(JSON.stringify(w.ball.state)),
+        },
+        possession: w.possession, losZ: w.losZ, spotZ: w.spotZ, spotX: w.spotX,
+        playPhase: w.playPhase, playTicks: w.playTicks, snapTick: w.snapTick,
+        deadReason: w.deadReason,
+        gainOriginZ: w.gainOriginZ, progressZ: w.progressZ, progressArmed: w.progressArmed,
+        lastCarrier: w.lastCarrier, special: w.special,
+        offensePlayId: w.offensePlay?.id ?? null,
+        defensePlayId: w.defensePlay?.id ?? null,
+        qbId: w.qbId, passThrown: w.passThrown, handedOff: w.handedOff,
+        lastPassAirYards: w.lastPassAirYards, scoreLocked: w.scoreLocked,
+        lastCatcher: w.lastCatcher, lastHitPower: w.lastHitPower,
+        qbTarget: w.qbTarget, passTargets: [...w.passTargets] as [number, number, number],
+        lateHits: w.lateHits,
+        kickPending: w.kickPending ? JSON.parse(JSON.stringify(w.kickPending)) : null,
+        freezeDefense: w.freezeDefense,
+        hotReceiver: w.hotReceiver, hotStreak: w.hotStreak,
+        handoffTarget: w.handoffTarget, handoffTick: w.handoffTick,
+        conditions: { ...w.conditions },
+      },
+      pendingOffenseId: this.pendingOffense?.id ?? null,
+      pendingDefenseId: this.pendingDefense?.id ?? null,
+      pendingSpecial: this.pendingSpecial,
+      pendingConversion: this.pendingConversion,
+      offenseLocked: this.offenseLocked, defenseLocked: this.defenseLocked,
+      mirrorOffense: this.mirrorOffense,
+      kickMeterTicks: this.kickMeterTicks, kickMeterActive: this.kickMeterActive,
+      kickPlan: { ...this.kickPlan },
+      kickLaunched: this.kickLaunched, onsideRequested: this.onsideRequested,
+      lastOffenseId: this.lastOffenseId,
+      watchdogFired: this.watchdogFired,
+      conversionTwoActive: this.conversionTwoActive,
+      conversionActive: this.conversionActive,
+      freeKickAfterSafety: this.freeKickAfterSafety,
+      snapArmed: this.snapArmed, snapHeldPrev: this.snapHeldPrev, snapRequested: this.snapRequested,
+      seatHeldPrev: [...this.seatHeldPrev],
+      actionSpent: [...this.actionSpent],
+      catchUp: [...this.aiCtx.catchUp] as [number, number],
+      tendency: this.tendency.map((t) => t.save()),
+    };
+  }
+
+  /**
+   * Restore a snapshot into this match. The match must already have been constructed with the same
+   * config — `snapshotMatches` below is the check for that, and the caller is expected to use it,
+   * because writing one team's positions into another team's roster produces a game that runs
+   * perfectly and is nonsense.
+   *
+   * Athletes are re-BOUND rather than re-created: their `def` is looked up in the rosters this
+   * match already has, by number and name. That is what keeps a save valid across a rebuild that
+   * changed nothing about the people on the field.
+   */
+  applySnapshot(snap: MatchSnapshot): void {
+    const w = this.world; const s = snap.world;
+    Object.assign(this.state, JSON.parse(JSON.stringify(snap.state)));
+
+    w.tick = s.tick;
+    w.rng.load(s.rng);
+    const byKey = new Map<string, PlayerDef>();
+    for (const t of w.teams) for (const p of t.roster) byKey.set(playerKey(p), p);
+    for (let i = 0; i < w.athletes.length && i < s.athletes.length; i++) {
+      const a = w.athletes[i]; const d = s.athletes[i];
+      const found = byKey.get(`${d.defNumber}|${d.defName}`);
+      if (found) a.def = found;
+      a.side = d.side; a.slotIndex = d.slotIndex; a.unit = d.unit as typeof a.unit;
+      a.x = d.x; a.z = d.z; a.y = d.y; a.vx = d.vx; a.vz = d.vz; a.vy = d.vy;
+      a.facing = d.facing; a.turnVel = d.turnVel;
+      a.move = d.move as typeof a.move; a.moveTicks = d.moveTicks;
+      a.anim.state = d.animState as typeof a.anim.state;
+      a.anim.phase = d.animPhase; a.anim.prevPhase = d.animPhase;
+      a.anim.ticks = d.animTicks; a.anim.speed01 = d.animSpeed01;
+      a.anim.lastX = d.x; a.anim.lastZ = d.z;
+      a.hasBall = d.hasBall; a.turbo = d.turbo; a.turboHeld = d.turboHeld;
+      a.protecting = d.protecting; a.turboLockTicks = d.turboLockTicks; a.stamina = d.stamina;
+      a.downTicks = d.downTicks; a.stunTicks = d.stunTicks;
+      a.blockedBy = d.blockedBy; a.engagedWith = d.engagedWith; a.onFire = d.onFire;
+      a.role = d.role as typeof a.role;
+      a.routeIdx = d.routeIdx; a.routeHold = d.routeHold; a.blockDir = d.blockDir;
+      a.targetButton = d.targetButton; a.homeX = d.homeX; a.homeZ = d.homeZ;
+      a.controlledBySeat = d.controlledBySeat;
+      a.reactionQueue = d.reactionQueue; a.aiMemoryTick = d.aiMemoryTick; a.aiScratch = d.aiScratch;
+      // Render interpolation has nothing to blend from on the frame a save is loaded, so the
+      // previous transform is set equal to the current one. Anything else is a one-frame smear
+      // across the whole field.
+      a.prevX = d.x; a.prevZ = d.z; a.prevY = d.y; a.prevFacing = d.facing;
+    }
+
+    for (let i = 0; i < w.intents.length; i++) {
+      const it = w.intents[i];
+      it.held = s.intents?.[i] ?? 0;
+      it.moveX = 0; it.moveZ = 0; it.pressed = 0; it.released = 0;
+    }
+
+    w.ball.x = s.ball.x; w.ball.y = s.ball.y; w.ball.z = s.ball.z;
+    w.ball.vx = s.ball.vx; w.ball.vy = s.ball.vy; w.ball.vz = s.ball.vz;
+    w.ball.spin = s.ball.spin; w.ball.possession = s.ball.possession;
+    w.ball.state = JSON.parse(JSON.stringify(s.ball.state));
+
+    w.possession = s.possession; w.losZ = s.losZ; w.spotZ = s.spotZ; w.spotX = s.spotX;
+    w.playPhase = s.playPhase as typeof w.playPhase;
+    w.playTicks = s.playTicks; w.snapTick = s.snapTick;
+    w.deadReason = s.deadReason;
+    w.gainOriginZ = s.gainOriginZ; w.progressZ = s.progressZ; w.progressArmed = s.progressArmed;
+    w.lastCarrier = s.lastCarrier; w.special = s.special as typeof w.special;
+    w.offensePlay = s.offensePlayId ? this.findOffense(s.offensePlayId) : null;
+    w.defensePlay = s.defensePlayId ? this.findDefense(s.defensePlayId) : null;
+    // Routes and assignments live on the play, not in the save, so they are re-attached from it.
+    if (w.offensePlay) {
+      for (let i = 0; i < 7; i++) {
+        const plan = w.offensePlay.players[i];
+        if (plan) { w.athletes[OFF_START + i].route = plan.route; }
+      }
+    }
+    if (w.defensePlay) {
+      for (let i = 0; i < 7; i++) {
+        const plan = w.defensePlay.players[i];
+        if (plan) { w.athletes[DEF_START + i].assign = plan.assign; }
+      }
+    }
+    w.qbId = s.qbId; w.passThrown = s.passThrown; w.handedOff = s.handedOff;
+    w.lastPassAirYards = s.lastPassAirYards; w.scoreLocked = s.scoreLocked;
+    w.lastCatcher = s.lastCatcher; w.lastHitPower = s.lastHitPower;
+    w.qbTarget = s.qbTarget; w.passTargets = [...s.passTargets] as [number, number, number];
+    w.lateHits = s.lateHits;
+    w.kickPending = (s.kickPending ? JSON.parse(JSON.stringify(s.kickPending)) : null) as typeof w.kickPending;
+    w.freezeDefense = s.freezeDefense;
+    w.hotReceiver = s.hotReceiver; w.hotStreak = s.hotStreak;
+    w.handoffTarget = s.handoffTarget; w.handoffTick = s.handoffTick;
+    Object.assign(w.conditions, s.conditions);
+    w.switchRequests.length = 0;
+
+    this.pendingOffense = snap.pendingOffenseId ? this.findOffense(snap.pendingOffenseId) : null;
+    this.pendingDefense = snap.pendingDefenseId ? this.findDefense(snap.pendingDefenseId) : null;
+    this.pendingSpecial = snap.pendingSpecial;
+    this.pendingConversion = snap.pendingConversion;
+    this.offenseLocked = snap.offenseLocked; this.defenseLocked = snap.defenseLocked;
+    this.mirrorOffense = snap.mirrorOffense;
+    this.kickMeterTicks = snap.kickMeterTicks; this.kickMeterActive = snap.kickMeterActive;
+    Object.assign(this.kickPlan, snap.kickPlan);
+    this.kickLaunched = snap.kickLaunched; this.onsideRequested = snap.onsideRequested;
+    this.lastOffenseId = snap.lastOffenseId;
+    this.watchdogFired = snap.watchdogFired;
+    this.conversionTwoActive = snap.conversionTwoActive;
+    this.conversionActive = snap.conversionActive;
+    this.freeKickAfterSafety = snap.freeKickAfterSafety;
+    this.snapArmed = snap.snapArmed; this.snapHeldPrev = snap.snapHeldPrev;
+    this.snapRequested = snap.snapRequested;
+    this.seatHeldPrev = [...snap.seatHeldPrev];
+    this.actionSpent = new Set(snap.actionSpent);
+    for (const b of this.buffers) b.clear();
+    this.aiCtx.catchUp = [...snap.catchUp] as [number, number];
+    for (let i = 0; i < this.tendency.length && i < snap.tendency.length; i++) {
+      this.tendency[i].load(snap.tendency[i]);
+    }
+  }
+
+  /**
+   * Look a play back up by id, INCLUDING the special-teams formations.
+   *
+   * Those are not in the playbook — they are built in `specialFormations.ts` and never offered to
+   * a player — so a snapshot taken during a field goal or a kickoff restored with every defender's
+   * assignment set to null. The players stood in the right places and then did nothing, which the
+   * acceptance harness caught as a restored match diverging on the very first tick.
+   */
+  private findOffense(id: string): OffensePlay | null {
+    return this.offensePlays.find((p) => p.id === id)
+      ?? [KICKOFF_OFFENSE, PUNT_OFFENSE, FG_OFFENSE].find((p) => p.id === id)
+      ?? null;
+  }
+  private findDefense(id: string): DefensePlay | null {
+    return this.defensePlays.find((p) => p.id === id)
+      ?? [KICKOFF_DEFENSE, PUNT_DEFENSE, FG_DEFENSE].find((p) => p.id === id)
+      ?? null;
+  }
 
   private doSnap(): void {
     const w = this.world;

@@ -181,10 +181,67 @@ test('SIM-002', 'Gate 1', 'Simulation', () => {
   };
 });
 
-na('SIM-003', 'Gate 1', 'Simulation',
-  'no mid-match snapshot/restore exists. Save covers settings, season and records, not a live '
-  + 'match. A real gap rather than an inapplicable test — recorded as N/A only because there is '
-  + 'nothing to test, and it is on the limitations list.');
+test('SIM-003', 'Gate 1', 'Simulation', () => {
+  // Snapshot a live match, then play the same span twice — once by continuing, once by restoring
+  // into a fresh match — and compare the event streams. A deterministic simulation makes "did the
+  // save carry everything" an exact question rather than an impression.
+  //
+  // Taken at four different points on purpose. A snapshot between plays carries almost nothing and
+  // round-trips trivially; the ones that find bugs land mid-play, mid-flight and mid-kick. The two
+  // faults this test caught on the way in were exactly those: an athlete's previous held-input mask
+  // (without it, every button already down reads as a fresh press on the first tick after a load)
+  // and the special-teams formations, which are not in the playbook, so a save taken during a field
+  // goal restored with every defender's assignment set to null.
+  const { snapshotMatches, configFromSnapshot } = req('../src/rules/snapshot.ts') as {
+    snapshotMatches: (s: unknown, c: unknown) => { ok: boolean; reason?: string };
+    configFromSnapshot: (s: unknown) => Record<string, unknown>;
+  };
+  const streamOf = (m: Match, n: number): string[] => {
+    const log: string[] = [];
+    const bus = m.bus as unknown as { on: (t: string, f: (e: never) => void) => void };
+    for (const t of ['snap', 'throw', 'catch', 'tackle', 'play.end', 'down.change', 'touchdown',
+      'turnover', 'kickoff', 'firstDown', 'interception', 'fumble', 'sack']) {
+      bus.on(t, ((e: Record<string, unknown>) => {
+        log.push(`${t}:${Object.keys(e).filter((k) => k !== 'tick').sort()
+          .map((k) => `${k}=${JSON.stringify(e[k])}`).join(',')}`);
+      }) as never);
+    }
+    for (let i = 0; i < n && !m.state.finished; i++) m.tick();
+    return log;
+  };
+
+  let total = 0;
+  for (const at of [1500, 4000, 7000, 11000]) {
+    const a = makeMatch({ seed: 9090 + at, human: null });
+    for (let i = 0; i < at; i++) a.tick();
+    const snap = JSON.parse(JSON.stringify(a.captureSnapshot()));
+    const contA = streamOf(a, 2500);
+
+    const cfg = defaultMatchConfig(configFromSnapshot(snap) as never);
+    const b = new Match({ config: cfg, home: getTeam(cfg.home!), away: getTeam(cfg.away!), seatIntent: () => null });
+    b.applySnapshot(snap);
+    const contB = streamOf(b, 2500);
+
+    if (contA.join('|') !== contB.join('|')) {
+      const i = contA.findIndex((x, k) => x !== contB[k]);
+      return {
+        ok: false,
+        detail: `restored from tick ${at} diverged at event ${i}: `
+          + `"${contA[i] ?? '(none)'}" vs "${contB[i] ?? '(none)'}"`,
+      };
+    }
+    total += contA.length;
+  }
+  const guard = snapshotMatches(
+    JSON.parse(JSON.stringify(makeMatch({ human: null }).captureSnapshot())),
+    { seed: 4242, home: TEAM_IDS[9], away: TEAM_IDS[1], stadium: '', quarterSeconds: 120 },
+  );
+  return {
+    ok: !guard.ok,
+    detail: `${total} events identical across 4 JSON round trips taken at different points; `
+      + 'a mismatched restore is refused',
+  };
+});
 
 test('INP-001', 'Gate 1', 'Input', () => {
   clearInput();
@@ -992,7 +1049,15 @@ na('INP-002-note', 'Gate 1', 'Input', '');
 
 // ═══════════════════════════════════════════════════════════════════════════
 
-rows.splice(rows.findIndex((r) => r.id === 'INP-002-note'), 1);
+// `splice(-1, 1)` removes the LAST element, and `findIndex` returns -1 when the row is not there —
+// which is every run with `--only`, because the filter drops this placeholder along with everything
+// else. So every filtered run has been silently deleting its own last result. An instrument that
+// quietly destroys evidence is the worst kind of bug to have in a test harness, and this one hid
+// for as long as it did precisely because the thing it deleted was never printed.
+{
+  const i = rows.findIndex((r) => r.id === 'INP-002-note');
+  if (i >= 0) rows.splice(i, 1);
+}
 
 const order = ['Gate 0', 'Gate 1', 'Gate 2', 'Gate 3', 'Gate 4', 'Gate 5', 'Gate 6', 'Gate 7', 'Gate 8', 'Gate 9'];
 rows.sort((a, b) => (order.indexOf(a.gate) - order.indexOf(b.gate)) || a.id.localeCompare(b.id));
