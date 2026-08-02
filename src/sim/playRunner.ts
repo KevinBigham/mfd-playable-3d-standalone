@@ -157,6 +157,8 @@ export function setupPlay(w: World, setup: PlaySetup): void {
   w.qbTarget = targets[1] >= 0 ? targets[1] : targets[0];
   giveBall(w, w.qbId);
   w.gainOriginZ = setup.losZ;
+  w.progressZ = setup.losZ;
+  w.progressArmed = false;
   w.spotZ = setup.losZ;
   w.playPhase = 'PRESNAP';
   w.bus.emit({ type: 'play.start', tick: w.tick, play: setup.offense.id, side: setup.possession });
@@ -494,6 +496,38 @@ function blockMark(w: World, a: Athlete, tx: number, tz: number): Athlete | null
 /** How far from his landmark a blocker will go looking for work. */
 const BLOCK_SEARCH = 7.5;
 
+/**
+ * Forward progress. Sampled every tick a carrier holds the ball, and only ever moving downfield.
+ *
+ * The ball used to be spotted wherever the carrier's body ended up, which is not the rule and is
+ * not fair to the offence: a tackle blends the tackler's momentum into the carrier, so a runner met
+ * head-on is driven backwards and then spotted there. On a thirty-yard chain that is invisible; on
+ * third and one it is the difference between a first down and a punt.
+ */
+function trackForwardProgress(w: World): void {
+  const car = carrier(w);
+  if (!car) return;
+  const dir = dirOf(car.side);
+  if (!w.progressArmed) {
+    // Arm on first contact. Before anyone has a hand on him the carrier's position is simply his
+    // position — there is no "progress" to protect, and pretending otherwise spots a sack at the
+    // line of scrimmage.
+    let touched = false;
+    for (let i = 0; i < w.athletes.length; i++) {
+      const d = w.athletes[i];
+      if (d.side === car.side || d.move === 'DOWN' || d.move === 'GETUP') continue;
+      if (dist(d.x, d.z, car.x, car.z) < PROGRESS_CONTACT) { touched = true; break; }
+    }
+    if (!touched) return;
+    w.progressArmed = true;
+    w.progressZ = car.z;
+    return;
+  }
+  if ((car.z - w.progressZ) * dir > 0) w.progressZ = car.z;
+}
+/** How close a defender has to be to count as having a hand on the carrier. */
+const PROGRESS_CONTACT = 1.5;
+
 // ── dead-ball detection ────────────────────────────────────────────────────
 
 export function detectDead(w: World): DeadReason | null {
@@ -729,6 +763,7 @@ export function stepPlay(w: World, controllers: (Controller | null)[]): DeadReas
     if (w.ball.state.kind === 'inAir') resolveAirBall(w);
     if (w.ball.state.kind === 'loose') resolveLooseBall(w);
     if (w.ball.state.kind === 'held') syncHeldBall(w);
+    trackForwardProgress(w);
   }
 
   if (w.playPhase !== 'LIVE') return null;

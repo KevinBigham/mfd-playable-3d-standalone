@@ -17,8 +17,12 @@ export function giveBall(w: World, id: AthleteId): void {
   w.ball.state = { kind: 'held', carrier: id };
   w.ball.possession = a.side;
   w.lastCarrier = id;
-  // Where possession was gained decides safety vs touchback later on.
+  // Where possession was gained decides safety vs touchback later on. It also resets forward
+  // progress: a new carrier has not advanced anything yet, and inheriting the last man's progress
+  // would spot an interception at the receiver's deepest point.
   w.gainOriginZ = a.z;
+  w.progressZ = a.z;
+  w.progressArmed = false;
   w.ball.vx = 0; w.ball.vy = 0; w.ball.vz = 0;
   syncHeldBall(w);
 }

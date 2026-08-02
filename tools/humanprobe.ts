@@ -13,7 +13,7 @@ import { Match, defaultMatchConfig } from '../src/rules/match.ts';
 import { getTeam, TEAM_IDS } from '../src/data/index.ts';
 import { Action } from '../src/input/actions.ts';
 import { s as ticks } from '../src/core/constants.ts';
-import { carrier } from '../src/sim/world.ts';
+import { carrier, OFF_START } from '../src/sim/world.ts';
 import { OFFENSE_PLAYS } from '../src/plays/offense.ts';
 import type { OffensePlay, PlayerIntent, TeamSide } from '../src/core/types.ts';
 
@@ -213,7 +213,8 @@ console.log('\nGRIDIRON OVERDRIVE — scripted human\n'
       + (worst ? ` — worst: ${worst}` : ''));
 }
 
-// ── 4. the same throw, over a whole game, without ever moving ──────────────
+// ── 4. a whole game on the sticks, throwing to the play's own primary read ─
+let readingYards = 0; let readingScore = 0;
 {
   clearInput();
   const m = makeMatch(0);
@@ -254,8 +255,21 @@ console.log('\nGRIDIRON OVERDRIVE — scripted human\n'
       // shotgun quarterback, so "somebody is within four yards" is true on the first frame of
       // every play, and firing on it just reinvents the instant throw this pass exists to remove.
       const hurried = w.playTicks > ticks(0.7) && pressure < 3.2;
-      if (holdingIt && (w.playTicks > readAt || hurried)) press(Action.TARGET_M);
-      else release(Action.TARGET_M);
+      // Throw to the receiver THIS PLAY names as its primary read, which is the minimum competent
+      // thing a person with the play diagram in front of them does. The script used to hammer the
+      // middle button on every snap of every concept, and once coverage started actually covering
+      // (deep zones defending a ceiling, cover men spending turbo) that stopped working — 113
+      // yards and nothing on the board. Reading the play instead: 271 yards and three touchdowns
+      // in the same harness. The game got harder for a player who ignores it and stayed generous
+      // to one who does not, which is the trade this whole pass was making. The naive version is
+      // kept as its own check below rather than deleted, because how far a button-masher gets is
+      // worth knowing on purpose.
+      const readIdx = w.offensePlay ? w.offensePlay.reads[0] : -1;
+      const readId = readIdx >= 0 ? (w.athletes[OFF_START + readIdx]?.id ?? -1) : -1;
+      const slot = w.passTargets.indexOf(readId);
+      const btn = slot === 0 ? Action.TARGET_L : slot === 2 ? Action.TARGET_R : Action.TARGET_M;
+      for (const b of [Action.TARGET_L, Action.TARGET_M, Action.TARGET_R]) release(b);
+      if (holdingIt && (w.playTicks > readAt || hurried)) press(btn);
       // Once the ball is caught the seat drives the receiver, and a person runs with it.
       const car = carrier(w);
       const mine = car && car.controlledBySeat === 0 && car.id !== w.qbId;
@@ -276,15 +290,64 @@ console.log('\nGRIDIRON OVERDRIVE — scripted human\n'
   // NOT "scores". That assertion used to pass, and it passed for the wrong reason: the button
   // that snapped the ball was also throwing it on the same tick, so every pass left the
   // quarterback's hand at playTicks=0, uncontested, and the scripted human moved the ball by
-  // exploiting a bug. With that fixed, this script — which always throws to the same receiver and
-  // then runs straight ahead — scores about a touchdown a game, which says nothing about the game
-  // and everything about the script. What is worth asserting is that a person holding these
-  // buttons can MOVE THE BALL.
+  // exploiting a bug. What is worth asserting is that a person holding these buttons can MOVE
+  // THE BALL — and, since this script now reads the play, that it can score doing it.
   const yards = m.state.teams[0].stats.totalYds;
+  readingYards = yards; readingScore = m.state.teams[0].score;
   check('a human offence moves the ball',
-    catches >= 8 && yards > 120,
-    `${yards} yards, ${catches} catches, ${m.state.teams[0].score}-${m.state.teams[1].score}`
+    catches >= 8 && yards > 200 && m.state.teams[0].score > 0,
+    `${Math.round(yards)} yards, ${catches} catches, ${m.state.teams[0].score}-${m.state.teams[1].score}`
       + ` (${tds} human touchdowns)`);
+  clearInput();
+}
+
+// ── 4b. reading the play has to be worth more than hammering one button ────
+//
+// The design claim behind the coverage work: a deep zone that defends a ceiling and a cover man
+// who spends turbo make the game harder for a player who ignores the play and no harder for one
+// who uses it. That is a claim about the difference between two players, so it is measured as one
+// — the same harness, the same seed, the only change being which receiver the script throws to.
+// If this ever inverts, coverage has stopped rewarding the read and started taxing everybody.
+{
+  clearInput();
+  const m = makeMatch(0);
+  let catches = 0;
+  m.bus.on('catch', () => { catches++; });
+  let t = 0; let armed = false; let snaps = 0;
+  m.bus.on('snap', () => { snaps++; });
+  while (!m.state.finished && t < 60 * 60 * 25) {
+    const w = m.world;
+    if (m.state.phase === 'PLAY_CALL' && m.pendingOffense === null && m.state.possession === 0) {
+      m.submitOffense(m.offensePlays[(snaps * 5) % m.offensePlays.length]);
+    }
+    if (m.state.phase === 'PRE_SNAP' && m.state.possession === 0) {
+      if (!armed) { release(Action.ACTION); armed = true; } else press(Action.ACTION);
+    } else if (w.playPhase === 'LIVE' && m.state.possession === 0) {
+      release(Action.ACTION); armed = false;
+      const qb = w.athletes[w.qbId];
+      let pressure = 99;
+      for (const d of w.athletes) {
+        if (d.side === qb.side || d.move === 'DOWN') continue;
+        pressure = Math.min(pressure, Math.hypot(d.x - qb.x, d.z - qb.z));
+      }
+      const readAt = w.offensePlay?.timing?.primary ?? ticks(1.5);
+      const holdingIt = !w.passThrown && carrier(w)?.id === w.qbId;
+      const hurried = w.playTicks > ticks(0.7) && pressure < 3.2;
+      // The only difference from §4: always the middle button, whatever the play is.
+      if (holdingIt && (w.playTicks > readAt || hurried)) press(Action.TARGET_M);
+      else release(Action.TARGET_M);
+      const car = carrier(w);
+      const mine = car && car.controlledBySeat === 0 && car.id !== w.qbId;
+      held.moveZ = mine ? 1 : 0;
+      if (mine) press(Action.TURBO); else release(Action.TURBO);
+    } else { clearInput(); armed = false; }
+    m.tick(); t++;
+  }
+  const blindYards = m.state.teams[0].stats.totalYds;
+  check('reading the play beats hammering one button',
+    blindYards < readingYards,
+    `${Math.round(blindYards)} yards blind vs ${Math.round(readingYards)} reading`
+      + ` (${m.state.teams[0].score} pts vs ${readingScore})`);
   clearInput();
 }
 

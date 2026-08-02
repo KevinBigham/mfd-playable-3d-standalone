@@ -32,6 +32,19 @@ export interface World {
   spotX: number;
   /** z the ball was at when the current carrier gained possession (for yardage). */
   gainOriginZ: number;
+  /**
+   * Forward progress: the furthest downfield the carrier has advanced the ball SINCE HE WAS FIRST
+   * CONTACTED. The ball is spotted here rather than wherever his body finally came to rest, so a
+   * runner driven backwards out of a pile keeps what he earned.
+   *
+   * Armed at first contact, not at the snap, and that distinction is the whole rule. Forward
+   * progress protects a runner being DRIVEN back; it does not protect a passer who chose to
+   * retreat. Tracking it from the snap spotted every sack at the line of scrimmage and took the
+   * sack out of the game entirely — measured at 0.0 a game against 4.3 before.
+   */
+  progressZ: number;
+  /** Whether `progressZ` has been armed by contact yet. Until then it means nothing. */
+  progressArmed: boolean;
   lastCarrier: AthleteId;
   /** Set when the play is a special-teams play so the runner branches. */
   special: null | 'PUNT' | 'FIELD_GOAL' | 'EXTRA_POINT' | 'KICKOFF' | 'ONSIDE';
@@ -131,7 +144,7 @@ export function createWorld(
     },
     conditions, teams: [home, away],
     possession: 0, losZ: 25, playPhase: 'SETUP', playTicks: 0, snapTick: 0,
-    deadReason: null, spotZ: 25, spotX: 0, gainOriginZ: 25, lastCarrier: -1,
+    deadReason: null, spotZ: 25, spotX: 0, gainOriginZ: 25, progressZ: 25, progressArmed: false, lastCarrier: -1,
     special: null, offensePlay: null, defensePlay: null,
     qbId: 0, passThrown: false, handedOff: false, lastPassAirYards: 0,
     scoreLocked: false, lastCatcher: -1, lastHitPower: 0,

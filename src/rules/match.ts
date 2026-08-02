@@ -773,6 +773,16 @@ export class Match {
     let spotZ = b.z;
     let spotX = b.x;
     if (car) { spotZ = car.z; spotX = car.x; }
+    // FORWARD PROGRESS. The ball belongs at the furthest point the runner advanced it, not at
+    // whatever spot his body finally came to rest on — and a tackle in this game blends the
+    // tackler's momentum into the carrier, so a runner met head-on is actively driven backwards
+    // before he goes down. Spotting him there charged the offence for being hit hard. It is also
+    // the real rule, and it is what makes third and one a down you can convert rather than a
+    // coin flip on which direction the pile falls.
+    //
+    // Only for the team that actually had the ball, and only forwards: a defender who intercepts
+    // and runs it back has his own progress, tracked from the moment he took possession.
+    if (car && car.side === w.possession && w.progressArmed && (w.progressZ - spotZ) * dir > 0) spotZ = w.progressZ;
     o.possessionAfter = m.possession;
 
     const ballSide: TeamSide = car ? car.side : b.possession;

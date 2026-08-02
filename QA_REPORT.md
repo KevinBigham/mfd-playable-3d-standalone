@@ -100,20 +100,26 @@ produce different games. RNG reseeds deterministically, stays in `[0,1)`, is unb
 | games completed | **200 / 200** | 100 % | pass |
 | rules violations | **0** | 0 | pass |
 | watchdog trips | **0** | 0 | pass |
-| combined points | **54.0** (range 21–104) | 44–60 | pass |
-| home / away | **27.6 / 26.5** | within 4 | pass |
-| plays per game | **56.0** | 55–70 | pass — thin |
-| touchdowns | **7.7** | 5–8 | pass |
-| interceptions | **2.7** | 1.5–4 | pass |
-| sacks | **4.3** | 4–9 | pass — thin, see §12.8 |
-| forced fumbles | 3.3 | — | — |
-| **safeties** | **0.22** | ≤ 1 | **pass — was 2.96; see §10** |
-| Overdrive activations | 1.3 | ≥1 | pass |
-| field goals / punts | 1.1 / 1.9 | — | — |
-| first downs / team | **4.6** | 8–12 wanted | **fail — see §12** |
-| ties | 1 | 0 | — |
-| overtimes | 9 / 200 | — | — |
-| wall clock | **256 ms per game** | — | — |
+| combined points | **54.2** (range 27–92) | 44–60 | pass |
+| home / away | **27.4 / 26.8** | within 4 | pass |
+| plays per game | **55.6** | 55–70 | pass — thin |
+| touchdowns | **7.8** | 5–8 | pass |
+| interceptions | **2.9** | 1.5–4 | pass |
+| sacks | **4.1** | 4–9 | pass — on the floor, see §12.8 |
+| forced fumbles | 3.2 | — | — |
+| **safeties** | **0.17** | ≤ 1 | **pass — was 2.96; see §10** |
+| Overdrive activations | 1.1 | ≥1 | pass |
+| field goals / punts | 0.9 / 1.9 | — | — |
+| first downs / team | **4.4** | 8–12 wanted | **fail — see §12** |
+| ties | 0 | 0 | pass |
+| overtimes | 11 / 200 | — | — |
+| wall clock | **262 ms per game** | — | — |
+
+Two rows are inside their bands with no margin and are called out rather than left to look
+comfortable. Sacks at 4.1 sit on a floor of 4; that is roughly 2.05 per team per game, which is
+close to real football and a long way from the 3.5 this build used to produce, and the change is
+deliberate (§12.8) rather than drift. Plays per game at 55.6 against a floor of 55 is a consequence
+of drives that score faster.
 
 Re-measured after §12. The only target this table misses is one it did not used to state at all:
 first downs. It is written in now, with the number it actually produces, because a balance table
@@ -1243,7 +1249,43 @@ The full-curve effect on down and distance, which is what this whole section was
 The 5× inversion is gone and the curve is monotonic in the right direction for the first time,
 though short yardage still converts worst rather than best.
 
-### 12.9 What is still open
+### 12.9 Forward progress, and a probe that was measuring a strawman
+
+**The ball was spotted wherever the carrier's body came to rest.** A tackle in this game blends the
+tackler's momentum into the carrier — `car.vx = car.vx * 0.3 + d.vx * 0.35` — so a runner met
+head-on is *actively driven backwards* before he goes down, and then spotted there. The offence was
+being charged for being hit hard. Forward progress is a real rule and it was simply missing.
+
+The rule now: the ball is spotted at the furthest point the carrier advanced it **since he was
+first contacted**. That last clause is the whole rule, and getting it wrong is instructive — the
+first version armed progress at the snap, which spotted every sack at the line of scrimmage and took
+sacks out of the game entirely: **0.0 a game**, in a 200-game batch, from 4.3. Forward progress
+protects a runner being *driven* back. It does not protect a passer who chose to retreat.
+
+> third and 1–8 **15 % → 21 %** · goal to go **18 % → 24 %** · third down overall **23 % → 25 %**
+
+**And the human probe was measuring a strawman.** After the coverage work, `a human offence moves
+the ball` failed: 113 yards, 15 catches, **0 points** across a full game, down from 214 yards and 14
+points. That looked like a serious regression in what the game feels like in a person's hands, and
+it was worth being alarmed by.
+
+It was the script. It pressed the *middle receiver button* on every snap of every concept, whatever
+the play was — which worked when a deep zone was tied to a landmark and cover men never sprinted,
+and stops working the moment coverage covers. Changing one thing about it — throw to the receiver
+**the play itself names as its primary read**, which is the minimum a person with the diagram in
+front of them does — in the same harness on the same seed:
+
+| the same scripted human | yards | score | touchdowns |
+|---|---|---|---|
+| hammers the middle button | 113 | 0 | 0 |
+| throws to the play's primary read | **271** | **21** | **3** |
+
+That is the trade this whole pass was making, stated as a number for the first time: the game got
+harder for a player who ignores it and no harder for one who uses it. It is now its own assertion —
+`reading the play beats hammering one button` — so if coverage ever stops rewarding the read and
+starts taxing everybody, a harness says so instead of a person noticing months later.
+
+### 12.10 What is still open
 
 - **First downs are 4.3, not the 8–12 that would make the chain a pulse.** Up from 3.8, having gone
   the wrong way twice on the road there, but drives still average 3.1 plays and still score too
@@ -1257,9 +1299,11 @@ though short yardage still converts worst rather than best.
 - **The quick game still only gains 2.2 yards a play on 2 calls a game.** The hot read took its sack
   rate from 33 % to 20 % but did not make the concept gain, and the caller still rarely picks it. A
   whole concept family effectively out of the game.
-- **Third and short still converts worst**, at 15 % against 28 % on third and long. The 5×
-  inversion is gone and the curve is monotonic, but in football third-and-1 should be the easiest
-  down there is.
+- **Third and short still converts worst**, at about 14–21 % against 31 % on third and long. The 5×
+  inversion is gone and forward progress narrowed it further, but in football third-and-1 should be
+  the easiest down there is, and here it is not.
+- **Screens measure −0.18 yards a play** on half a call a game. The concept is broken and the play
+  caller, now that it rates honestly, has stopped calling it — the same failure the quick game has.
 - **Sacks are 4.3 a game against a 4–9 band.** The hot read bought the quick game's life with sack
   pressure and the margin is now thin.
 - **Runs still lose yardage on roughly a quarter of carries** even with all seven blockers working,

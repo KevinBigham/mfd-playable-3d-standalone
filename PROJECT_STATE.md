@@ -29,12 +29,24 @@ timing landmark, which on quick concepts lands around 0.9–1.3 s — while the 
 concepts landed at **0.68 s**. On a third of quick snaps he was on the ground before the code let
 him look at a receiver. There is a hot read now: immediate pressure overrides the landmark.
 
-Over 200 games: first downs 3.8 → 4.6, combined points 52.4 → 54.0, plays 59.6 → 56.0, sacks
-6.9 → 4.3, interceptions 2.4 → 2.7, rules violations 0 → 0. Third-down conversion by distance went
-from a 5× inversion (7 % short, 36 % long) to monotonic (15 / 20 / 23 / 28), and goal-to-go from
-8 % to 18 %. Every balance target in range, two of them thin. The milestone's headline goal — a
-chain with a pulse — is **improved, not met**: drives still average 3.0 plays. Three other
-hypotheses were tested and rejected along the way (QA_REPORT.md §12).
+And finally forward progress, which the game did not have: the ball was spotted wherever the
+carrier's body came to rest, and a tackle blends the tackler's momentum into the carrier, so a
+runner met head-on was driven backwards and then charged for it. Progress is armed at first contact
+— arming it at the snap spotted every sack at the line and took sacks out of the game entirely, 0.0
+a game in a 200-game batch.
+
+Over 200 games: first downs 3.8 → 4.4, combined points 52.4 → 54.2, plays 59.6 → 55.6, sacks
+6.9 → 4.1, interceptions 2.4 → 2.9, rules violations 0 → 0. Third-down conversion by distance went
+from a 5× inversion (7 % short, 36 % long) to roughly flat, and goal-to-go from 8 % to 19-24 %.
+Every balance target in range, two of them on their floor and flagged as such. The milestone's
+headline goal — a chain with a pulse — is **improved, not met**: drives still average about 3
+plays. Three other hypotheses were tested and rejected along the way (QA_REPORT.md §12).
+
+The human probe caught the cost: after the coverage work a scripted human who hammers one receiver
+button gained 113 yards and scored nothing, down from 214 and 14 points. Changing only which
+receiver he throws to — the one the play names as its primary read — produced 271 yards and 21
+points in the same harness on the same seed. The game got harder for a player who ignores it and no
+harder for one who uses it, and that contrast is now its own assertion.
 
 **M14 — one button, two actions.** Reported from play as "the ball starts with the WR on Ripcord
 Mesh". ACTION snaps the ball and ACTION throws it, and both were resolving in the same tick, so the
@@ -99,9 +111,10 @@ how the game *moves*, measured by two new harnesses rather than asserted.
 Full detail in QA_REPORT.md. Headline numbers:
 
 - 200-game CPU-vs-CPU batch: 100 % completion, **0 rules violations**, **0 watchdog trips**.
-- 54.0 combined points, 56.0 plays, 7.7 touchdowns, 2.7 interceptions, 4.6 first downs per team.
-- Home/away split 27.6 / 26.5 across the batch — no directional bias. 9 of 200 needed overtime.
-- 256 ms to simulate a full game headless.
+- 54.2 combined points, 55.6 plays, 7.8 touchdowns, 2.9 interceptions, 4.4 first downs per team.
+- Home/away split 27.4 / 26.8 across the batch — no directional bias. 11 of 200 needed overtime.
+- 262 ms to simulate a full game headless.
+- Scripted human on the sticks: 19/19 checks, 271 yards and 21 points reading the play.
 - Every balance target in range except first downs, which is stated as a miss rather than omitted.
 - Browser smoke: **19/19**. Unit tests **214/214**. Scene at HIGH: **40 draw calls, 210 k
   triangles** against a 180 / 420 k budget — the whole graphics pass cost one draw call.
@@ -233,6 +246,12 @@ Full detail in QA_REPORT.md. Headline numbers:
     the belief, then tune.
 38. **Screenshots do not belong in git.** PNGs do not delta-compress: 30 commits of a regenerable
     capture set cost 736 MB of history for a repo whose source is under 2 MB.
+39. **A rule needs its precondition, not just its effect.** Forward progress spotted at the furthest
+    advance is correct; forward progress armed at the SNAP spotted every sack at the line and took
+    sacks from 4.3 a game to 0.0. It protects a runner being driven back, not a passer retreating.
+40. **When a harness fails after a change, ask what the harness is a model OF.** The scripted human
+    hammered one receiver button on every concept. That is not "a player", it is the one player the
+    change was supposed to stop rewarding. The same script reading the play scored 21 instead of 0.
 
 ## ACTIVE BLOCKERS
 
@@ -260,8 +279,9 @@ None.
   question: 15 a game, 3.1 plays each. Improved twice in M15, not solved.
 - Third and short still converts worst (15 % against 28 % on third and long). The 5× inversion is
   gone and the curve is monotonic, but in football third-and-1 should be the easiest down there is.
-- The quick game gains 2.2 yd/play on about 2 calls a game. The hot read cut its sack rate from
-  33 % to 20 % but did not make the concept gain. A whole concept family effectively out of use.
+- The quick game gains about 3.5 yd/play on 2 calls a game and screens measure below zero on half a
+  call. Both concept families are effectively out of use: the caller rates them honestly now and
+  declines them. They need the work the run game just got.
 - Plays per game 56.0 against a 55 floor and sacks 4.3 against a 4 floor: both in band, neither with
   margin.
 
