@@ -110,7 +110,7 @@ produce different games. RNG reseeds deterministically, stays in `[0,1)`, is unb
 | **safeties** | **0.13** | ≤ 1 | **pass — was 2.96; see §10** |
 | Overdrive activations | 1.2 | ≥1 | pass |
 | field goals / punts | 0.9 / 1.9 | — | — |
-| first downs / team | **4.6** | 8–12 wanted | **fail — see §12** |
+| first downs / team | **2.3** | 8–12 wanted | **fail — see §12 and the unit note below** |
 | ties | 0 | 0 | pass |
 | overtimes | 7 / 200 | — | — |
 | wall clock | **256 ms per game** | — | — |
@@ -126,6 +126,17 @@ drift.
 Re-measured after §12. The only target this table misses is one it did not used to state at all:
 first downs. It is written in now, with the number it actually produces, because a balance table
 that only lists the rows it passes is a marketing document.
+
+> **Unit correction, 2026-08-02 — every "first downs / team" figure in this document before this
+> line is a both-teams figure.** `simulateBatch` summed both teams into `avgFirstDowns` and divided
+> by games only, on the line directly above the passing and rushing yards that *do* divide by two.
+> Every row that says "/ team" is therefore double the real per-team number. The row above has been
+> corrected to **2.3** (4.6 across both teams, 200 games, PRO, 2:00 quarters); the historical rows
+> further down are left as they were measured, because rewriting a log destroys it — read them as
+> both-teams and halve them. The field is now `avgFirstDownsBothTeams` / `avgFirstDownsPerTeam`,
+> and `tools/sim.ts` prints the unit beside every number so this cannot recur. The consequence is
+> not cosmetic: **the drive-rhythm failure was twice as severe as this report said for all of M15**,
+> and the gap to the 8–12 band is a factor of four, not two.
 
 ### Why the scoring band moved down during hardening
 
@@ -1429,9 +1440,11 @@ inside the catch radius plus a stride.
 
 ### 12.13 What is still open
 
-- **First downs are 4.3, not the 8–12 that would make the chain a pulse.** Up from 3.8, having gone
-  the wrong way twice on the road there, but drives still average 3.1 plays and still score too
-  often for a chain to come up. Better, not solved.
+- **First downs are 2.3 per team, not the 8–12 that would make the chain a pulse.** Written here as
+  4.3 until the unit correction above; that was both teams, and the real per-team figure is half of
+  it. Up from 1.9, having gone the wrong way twice on the road there, but drives still average 3.1
+  plays and still score too often for a chain to come up. Better, not solved, and further from
+  solved than this line used to say.
 - **Third and 9–16 converts 4 %** — a hole in the middle of the distance curve that neither the
   quick game nor the deep shot covers. Short yardage and long yardage both work now; the middle
   does not.

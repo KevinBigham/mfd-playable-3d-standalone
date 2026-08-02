@@ -293,9 +293,19 @@ None.
   (QA_REPORT.md §12.11); the rest is structural — stride length is derived from smoothed ground
   speed, so a cadence mismatch scrubs the shoe. Removing it needs world-space foot placement and a
   leg solved to reach it, which is a different architecture for the pose layer.
-- **First downs are still rare at 4.3 per team per game.** Not the chain — `FIRST_DOWN_YARDS` was
-  swept at 30 / 24 / 20 and first downs measured 3.6 / 3.6 / 3.4. Drives end before the chain is in
-  question: 15 a game, 3.1 plays each. Improved twice in M15, not solved.
+- **First downs are rare at 2.3 per team per game** — 4.6 across both teams, over 200 games at
+  PRO on 2:00 quarters. This entry used to read "4.3 per team". It was wrong: `simulateBatch`
+  summed both teams into `avgFirstDowns` and divided by games only, one line above the passing
+  and rushing yards that *do* divide by two, and the combined figure was quoted here as a
+  per-team one. The field is now `avgFirstDownsBothTeams` / `avgFirstDownsPerTeam` and
+  `tools/sim.ts` prints the unit next to every number. **The problem is twice as bad as this
+  document claimed for the whole of M15.** The sweep numbers below are on the old scale and are
+  believed to be combined too; re-measure before trusting them.
+  Not the chain — `FIRST_DOWN_YARDS` was swept at 30 / 24 / 20 and first downs measured
+  3.6 / 3.6 / 3.4, i.e. shortening it slightly *hurt*. Drives end before the chain is in
+  question: 16.9 a game, 3.14 plays each, and 13.6 of them end in a touchdown, a turnover or a
+  safety. Roughly 80 % of drives never reach a chain decision at all, which is why moving the
+  marker does nothing. Improved twice in M15, not solved.
 - Third and short still converts worst (15 % against 28 % on third and long). The 5× inversion is
   gone and the curve is monotonic, but in football third-and-1 should be the easiest down there is.
 - Ball placement on a human throw is shipped **unverified**: the stick that places the ball is the

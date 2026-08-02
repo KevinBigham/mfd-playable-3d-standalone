@@ -33,11 +33,12 @@ wall               ${secs}s total, ${f(s.avgWallMs)}ms per game
 score              home ${f(s.avgHome)}  away ${f(s.avgAway)}  combined ${f(s.avgTotal)}  [${s.minTotal}..${s.maxTotal}]
 ties / overtimes   ${s.ties} / ${s.overtimes}
 shutouts/blowouts  ${s.shutouts} / ${s.blowouts}
-plays per game     ${f(s.avgPlays)}       first downs ${f(s.avgFirstDowns)}
+plays per game     ${f(s.avgPlays)} both teams
+first downs        ${f(s.avgFirstDownsPerTeam)} per team, ${f(s.avgFirstDownsBothTeams)} both teams
 yards per team     pass ${f(s.avgPassYds)}  rush ${f(s.avgRushYds)}
-turnovers          ints ${f(s.avgInts)}  forced fumbles ${f(s.avgFumbles)}
-sacks              ${f(s.avgSacks)}        overdrives ${f(s.avgOverdrives)}
-touchdowns         ${f(s.avgTouchdowns)}        field goals ${f(s.avgFieldGoals)}   punts ${f(s.avgPunts)}   safeties ${f(s.avgSafeties, 2)}
+turnovers          ints ${f(s.avgInts)}  forced fumbles ${f(s.avgFumbles)}   both teams
+sacks              ${f(s.avgSacks)}        overdrives ${f(s.avgOverdrives)}   both teams
+touchdowns         ${f(s.avgTouchdowns)}        field goals ${f(s.avgFieldGoals)}   punts ${f(s.avgPunts)}   safeties ${f(s.avgSafeties, 2)}   both teams
 watchdogs          ${s.totalWatchdogs}
 violations         ${s.violations.length}
 ────────────────────────────────────────────────────────`);

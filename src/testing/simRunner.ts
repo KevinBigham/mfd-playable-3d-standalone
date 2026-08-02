@@ -72,7 +72,15 @@ export interface BatchSummary {
   ties: number;
   overtimes: number;
   avgPlays: number;
-  avgFirstDowns: number;
+  /**
+   * First downs are two different numbers and the old single `avgFirstDowns` field was the
+   * first of them while every document quoted it as the second. It summed both teams, sat one
+   * line above `avgPassYds`/`avgRushYds` which divide by two, and PROJECT_STATE.md reported the
+   * result as "4.3 per team" when the per-team figure was half that. Both units are named here
+   * so that no reader has to go and find the denominator.
+   */
+  avgFirstDownsBothTeams: number;
+  avgFirstDownsPerTeam: number;
   avgPassYds: number;
   avgRushYds: number;
   avgSacks: number;
@@ -138,7 +146,8 @@ export function simulateBatch(count: number, seed0 = 1000, opts: SimOptions = {}
     avgTotal: totals.reduce((a, b) => a + b, 0) / n,
     minTotal: Math.min(...totals), maxTotal: Math.max(...totals),
     ties, overtimes: ots,
-    avgPlays: sum.plays / n, avgFirstDowns: sum.fd / n,
+    avgPlays: sum.plays / n,
+    avgFirstDownsBothTeams: sum.fd / n, avgFirstDownsPerTeam: sum.fd / n / 2,
     avgPassYds: sum.pass / n / 2, avgRushYds: sum.rush / n / 2,
     avgSacks: sum.sacks / n, avgInts: sum.ints / n, avgFumbles: sum.fum / n,
     avgOverdrives: sum.od / n, avgTouchdowns: sum.td / n,
