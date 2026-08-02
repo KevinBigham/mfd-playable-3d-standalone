@@ -1393,7 +1393,41 @@ cadence and the actual travel scrubs the shoe. Removing it needs the contact poi
 space and the leg solved to reach it, which is a different architecture for the pose layer rather
 than a tuning of this one.
 
-### 12.12 What is still open
+### 12.12 A throw you cannot place is a throw you cannot be good at
+
+Following §12.9 to its end: if reading the play is not worth more than hammering one button, what
+*is* the player doing? Twenty games per arm, same scripted human, changing only what he does with
+the throw:
+
+| what the player decides | yards / game | points / game |
+|---|---|---|
+| picks the play's named primary read | 216 | 9.9 |
+| picks the receiver **and** the throw type (lob deep, bullet into tight windows) | 232 | 9.9 |
+| hammers one button, ignores the play entirely | 224 | **12.4** |
+
+**Nothing the player did changed the outcome.** The passing game was: pick WHO, and the simulation
+does everything else — solves the lead, rolls for accuracy, delivers. That is not a difficulty
+problem, it is a *skill expression* problem, and it is the honest reason the human offence got
+weaker when coverage got better and nothing the player knew could win it back.
+
+So the throw can now be placed. Holding the stick at the moment of release moves the ball off the
+solved lead point — out in front of him, back-shoulder, away from the defender's side — bounded and
+scaled by how far the ball has to travel, so it is a nudge on a five-yard flat and a real decision
+on a forty-yard post. Icon passing only: in directional mode the stick is already spoken for.
+
+**This is shipped unverified, and that is stated rather than buried.** I could not demonstrate a
+benefit in the harness, for a reason worth writing down: *the stick that places the ball is the
+stick that moves the quarterback*, so a script that holds it to place a throw also drags its passer
+around the pocket for the frames before the ball goes. Every version of that experiment I ran
+measured the dragging rather than the placing. A person with a controller will know inside five
+minutes whether it feels right; a script cannot tell me.
+
+What I can say with confidence is that it costs nothing to be wrong about: the AI passes no
+placement, so CPU-versus-CPU balance is untouched (54.3 points, 4.6 first downs, 0 violations over
+120 games, all within noise of the run before it), and the offset is capped at 3.2 yards, which is
+inside the catch radius plus a stride.
+
+### 12.13 What is still open
 
 - **First downs are 4.3, not the 8–12 that would make the chain a pulse.** Up from 3.8, having gone
   the wrong way twice on the road there, but drives still average 3.1 plays and still score too
@@ -1415,9 +1449,9 @@ than a tuning of this one.
 - **Sacks are 4.3 a game against a 4–9 band.** The hot read bought the quick game's life with sack
   pressure and the margin is now thin.
 - **The human offence is measurably weaker than before the coverage work** — about 200 yards and 10
-  points a game against 214 and 14 — and reading the play does not recover it (§12.9). The defensive
-  fixes are right on their own terms; what is missing is a way for a player's skill to matter more
-  than it currently does.
+  points a game against 214 and 14 — and neither reading the play nor choosing the throw type
+  recovers it (§12.9, §12.12). Ball placement is a first answer and is **unverified**; the input
+  conflict it has with quarterback movement is real and unresolved.
 - **Feet still slip about a yard a second even running straight** (§12.11), which needs world-space
   foot placement rather than a body-frame solve.
 - **Runs still lose yardage on roughly a quarter of carries** even with all seven blockers working,

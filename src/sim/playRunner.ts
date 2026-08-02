@@ -4,7 +4,8 @@ import type {
 import { Action, has } from '../input/actions.ts';
 import {
   FIELD_HALF_WIDTH, MOVE_TICKS, TURBO_COST, LEAD_TIME_SCALE, PASS_SPEED,
-  OVERDRIVE_ACCURACY, PASS_ERROR_NEAR, PASS_ERROR_PER_YARD, s, FIXED_DT, MOMENTUM_YARDS,
+  OVERDRIVE_ACCURACY, PASS_ERROR_NEAR, PASS_ERROR_PER_YARD,
+  PLACE_NEAR, PLACE_PER_YARD, PLACE_MAX, s, FIXED_DT, MOMENTUM_YARDS,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist, heading, angDelta } from '../core/math.ts';
 import type { World } from './world.ts';
@@ -182,7 +183,31 @@ export function estimateFlight(fromX: number, fromZ: number, toX: number, toZ: n
   return Math.max(0.14, d / (PASS_SPEED[kind] || PASS_SPEED.NORMAL));
 }
 
-export function throwTo(w: World, qb: Athlete, receiver: Athlete, kind: PassKind, aimErrorYd = 0): void {
+/**
+ * Throw the ball at a receiver, optionally placed.
+ *
+ * `placeX`/`placeZ` are the passer's own steering at the moment of release, −1..1 in world axes.
+ * They move the ball off the solved lead point — out in front of him, back-shoulder, or away from
+ * the defender's side — and they exist because of a measurement rather than a wish.
+ *
+ * Twenty games of a scripted human per arm, changing only what the player does with the throw:
+ *
+ *     picks the play's named primary read   216 yards, 9.9 points a game
+ *     picks the receiver AND the throw type 232 yards, 9.9 points
+ *     hammers one button, ignores the play  224 yards, 12.4 points
+ *
+ * Nothing the player did changed the outcome. The passing game was picking WHO and the simulation
+ * did everything else — solved the lead, applied the accuracy roll, and delivered. A throw you
+ * cannot place is a throw you cannot be good at, and that is the difference between a game that
+ * rewards learning it and one that plays itself.
+ *
+ * Bounded, and scaled by how far the ball has to travel: placement is a nudge on a five-yard flat
+ * and a real decision on a forty-yard post, which is also how it works with an actual football.
+ */
+export function throwTo(
+  w: World, qb: Athlete, receiver: Athlete, kind: PassKind,
+  aimErrorYd = 0, placeX = 0, placeZ = 0,
+): void {
   // Solve the lead point: the ball has to arrive where the receiver WILL be, and the
   // flight time depends on that point, so iterate to a fixed point.
   let tx = receiver.x;
@@ -191,6 +216,13 @@ export function throwTo(w: World, qb: Athlete, receiver: Athlete, kind: PassKind
     const ft = estimateFlight(qb.x, qb.z, tx, tz, kind);
     tx = receiver.x + receiver.vx * ft * LEAD_TIME_SCALE;
     tz = receiver.z + receiver.vz * ft * LEAD_TIME_SCALE;
+  }
+  const pm = Math.hypot(placeX, placeZ);
+  if (pm > 0.15) {
+    const reach = Math.hypot(tx - qb.x, tz - qb.z);
+    const k = Math.min(1, pm) * clamp(PLACE_NEAR + reach * PLACE_PER_YARD, 0, PLACE_MAX) / Math.max(pm, 1e-6);
+    tx += placeX * k;
+    tz += placeZ * k;
   }
   const acc = qb.def.ratings.accuracy * (qb.onFire ? OVERDRIVE_ACCURACY : 1);
   const baseErr = clamp(1.9 - acc / 70, 0.05, 2.2) + aimErrorYd;
@@ -282,7 +314,9 @@ export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
       if (tgt >= 0) {
         const kind: PassKind = turbo ? 'BULLET' : has(it.held, Action.LOB) ? 'TOUCH' : 'NORMAL';
         if (kind === 'BULLET') spendTurbo(a, TURBO_COST.BULLET);
-        throwTo(w, a, w.athletes[tgt], kind);
+        // The stick at the moment of release places the ball. Icon passing only: in directional
+        // mode the stick is already spoken for — it is how you picked the receiver.
+        throwTo(w, a, w.athletes[tgt], kind, 0, it.moveX, it.moveZ);
         return;
       }
       // Directional passing: stick picks the receiver whose bearing best matches.

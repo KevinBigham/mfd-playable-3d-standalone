@@ -123,6 +123,15 @@ export const LEAD_TIME_SCALE = 0.92;
  */
 export const PASS_ERROR_NEAR = 0.60;
 export const PASS_ERROR_PER_YARD = 0.0275;
+/**
+ * Ball placement. How far a passer can move the ball off the solved lead point by holding the stick
+ * at release: `PLACE_NEAR + range * PLACE_PER_YARD`, capped at `PLACE_MAX` yards. A nudge on a
+ * short throw, a real decision on a deep one, and never enough to throw it somewhere the receiver
+ * cannot get to — the cap is inside the catch radius plus a stride.
+ */
+export const PLACE_NEAR = 0.6;
+export const PLACE_PER_YARD = 0.055;
+export const PLACE_MAX = 3.2;
 
 // ── bobbles ────────────────────────────────────────────────────────────────
 // A failed catch that juggles instead of dying. These are chances that a DROP becomes a bobble,

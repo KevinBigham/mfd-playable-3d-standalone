@@ -298,6 +298,13 @@ None.
   question: 15 a game, 3.1 plays each. Improved twice in M15, not solved.
 - Third and short still converts worst (15 % against 28 % on third and long). The 5× inversion is
   gone and the curve is monotonic, but in football third-and-1 should be the easiest down there is.
+- Ball placement on a human throw is shipped **unverified**: the stick that places the ball is the
+  stick that moves the quarterback, so no script can measure it honestly (QA_REPORT.md §12.12). It
+  cannot affect CPU-versus-CPU play — the AI passes no placement — but whether it feels good needs
+  a person with a controller.
+- Nothing the player decides about a throw measurably changes the outcome: over 20 games per arm,
+  reading the play, choosing the throw type and hammering one button all landed within noise of
+  each other. That is a skill-expression gap, not a difficulty setting.
 - Screens still measure about zero on half a call a game. The quick game recovered to 6.2 yd/play
   once BLOCK-node holds started expiring, but screens did not, and the sample is small enough
   (about 19 plays over 24 games) that the number is not yet trustworthy either way.
