@@ -6,6 +6,11 @@
 
 ## CURRENT MILESTONE
 
+**M14 — one button, two actions.** Reported from play as "the ball starts with the WR on Ripcord
+Mesh". ACTION snaps the ball and ACTION throws it, and both were resolving in the same tick, so the
+pass left the quarterback's hand at playTicks=0 — before the play had run a frame. Eleven of the
+twenty-seven offensive plays were affected; the run formations pitched instead of threw.
+
 **M13 — special teams, and the safety that was never a safety.** The 2.96 safeties a game that had
 sat in the limitations list for two milestones were not a balance problem at all: 94% of them were
 kick returners, and four stacked faults in the kick-return code were producing them. Now 0.12 a
@@ -163,6 +168,14 @@ Full detail in QA_REPORT.md. Headline numbers:
     where — answered it in a single run.
 25. **A test whose name does not match its assertion is worse than no test.** `dead ball never
     scores` ticked six seconds and compared the score; six seconds contains two more snaps.
+26. **When one button does two things, the first one must CONSUME the press.** ACTION snaps and
+    ACTION throws; both resolved in the same tick and the ball left at playTicks=0.
+27. **`applyActions` runs during PRE-SNAP too.** Anything that touches the ball has to check for a
+    live one, not just assume it. Gating the throw alone simply moved the bug to the lateral.
+28. **A harness that always releases a button has never tested a thumb.** Every snap check let go
+    of ACTION before doing anything else, which is why 17/17 coexisted with this.
+29. **When a check breaks after a fix, ask whether it was passing for the right reason.** "A human
+    offence scores" had been passing because the scripted human was exploiting the bug.
 
 ## ACTIVE BLOCKERS
 

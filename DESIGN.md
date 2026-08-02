@@ -72,6 +72,11 @@ rather than being swallowed by it. And nobody crosses the line of scrimmage befo
 0.35 yd neutral zone holds both sides — which is a rule, but it is also what stops a player walking
 his quarterback twenty yards downfield and banking them.
 
+**One press, one action.** ACTION picks the play, snaps the ball and throws it, depending on when
+you press it — so each press is consumed by the first thing it does. Snapping with it does not also
+throw, and holding it through the snap does nothing further until you let go. Nothing can be done
+with the ball at all until it has actually been snapped.
+
 **Icon passing** binds the three throw buttons to the receivers' *pre-snap* alignment and keeps that
 binding for the whole play, even when routes cross. That is deliberate: it makes crossing concepts a
 memory test instead of a targeting test, which is the point of them. A **DIRECTIONAL** passing mode

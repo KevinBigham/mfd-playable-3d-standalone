@@ -234,7 +234,13 @@ export function tryLateral(w: World, car: Athlete): boolean {
 export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
   if (!canAct(a)) return;
   const car = carrier(w);
-  const isCarrier = a.hasBall;
+  // Nothing may be DONE with the ball until it has been snapped. This function also runs during
+  // PRE-SNAP, because that is where pre-snap movement comes from, and the snap and the first
+  // ball action share a button: the press that started the play was resolving as a throw — and,
+  // once the throw was blocked, as a lateral — in the very same tick, at playTicks=0. Either way
+  // the ball left the quarterback's hands before the play began and simply appeared in a
+  // receiver's, which is exactly what it looks like from the player's chair.
+  const isCarrier = a.hasBall && w.playPhase === 'LIVE';
   const dir = dirOf(a.side);
   const offenseSide = w.possession;
   const onOffense = a.side === offenseSide;
@@ -242,7 +248,11 @@ export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
   const turbo = has(it.held, Action.TURBO);
 
   if (isCarrier) {
-    const isQb = a.id === w.qbId && !pastLos && !w.passThrown;
+    // A pass requires a snapped ball. `applyActions` runs during PRE-SNAP as well — it has to,
+    // that is where pre-snap movement comes from — and without this the quarterback would throw
+    // on the same press that snapped it, resolving in the same tick, before the play had run a
+    // single frame. From the player's chair the ball simply appeared in a receiver's hands.
+    const isQb = a.id === w.qbId && !pastLos && !w.passThrown && w.playPhase === 'LIVE';
 
     // Icon passing — bound to snap alignment, does not follow crossing routes.
     if (isQb) {

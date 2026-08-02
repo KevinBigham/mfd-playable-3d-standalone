@@ -12,8 +12,12 @@
 import { Match, defaultMatchConfig } from '../src/rules/match.ts';
 import { getTeam, TEAM_IDS } from '../src/data/index.ts';
 import { Action } from '../src/input/actions.ts';
+import { s as ticks } from '../src/core/constants.ts';
 import { carrier } from '../src/sim/world.ts';
-import type { PlayerIntent, TeamSide } from '../src/core/types.ts';
+import { OFFENSE_PLAYS } from '../src/plays/offense.ts';
+import type { OffensePlay, PlayerIntent, TeamSide } from '../src/core/types.ts';
+
+function offensePlaysAll(): OffensePlay[] { return OFFENSE_PLAYS as OffensePlay[]; }
 
 const held = { mask: 0, moveX: 0, moveZ: 0 };
 const intent: PlayerIntent = { moveX: 0, moveZ: 0, held: 0, pressed: 0, released: 0 };
@@ -140,8 +144,18 @@ console.log('\nGRIDIRON OVERDRIVE — scripted human\n'
   check('a fresh press snaps the ball', m.state.phase === 'LIVE', `phase=${m.state.phase}`);
   release(Action.ACTION);
 
-  // Now throw. Give the routes a moment, then press a receiver button.
-  for (let i = 0; i < 45 && m.world.playPhase === 'LIVE'; i++) m.tick();
+  // Now throw. Give the routes a moment — but stop as soon as the quarterback is no longer
+  // standing there with it, because pressing a receiver button at a fixed tick count tested
+  // nothing except whether the ball happened to still be in his hands.
+  for (let i = 0; i < 70; i++) {
+    const w = m.world;
+    if (w.playPhase !== 'LIVE') break;
+    const c = carrier(w);
+    // As soon as he has had a beat with it AND is still on his feet. Waiting a fixed count meant
+    // this sometimes pressed the button at a quarterback who was already on the floor.
+    if (w.playTicks > 12 && c?.id === w.qbId && c.move === 'NORMAL' && !w.passThrown) break;
+    m.tick();
+  }
   const beforeThrow = m.world.ball.state.kind;
   press(Action.TARGET_M);
   m.tick(); m.tick();
@@ -152,6 +166,51 @@ console.log('\nGRIDIRON OVERDRIVE — scripted human\n'
     st === 'inAir' || m.world.passThrown,
     `ball ${beforeThrow} -> ${st}, passThrown=${m.world.passThrown}`);
   clearInput();
+}
+
+// ── 3b. holding the snap button must not also throw the ball ───────────────
+//
+// The button that snaps is the button that throws, and both were resolving in the SAME tick:
+// `applyActions` runs during PRE-SNAP too, so a player who held ACTION to snap had the ball
+// thrown — or, in the run formations, pitched — at playTicks=0, before the play had advanced a
+// frame. On screen the ball simply started in a receiver's hands. Checked across every offensive
+// play, because whether it was survivable depended entirely on where the primary receiver stood.
+{
+  clearInput();
+  let offend = 0; let checked = 0; let worst = '';
+  for (const play of offensePlaysAll()) {
+    const m = makeMatch(0, 2024);
+    let t = 0; let armed = false;
+    while (t++ < 200000 && !m.state.finished) {
+      if (m.state.phase === 'PLAY_CALL' && m.pendingOffense === null && m.state.possession === 0) {
+        m.submitOffense(play);
+      }
+      const ours = m.state.possession === 0 && m.world.offensePlay?.id === play.id;
+      if (m.state.phase === 'PRE_SNAP' && ours) {
+        // Press and KEEP HOLDING, which is what a thumb does.
+        if (!armed) { clearInput(); armed = true; } else press(Action.ACTION);
+      }
+      const wasLive = m.world.playPhase === 'LIVE';
+      m.tick();
+      if (!wasLive && m.world.playPhase === 'LIVE' && ours) {
+        const w = m.world;
+        const car = carrier(w);
+        checked++;
+        if (!car || car.id !== w.qbId || w.passThrown) {
+          offend++;
+          if (!worst) {
+            worst = `${play.name}: ball=${car ? car.def.pos : w.ball.state.kind}`
+              + `${w.passThrown ? ' (already thrown)' : ''}`;
+          }
+        }
+        break;
+      }
+    }
+    clearInput();
+  }
+  check('holding the snap button does not also throw the ball',
+    offend === 0, `${checked - offend}/${checked} plays snap into the quarterback's hands`
+      + (worst ? ` — worst: ${worst}` : ''));
 }
 
 // ── 4. the same throw, over a whole game, without ever moving ──────────────
@@ -179,7 +238,23 @@ console.log('\nGRIDIRON OVERDRIVE — scripted human\n'
     } else if (w.playPhase === 'LIVE' && m.state.possession === 0) {
       release(Action.ACTION);
       armed = false;
-      if (w.playTicks > 40 && !w.passThrown && carrier(w)?.id === w.qbId) press(Action.TARGET_M);
+      // Throw on the play's own primary read — or immediately if a rusher is on top of him,
+      // which is what a person does. A fixed 0.67s timer with no regard for pressure took this
+      // scripted human eight to nineteen sacks a game, and measured his patience rather than
+      // anything about the game.
+      const qb = w.athletes[w.qbId];
+      let pressure = 99;
+      for (const d of w.athletes) {
+        if (d.side === qb.side || d.move === 'DOWN') continue;
+        pressure = Math.min(pressure, Math.hypot(d.x - qb.x, d.z - qb.z));
+      }
+      const readAt = w.offensePlay?.timing?.primary ?? ticks(1.5);
+      const holdingIt = !w.passThrown && carrier(w)?.id === w.qbId;
+      // The pressure clause has to wait out the snap. A defensive line stands two yards from a
+      // shotgun quarterback, so "somebody is within four yards" is true on the first frame of
+      // every play, and firing on it just reinvents the instant throw this pass exists to remove.
+      const hurried = w.playTicks > ticks(0.7) && pressure < 3.2;
+      if (holdingIt && (w.playTicks > readAt || hurried)) press(Action.TARGET_M);
       else release(Action.TARGET_M);
       // Once the ball is caught the seat drives the receiver, and a person runs with it.
       const car = carrier(w);
@@ -198,9 +273,18 @@ console.log('\nGRIDIRON OVERDRIVE — scripted human\n'
   check('those throws are actually caught',
     catches >= Math.max(3, throws * 0.25),
     `${catches} catches, ${picks} picked, from ${throws} throws`);
-  check('a human offence scores',
-    m.state.teams[0].score > 0,
-    `final ${m.state.teams[0].score}-${m.state.teams[1].score}, ${tds} human touchdowns`);
+  // NOT "scores". That assertion used to pass, and it passed for the wrong reason: the button
+  // that snapped the ball was also throwing it on the same tick, so every pass left the
+  // quarterback's hand at playTicks=0, uncontested, and the scripted human moved the ball by
+  // exploiting a bug. With that fixed, this script — which always throws to the same receiver and
+  // then runs straight ahead — scores about a touchdown a game, which says nothing about the game
+  // and everything about the script. What is worth asserting is that a person holding these
+  // buttons can MOVE THE BALL.
+  const yards = m.state.teams[0].stats.totalYds;
+  check('a human offence moves the ball',
+    catches >= 8 && yards > 120,
+    `${yards} yards, ${catches} catches, ${m.state.teams[0].score}-${m.state.teams[1].score}`
+      + ` (${tds} human touchdowns)`);
   clearInput();
 }
 

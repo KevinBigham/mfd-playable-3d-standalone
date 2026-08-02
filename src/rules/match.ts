@@ -103,6 +103,17 @@ export class Match {
   private snapArmed = false;
   private snapHeldPrev = true;
   private snapRequested = false;
+  /**
+   * Seats whose ACTION press was spent on the snap, and which must release it before that button
+   * means anything again.
+   *
+   * ACTION snaps the ball AND throws it, and both were resolving on the same tick: the snap flips
+   * the phase to LIVE inside `tickPreSnap`, and `stepPlay` then ran in the same tick with the same
+   * intent still carrying a fresh ACTION edge. The quarterback threw on playTicks=0, before a
+   * single frame of the play had run, so the ball simply appeared in a receiver's hands. One
+   * button, one action.
+   */
+  private actionSpent = new Set<number>();
 
   constructor(opts: MatchOptions) {
     this.config = opts.config;
@@ -140,7 +151,12 @@ export class Match {
         const a = w.athletes[id];
         if (a.controlledBySeat >= 0) {
           const src = self.seatIntent(a.controlledBySeat);
-          if (src) { out.moveX = src.moveX; out.moveZ = src.moveZ; out.held = src.held; return; }
+          if (src) {
+            out.moveX = src.moveX; out.moveZ = src.moveZ;
+            out.held = self.actionSpent.has(a.controlledBySeat)
+              ? src.held & ~Action.ACTION : src.held;
+            return;
+          }
           out.moveX = 0; out.moveZ = 0; out.held = 0;
           return;
         }
@@ -281,6 +297,15 @@ export class Match {
   tick(): void {
     const m = this.state;
     const w = this.world;
+    // A spent ACTION is only released by the player letting go of it. Checked here rather than
+    // where the intent is read, because a seat that is not driving anybody this tick would
+    // otherwise never get the chance to clear the latch.
+    if (this.actionSpent.size > 0) {
+      for (const seat of [...this.actionSpent]) {
+        const it = this.seatIntent(seat);
+        if (!it || !has(it.held, Action.ACTION)) this.actionSpent.delete(seat);
+      }
+    }
     if (m.finished) {
       // FINAL is reached only through `finish()`, which sets `finished` first, so the phase
       // switch below can never see it. Without this the final screen is fourteen statues with
@@ -522,6 +547,11 @@ export class Match {
 
   private doSnap(): void {
     const w = this.world;
+    // Whoever is holding ACTION right now spent it on this snap.
+    for (const seat of this.seatsFor(this.state.possession)) {
+      const it = this.seatIntent(seat);
+      if (it && has(it.held, Action.ACTION)) this.actionSpent.add(seat);
+    }
     snap(w);
     // Coverage defenders need longer to diagnose a run than to react to a throw;
     // that difference is what makes designed runs viable at all.

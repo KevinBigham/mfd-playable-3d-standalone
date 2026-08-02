@@ -885,7 +885,67 @@ spends trust it has not earned.
 
 ---
 
-## 11. WHAT WAS RUN TO PRODUCE THIS
+## 11. ONE BUTTON, TWO ACTIONS, ONE TICK
+
+Reported from play: *"on some plays the ball starts with the WR instead of allowing me to pass it —
+specifically the offensive play Ripcord Mesh."*
+
+It was not Ripcord Mesh, and it was not the receiver. Measured at the exact instant of the snap,
+across twelve reps on both sides of the ball:
+
+```
+  side 0 g0: ball=NONE state=inAir passThrown=true handedOff=false playTicks=0 ctrl=QB
+```
+
+`passThrown=true` at **playTicks=0**. The ball was being thrown on the very first frame of the
+play, before a single tick of it had run — so it simply materialised in a receiver's hands with no
+throw the player ever made.
+
+**ACTION snaps the ball and ACTION throws it, and both were resolving in the same tick.**
+`applyActions` runs during PRE-SNAP as well as LIVE — it has to, because that is where pre-snap
+movement comes from — so the press that flipped the phase to LIVE was still carrying a live ACTION
+edge when the carrier logic ran immediately afterwards.
+
+Fixing the throw exposed the same fault wearing a different hat: with `isQb` gated on a live ball,
+the identical press fell through to the *carrier* branch, where ACTION means **lateral backwards**,
+and eleven of the twenty-seven offensive plays began with the quarterback pitching the ball at
+playTicks=0 instead of throwing it. The fix is the general statement rather than either special
+case: **nothing may be done with the ball until it has been snapped.**
+
+| | before | after |
+|---|---|---|
+| plays whose snap put the ball anywhere but the quarterback's hands | **11 of 27** | **0 of 27** |
+| Ripcord Mesh, ball thrown at playTicks=0 | 36 of 36 reps | 0 of 36 |
+
+The snap press is also now *consumed*: a seat that snapped with ACTION must release it before that
+button means anything again, so holding the button through a snap — which is what a thumb does —
+cannot produce a second action.
+
+### The harness had this covered, and was wrong about it
+
+`npm run human` reported 17/17 the whole time. It never held the snap button, because every check
+that snapped politely released ACTION before doing anything else. A real thumb does not. There is
+now a check that holds it, across **every** offensive play, because whether the bug was survivable
+depended entirely on where that play's primary receiver happened to stand — which is exactly why it
+looked like a bug in one specific play.
+
+Two of that harness's existing checks then failed, and neither was a regression:
+
+- **`pressing a receiver button throws the ball`** pressed at a fixed tick count, which sometimes
+  aimed the press at a quarterback who was already on the floor. It now waits for a quarterback who
+  is on his feet and still holding it.
+- **`a human offence scores`** had been passing *because of the bug*. Every pass was leaving the
+  quarterback's hand uncontested at playTicks=0, so the scripted human was moving the ball by
+  exploiting it. With that gone, a script that always throws to the same receiver on a fixed timer
+  took **eight to nineteen sacks a game** and scored nothing. That measures the script, not the
+  game. It is replaced by `a human offence moves the ball` (211 yards, 19 catches), and the script
+  now throws on the play's own primary-read timing or when a rusher is genuinely on top of the
+  quarterback. CPU-vs-CPU balance was unmoved throughout, which is what said the offence was fine
+  and the strawman was not.
+
+---
+
+## 12. WHAT WAS RUN TO PRODUCE THIS
 
 ```bash
 npm install
@@ -913,7 +973,7 @@ npm run artifact:check   # boots and plays that file in a sandboxed iframe, §8
 
 ---
 
-## 12. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
+## 13. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
 
 Stated as failures rather than omissions:
 
