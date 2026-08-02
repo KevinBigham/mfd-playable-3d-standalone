@@ -100,26 +100,28 @@ produce different games. RNG reseeds deterministically, stays in `[0,1)`, is unb
 | games completed | **200 / 200** | 100 % | pass |
 | rules violations | **0** | 0 | pass |
 | watchdog trips | **0** | 0 | pass |
-| combined points | **54.2** (range 27–92) | 44–60 | pass |
-| home / away | **27.4 / 26.8** | within 4 | pass |
-| plays per game | **55.6** | 55–70 | pass — thin |
-| touchdowns | **7.8** | 5–8 | pass |
-| interceptions | **2.9** | 1.5–4 | pass |
+| combined points | **53.3** (range 27–97) | 44–60 | pass |
+| home / away | **26.9 / 26.5** | within 4 | pass |
+| plays per game | **54.7** | 55–70 | **fail — under by half a play** |
+| touchdowns | **7.7** | 5–8 | pass |
+| interceptions | **2.8** | 1.5–4 | pass |
 | sacks | **4.1** | 4–9 | pass — on the floor, see §12.8 |
-| forced fumbles | 3.2 | — | — |
-| **safeties** | **0.17** | ≤ 1 | **pass — was 2.96; see §10** |
-| Overdrive activations | 1.1 | ≥1 | pass |
+| forced fumbles | 3.1 | — | — |
+| **safeties** | **0.13** | ≤ 1 | **pass — was 2.96; see §10** |
+| Overdrive activations | 1.2 | ≥1 | pass |
 | field goals / punts | 0.9 / 1.9 | — | — |
-| first downs / team | **4.4** | 8–12 wanted | **fail — see §12** |
+| first downs / team | **4.6** | 8–12 wanted | **fail — see §12** |
 | ties | 0 | 0 | pass |
-| overtimes | 11 / 200 | — | — |
-| wall clock | **262 ms per game** | — | — |
+| overtimes | 7 / 200 | — | — |
+| wall clock | **256 ms per game** | — | — |
 
-Two rows are inside their bands with no margin and are called out rather than left to look
-comfortable. Sacks at 4.1 sit on a floor of 4; that is roughly 2.05 per team per game, which is
-close to real football and a long way from the 3.5 this build used to produce, and the change is
-deliberate (§12.8) rather than drift. Plays per game at 55.6 against a floor of 55 is a consequence
-of drives that score faster.
+Two rows miss and one sits on its floor, none of them quietly. **Plays per game fell out of the band
+during this milestone** — 59.6 at the start, 54.7 now — and it is the same unsolved problem as the
+first-down count wearing a different hat: every fix that made the offence better made drives end
+sooner, and a game with fewer, quicker drives has fewer snaps in it. Sacks at 4.1 sit on a floor of
+4, which is about 2.05 per team per game — close to real football and a long way from the 3.5 this
+build used to produce — and that one is a deliberate consequence of the hot read (§12.8) rather than
+drift.
 
 Re-measured after §12. The only target this table misses is one it did not used to state at all:
 first downs. It is written in now, with the number it actually produces, because a balance table

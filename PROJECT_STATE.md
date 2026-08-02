@@ -114,9 +114,11 @@ how the game *moves*, measured by two new harnesses rather than asserted.
 Full detail in QA_REPORT.md. Headline numbers:
 
 - 200-game CPU-vs-CPU batch: 100 % completion, **0 rules violations**, **0 watchdog trips**.
-- 54.2 combined points, 55.6 plays, 7.8 touchdowns, 2.9 interceptions, 4.4 first downs per team.
-- Home/away split 27.4 / 26.8 across the batch — no directional bias. 11 of 200 needed overtime.
-- 262 ms to simulate a full game headless.
+- 53.3 combined points, 54.7 plays, 7.7 touchdowns, 2.8 interceptions, 4.6 first downs per team.
+- Home/away split 26.9 / 26.5 across the batch — no directional bias. 7 of 200 needed overtime.
+- 256 ms to simulate a full game headless.
+- Two targets missed and stated as misses: first downs (4.6 against 8-12 wanted) and plays per game
+  (54.7 against a 55 floor). Both are the same unsolved problem — drives end too soon.
 - Scripted human on the sticks: 19/19 checks, 271 yards and 21 points reading the play.
 - Every balance target in range except first downs, which is stated as a miss rather than omitted.
 - Browser smoke: **19/19**. Unit tests **214/214**. Scene at HIGH: **40 draw calls, 210 k
@@ -296,11 +298,12 @@ None.
   question: 15 a game, 3.1 plays each. Improved twice in M15, not solved.
 - Third and short still converts worst (15 % against 28 % on third and long). The 5× inversion is
   gone and the curve is monotonic, but in football third-and-1 should be the easiest down there is.
-- The quick game gains about 3.5 yd/play on 2 calls a game and screens measure below zero on half a
-  call. Both concept families are effectively out of use: the caller rates them honestly now and
-  declines them. They need the work the run game just got.
-- Plays per game 56.0 against a 55 floor and sacks 4.3 against a 4 floor: both in band, neither with
-  margin.
+- Screens still measure about zero on half a call a game. The quick game recovered to 6.2 yd/play
+  once BLOCK-node holds started expiring, but screens did not, and the sample is small enough
+  (about 19 plays over 24 games) that the number is not yet trustworthy either way.
+- Plays per game is 54.7 against a 55 floor — out of band. It fell from 59.6 over the course of M15:
+  every fix that made the offence better made drives end sooner. Sacks at 4.1 sit on their floor of
+  4 for a different and deliberate reason (the hot read).
 
 ## COMMANDS
 
