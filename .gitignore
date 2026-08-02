@@ -2,6 +2,12 @@
 node_modules/
 dist/
 
+# Screenshots. These are regenerable output, not source — `npm run capture` rebuilds the whole
+# set, and `npm run shot` takes a single frame. They were tracked for a while and it cost 736 MB
+# of history for 30 commits: PNGs do not delta-compress, so every re-capture of a 4 MB image is
+# another 4 MB in the pack forever. Stripped, the same history is 31 MB.
+docs/captures/
+
 # Local noise
 *.log
 .DS_Store
