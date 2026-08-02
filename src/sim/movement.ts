@@ -14,6 +14,26 @@ const LINE_POSITIONS = new Set(['OL', 'DL']);
 
 export function isLineman(a: Athlete): boolean { return LINE_POSITIONS.has(a.def.pos); }
 
+/**
+ * Who is allowed to block right now.
+ *
+ * This used to be `role === 'LINE'`, which meant that in a seven-man game exactly three players
+ * could ever engage a defender. Every run play in the book assigns a lead blocker and a stalk
+ * blocker on top of the three linemen — and both of them ran to a patch of grass and stood there,
+ * because nothing outside the line was permitted to make contact. Measured over ten games, four
+ * and a half of the seven defenders were unblocked at the handoff and the median designed run
+ * gained one yard, with first contact 0.8 yards past the line.
+ *
+ * A man's route says whether he is blocking. The line always is; anybody else is blocking while
+ * his current route node says BLOCK.
+ */
+export function isBlocking(a: Athlete): boolean {
+  if (a.role === 'LINE') return true;
+  const r = a.route;
+  if (!r || a.routeIdx >= r.length) return false;
+  return r[a.routeIdx].action === 'BLOCK';
+}
+
 export function baseSpeed(a: Athlete): number {
   const raw = isLineman(a) ? SPEED_LINE_BASE : SPEED_SKILL_BASE;
   return raw * (1 + (a.def.ratings.speed - 50) * SPEED_RATING_SCALE);

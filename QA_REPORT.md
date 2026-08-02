@@ -945,7 +945,154 @@ Two of that harness's existing checks then failed, and neither was a regression:
 
 ---
 
-## 12. WHAT WAS RUN TO PRODUCE THIS
+## 12. THE MOVE ECONOMY, THE BOBBLE, AND A CHAIN THAT DID NOT MOVE
+
+Three mechanics added, four mechanism-level bugs found and fixed, one design goal **not met**. The
+last part is the important part and it is stated first.
+
+### 12.1 What was added
+
+**The juke.** A short plant and cut off a stick flick plus a modifier. 10 turbo against the spin's
+20, 0.33 s against the spin's 0.52, and deliberately narrow: it beats a defender who has already
+left his feet (86 %) and does almost nothing against a balanced tackler (18 %). A move that is good
+against everything is a button you hold, not a decision.
+
+**Ball protection.** Hold to trade 12 % of top speed, 15 % of turn rate and 45 % of fumble chance.
+Measured 15.32 → 13.49 yd/s (`RUN-004`), which is the 0.88 the constant asks for.
+
+**The bobble.** A failed catch no longer always kills the ball. A contested, bullet or diving drop
+can juggle instead — and a swat can bat the ball *up* rather than down, which is where tipped
+interceptions come from. The ball stays live **in the air**, either team can take it, and because it
+is legally still a forward pass, touching the ground ends the down as incomplete and never as a
+fumble. That distinction is carried by a `tipped` flag on the loose-ball state and honoured in
+`stepBall`, `detectDead` and the AI, which goes **up** for a tipped ball instead of diving under it.
+
+Measured with the new `npm run passprobe` over 8 full games: **2.5 bobbles a game, 85 % of which
+resolve into somebody's hands** rather than falling dead. The man who caused the tip is penalised on
+the recovery — he is simultaneously the closest player to the ball and the worst placed to catch it,
+and without that penalty the defence was recovering two thirds of them.
+
+### 12.2 A test that could not fail
+
+`RUN-004` was green before the feature existed. It measured top speed, then held the protect button
+and measured again — inside the same play. By the second measurement the play was over and the
+carrier was standing still, so it compared **0.11 yd/s against 0.00** and reported a pass.
+
+It now runs both arms as separate matches from the same seed, averages four seeds, and **rejects the
+comparison outright if the control arm never got above 4 yd/s**. A test that cannot fail is not a
+test, and this one had been decorating the matrix.
+
+### 12.3 Four mechanism bugs, found by measuring instead of guessing
+
+Two new instruments were built for this: `npm run driveprobe` (yards and conversions by play
+concept, by down, by distance, with separation at the catch and yards after it) and `npm run
+runprobe` (a run-game autopsy).
+
+**Only three of seven players could block.** `updateBlocking` opened with `if (bl.role !== 'LINE')
+continue`. Every run play in the book assigns a lead blocker and a stalk blocker on top of the three
+linemen, and both of them ran to a patch of grass and stood on it. Measured: **4.6 of 7 defenders
+unblocked**, first contact **0.8 yd past the line**, median designed run **1 yard**. Blocking is now
+decided by the route — the line always blocks, anybody else blocks while his current route node says
+`BLOCK` — and a blocker steers at the biggest **threat to the ball** within reach of his landmark
+rather than at the landmark itself.
+
+> median run **1 → 4 yd** · runs losing yardage **25 % → 1 %** (10-game window) · first contact
+> **0.8 → 1.6 yd** past the line · unblocked defenders **4.6 → 3.5**
+
+**The quarterback's drop depth was a string match on the formation name.** `formation.includes(
+'SHOTGUN') ? 2.5 : 5.5`. Quick Nails is a three-step slant concept out of a formation called SPREAD,
+so the quarterback took a five-and-a-half-yard drop on a play whose entire premise is that the ball
+is gone before the rush arrives — walking backwards, away from his own protection. Quick concepts
+were taking a sack on **22 %** of their snaps and gaining **3.23 yards** against a thirty-yard chain.
+Drop depth now belongs to the concept.
+
+> quick game **3.23 → 5.60 yd/play**, yards after catch **5.24 → 7.75**, completions **48 → 56 %**
+> (20-game window)
+
+**A screen wants the opposite.** Giving screens the same short drop measured **0.54 yd/play** against
+2.60 before — the rush never came upfield, so there was nothing behind it. Screens now sell a deep
+drop at 5.8 yd and measured **3.65**.
+
+**Man coverage never sprinted.** `pursue` decides whether to spend turbo from the distance to the
+point it was handed. In man coverage that point is a landmark a yard or two from the defender's own
+feet, so `closing` was false on every snap of every play and a cornerback **jogged at 9.4 yd/s
+alongside a receiver sprinting at 13.6**. Coverage now matches a receiver who is clearly running,
+while keeping a reserve for the tackle.
+
+**One event was declared, handled, and never emitted.** `down.change` existed in the event union and
+had a case in the audio director since the day it was written. Nothing sent it, so the down-marker
+cue never played and no instrument could see what down a play happened on. It is emitted now — and
+the first thing it revealed was a flaw in the probe reading it, below.
+
+### 12.4 The design goal that was not met
+
+The task was "give the chain a rhythm": 3.3 first downs a game makes a thirty-yard chain a scoring
+gate rather than a pulse. **It was not achieved.** Measured over 120 CPU games before and after the
+entire pass:
+
+| metric | before | after |
+|---|---|---|
+| first downs / team | 3.8 | **3.6** |
+| combined points | 52.4 | 53.0 |
+| touchdowns | 7.4 | 7.5 |
+| sacks | 6.9 | 6.3 |
+| shutouts / 120 | 6 | **2** |
+| interceptions | 2.4 | 2.3 |
+| rules violations | 0 | 0 |
+
+Play-level quality improved and is worth having. The top-line number the task was named after did
+not move, and the two-tenths it did move went the wrong way.
+
+**Why, as far as the measurements go.** Drives do not die on the chain. They end before the chain is
+ever in question: 16 drives a game, of which about 7 end in a touchdown and 5 in a turnover, at an
+average of **3.2 plays each**. Forty-four percent of possessions score. There is no room in a
+three-play drive for a first down.
+
+That is downstream of one number: the deep shot completes **81 %** of the time for **23–25 yards a
+play**, with roughly **half of all attempts going twenty-plus**. Every drive is two bombs and a
+result. Three hypotheses were tested against that and are recorded here as failures:
+
+1. **The chain is too long.** Rejected by direct measurement. `FIRST_DOWN_YARDS` was swept at 30, 24
+   and 20 yards: first downs measured 3.6 / 3.6 / 3.4 and drive length 3.44 / 3.40 / 3.55 plays. The
+   chain was never what was stopping anybody, and shortening it would have been a large design
+   change bought with nothing.
+2. **The quarterback holds the ball on timing concepts.** Rejected. Lowering the throw threshold on
+   quick and screen concepts produced **byte-identical** output across 20 games — the old threshold
+   was already being cleared. Measured directly: 80 % of quick snaps throw, at a median of 1.08 s.
+   The change was reverted rather than left in as a no-op.
+3. **Coverage plays too tight, so there is nowhere to throw underneath.** Rejected. Roughly doubling
+   the man-coverage cushion raised completions (quick 56 → 61 %, goal-to-go conversions 8 → 18 %) and
+   *lowered* quick-game yards from 5.60 to 2.58, because a deeper defender is a defender already
+   standing in the running lane. Net effect on first downs: 3.6 → 3.4. Reverted.
+
+**One change is kept on correctness grounds while being honest that it achieved nothing measurable.**
+Throw error was a flat number of yards regardless of distance — the same ±1.5 yd scatter on a
+four-yard flat and a forty-five-yard post. Error at release is angular, so it is now scaled by range
+(×0.71 at 5 yd, ×1.0 at 14 yd, ×1.7 at 40 yd). Deep completion moved from 80 % to 81 %, which is
+noise. It is in because it is right, not because it worked.
+
+**One measurement bug of my own, worth recording.** The drive census first read down and distance
+from the event stream and reported third-and-goal as **0 for 52**. A scoring play never emits a down
+change — the match jumps straight to the score phase — so the reader carried the previous drive's
+distance into the next one and mislabelled every play until something non-scoring happened. The real
+number is **6 for 41**. The probe now reads match state at the snap. An instrument that lies is worse
+than no instrument, and this one nearly sent the whole pass after a phantom.
+
+### 12.5 What is still open
+
+- **The deep game is the game.** 81 % completion at 23–25 yards a play is the single largest
+  distortion left in this build, and it is what holds drives to three plays and first downs to 3.6.
+  Diagnosed, not fixed. The mechanism appears to be space rather than tuning: seven-on-seven across a
+  53-yard field leaves more grass than the coverage available can account for, and the receiver
+  relocates to the exact landing point of a badly thrown ball, so throw error costs nothing.
+- **Third and short is still harder than third and long** — 3rd-and-1-to-8 converts around 9–21 %
+  against 27–31 % on 3rd-and-25-plus, because the only concept that reliably gains is the one that
+  gains thirty. The inversion narrowed but did not close.
+- **Runs still lose yardage on roughly a quarter of carries** even with all seven blockers working.
+
+---
+
+## 13. WHAT WAS RUN TO PRODUCE THIS
 
 ```bash
 npm install
@@ -962,6 +1109,10 @@ npm run perf
 npm run smoothness       # motion quality, §6
 npm run footslip         # do planted feet grip the turf, §9
 npm run fieldpos         # drive starts, kick returns and every safety, §10
+npm run acceptance       # the 61-test matrix, §12
+npm run driveprobe       # yards and conversions by concept, down and distance, §12
+npm run runprobe         # run-game autopsy: blockers, first contact, gain shape, §12
+npm run passprobe        # what happens to every forward pass, §12
 npm run pacing           # frame pacing, §6
 npm run poses            # one frame per animation state, §9
 npm run gait             # one stride, frame by frame, §9
@@ -973,7 +1124,7 @@ npm run artifact:check   # boots and plays that file in a sandboxed iframe, §8
 
 ---
 
-## 13. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
+## 14. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
 
 Stated as failures rather than omissions:
 

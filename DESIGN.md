@@ -93,6 +93,17 @@ Every special move has anticipation, active frames, recovery and a counter:
 | Dive | 18 turbo | +1.5 yards | goes to ground, ends the play | anything, if you dive early |
 | Dive tackle | 10 turbo | 0.62 s, 1.5 yd reach, 0.55 yd high | goes to ground for 0.7 s | a hurdle — it goes clean over |
 | Power tackle | 25 turbo | ×2 force, ×2.5 fumble force, 1.25 yd high | 0.20 s stagger | a high hurdle; it whiffs more |
+| Juke | 10 turbo | 0.33 s, 2.3 yd of lateral displacement | — | a patient tackler who has not committed |
+| Protect | free | held stance, ×0.55 fumble chance | ×0.88 speed, ×0.85 turn | anyone with an angle — you gave up the ability to change it |
+
+**The juke and the protect are the two ends of the economy.** A juke is cheap, short and
+*specifically* a counter to a defender who has already committed — 86 % against a dive that is
+already in the air, 18 % against a balanced tackler standing his ground. That asymmetry is the whole
+reason it exists alongside the spin, which costs twice as much and beats a close threat regardless
+of what that threat is doing. Protecting the ball is the opposite kind of decision: unglamorous, no
+animation payoff, and the correct button when you have already won the play and only need to finish
+it. Nothing about either is a strictly-better option, which is the bar a move has to clear to be
+worth a button.
 
 The height numbers are the rock-paper-scissors. A hurdle clears a tackle whose reach is *below the
 carrier's feet* and nothing else, so a normal hurdle beats a dive tackle and loses to a standing or
@@ -143,6 +154,33 @@ the timer expiring. The streak itself resets on any incompletion, interception, 
 
 It is deliberately *not* an auto-score: it lifts every number by a noticeable but recoverable
 margin, and the counter-conditions are things the opponent controls.
+
+## 6b. THE BALL IN THE AIR
+
+A pass has more than two outcomes. Caught and incomplete are the common ones; **bobbled** is the one
+that makes an arcade football game worth watching.
+
+A failed catch that was contested, or thrown as a bullet, or reached for while diving, can juggle
+instead of dying — and a defender who gets a hand to a ball can bat it **up** rather than down. In
+either case the ball pops off the hands and stays live *in the air*, and for the second or so it
+hangs there anybody on the field can take it: the receiver who dropped it, the safety arriving late,
+the man who tipped it.
+
+It is still legally a forward pass, and that is the rule that makes it fair rather than chaotic:
+
+- **In the air it is live.** Either team may catch it. A defender who takes it has an interception.
+- **On the ground it is over.** Touching the turf, or crossing a sideline, ends the down as
+  incomplete. A tipped ball is never a fumble, never a safety and never a touchback, because those
+  all belong to a ball somebody possessed.
+
+The man who caused the tip is the *worst* placed to recover it — his hands are past the ball and his
+momentum is going the wrong way — which matters because he is also the closest player to it. Without
+that penalty the defence recovers two thirds of them and the mechanic becomes a turnover generator
+instead of a moment.
+
+Throw error is **angular**, not a fixed number of yards. The same release that puts a flat route on
+the numbers puts a forty-yard post several yards off it, so accuracy ratings and pass distance
+interact the way they should rather than a deep ball being as reliable as a screen.
 
 ## 7. PLAYBOOK
 

@@ -1,4 +1,4 @@
-import type { Athlete, AthleteId, PlayerIntent, TeamSide } from '../core/types.ts';
+import type { Athlete, AthleteId, OffensePlay, PlayerIntent, TeamSide } from '../core/types.ts';
 import { Action } from '../input/actions.ts';
 import { clamp, clamp01, dist, heading, angDelta, lerp } from '../core/math.ts';
 import { FIELD_HALF_WIDTH, s, TURBO_COST } from '../core/constants.ts';
@@ -181,12 +181,36 @@ function carrierAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
   runToDaylight(w, a, out, ctx);
 }
 
+/**
+ * How deep the quarterback sets up, in yards behind the line.
+ *
+ * This used to be a string match: `formation.includes('SHOTGUN') ? 2.5 : 5.5`. Quick Nails is a
+ * three-step slant concept out of a formation called SPREAD, so the quarterback was taking a
+ * five-and-a-half yard drop on it — walking backwards, away from his own blockers, on a play whose
+ * entire premise is that the ball is gone before the rush arrives. Measured over twenty games,
+ * quick concepts took a sack on 17.5% of their snaps against 9.7% for everything else, and gained
+ * 3.23 yards against a thirty-yard chain.
+ *
+ * The drop belongs to the CONCEPT, not to the name of the alignment.
+ */
+function dropDepthFor(play: OffensePlay | null): number {
+  if (!play) return 5.5;
+  // A screen wants the OPPOSITE of a quick concept: the quarterback sells a deep drop so the rush
+  // comes upfield past the back, and the blockers release into the space they vacate. Giving a
+  // screen the quick-game drop measured 0.54 yards a play against 2.60 before — the rush never
+  // left, so there was nothing behind it.
+  if (play.tags.includes('SCREEN')) return 5.8;
+  if (play.tags.includes('QUICK')) return 2.2;
+  if (play.formation.includes('SHOTGUN')) return 2.5;
+  return 5.5;
+}
+
 function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
   const dir = dirOf(a.side);
   const p = ctx.profile;
   const t = w.playTicks;
   const play = w.offensePlay;
-  const dropDepth = play && play.formation.includes('SHOTGUN') ? 2.5 : 5.5;
+  const dropDepth = dropDepthFor(play);
 
   // Pressure check.
   let pressure = 99; let pressureX = 0;
@@ -487,6 +511,13 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
       const tx = r.x - r.vx * lag + w.rng.spread((1 - disc) * 1.6);
       const tz = r.z - r.vz * lag + dir * cushion;
       pursue(w, a, tx, tz, out, ctx, 1);
+      // If your man is running, you run. `pursue` decides turbo from the distance to the point
+      // it was given, which for man coverage is a landmark a yard or two from the defender's own
+      // feet — so `closing` was false on every snap and a cornerback JOGGED at 9.4 yd/s beside a
+      // receiver sprinting at 13.6. Over a deep route that is exactly the four-and-a-quarter yards
+      // of separation measured at the catch, which is why the deep ball completed 81% of the time
+      // for 23 yards a play and why every drive in this game was two bombs long.
+      if (matchTheRelease(a, r)) out.held |= Action.TURBO;
       if (dist(a.x, a.z, r.x, r.z) < 1.5 && w.playTicks < s(1.0) && w.rng.chance(0.02)) {
         out.held |= Action.TURBO | Action.SPECIAL; // jam
       }
@@ -538,6 +569,23 @@ function pursueCarrier(w: World, a: Athlete, car: Athlete, out: PlayerIntent, ct
     else if (roll < 0.22 * p.moveTiming) out.held |= Action.DIVE;
   }
 }
+
+/**
+ * Whether a defender in man coverage should be sprinting: his receiver is moving fast enough that
+ * standing on the accelerator is the only way to stay with him, and he has the meter to do it.
+ *
+ * Deliberately NOT unconditional. A defender who holds turbo from the snap is empty by the time
+ * the ball arrives, and turbo is also the tackle reserve — the trade that keeps yards-after-catch
+ * alive is that coverage has to choose.
+ */
+function matchTheRelease(a: Athlete, r: Athlete): boolean {
+  const receiverSpeed = Math.hypot(r.vx, r.vz);
+  return receiverSpeed > COVER_MATCH_SPEED && a.turbo > COVER_MATCH_RESERVE;
+}
+/** Above this receiver speed, coverage has to sprint or lose him. Base skill speed is 9.4 yd/s. */
+const COVER_MATCH_SPEED = 11.0;
+/** Meter a cover man keeps back for the tackle rather than spending on the chase. */
+const COVER_MATCH_RESERVE = 22;
 
 function pursue(w: World, a: Athlete, tx: number, tz: number, out: PlayerIntent, ctx: AiContext, urgency: number): void {
   const dx = tx - a.x, dz = tz - a.z;

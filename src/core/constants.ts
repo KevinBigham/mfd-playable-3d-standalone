@@ -115,6 +115,14 @@ export const SWAT_ANGLE_BONUS = 0.25;
 export const CONTEST_PENALTY = 0.34;      // catch chance reduction when contested
 export const DROP_PRESSURE = 0.12;
 export const LEAD_TIME_SCALE = 0.92;
+/**
+ * Throw error is angular. `spread = baseErr * (NEAR + range * PER_YARD)`, so a five-yard flat is
+ * thrown tighter than the old flat error and a forty-five yard bomb much looser. Calibrated so the
+ * short game is untouched (×0.71 at 5 yd, ×1.0 at 14 yd) and the deep ball is genuinely hard
+ * (×1.7 at 40 yd).
+ */
+export const PASS_ERROR_NEAR = 0.60;
+export const PASS_ERROR_PER_YARD = 0.0275;
 
 // ── bobbles ────────────────────────────────────────────────────────────────
 // A failed catch that juggles instead of dying. These are chances that a DROP becomes a bobble,

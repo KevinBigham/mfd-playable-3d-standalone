@@ -6,6 +6,15 @@
 
 ## CURRENT MILESTONE
 
+**M15 — the move economy, the bobble, and a chain that did not move.** Added the juke, ball
+protection and the bobble (a juggled or batted pass that stays live in the air but is still legally
+a forward pass, so the ground ends it as incomplete and never as a fumble). Four mechanism-level
+bugs found by building two new instruments: only three of seven players could block, the
+quarterback's drop depth was a string match on the formation name, man coverage never spent turbo,
+and `down.change` was declared and handled but emitted by nobody. Play-level quality improved
+measurably. **The milestone's own goal — more first downs — was not met**: 3.8 → 3.6 across 120
+games, and three hypotheses for why were tested and rejected in QA_REPORT.md §12.
+
 **M14 — one button, two actions.** Reported from play as "the ball starts with the WR on Ripcord
 Mesh". ACTION snaps the ball and ACTION throws it, and both were resolving in the same tick, so the
 pass left the quarterback's hand at playTicks=0 — before the play had run a frame. Eleven of the
@@ -176,6 +185,24 @@ Full detail in QA_REPORT.md. Headline numbers:
     of ACTION before doing anything else, which is why 17/17 coexisted with this.
 29. **When a check breaks after a fix, ask whether it was passing for the right reason.** "A human
     offence scores" had been passing because the scripted human was exploiting the bug.
+30. **A test that cannot fail is decoration.** `RUN-004` compared 0.11 yd/s against 0.00 — both arms
+    measured after the play had ended — and reported a pass before the feature it tested existed.
+    Every A/B needs a floor on its control arm.
+31. **Byte-identical output after a change means the branch is unreachable, not that the change is
+    subtle.** Twice now. Delete the change rather than leaving a no-op in the tree.
+32. **An instrument that lies is worse than none.** The drive census read down-and-distance from the
+    event stream and reported third-and-goal as 0 for 52; scoring plays never emit a down change, so
+    it carried stale distance across drives. The real number was 6 for 41. Read state, not events,
+    for anything a score can interrupt.
+33. **Tune against a sample big enough to hold still.** Three coverage thresholds looked decisively
+    different over 20 games and were indistinguishable over 120.
+34. **A capability gate written as a role check will silently delete a whole system.** `role !==
+    'LINE'` meant that in a seven-man game exactly three players could block, so every lead blocker
+    in the playbook ran to a patch of grass and stood on it. Ask what a player is DOING, not what he
+    is called.
+35. **Naming a play after its formation is not naming it after its job.** A three-step slant concept
+    out of a formation called SPREAD got a five-and-a-half yard drop, and the quick game took a sack
+    on 22 % of its snaps as a result.
 
 ## ACTIVE BLOCKERS
 
@@ -198,8 +225,15 @@ None.
   is solved in the body's own frame, and a cutting athlete travels somewhere other than where he
   faces. Measured in `npm run footslip` (QA_REPORT.md §9); fixing it needs world-space foot
   placement.
-- First downs are still rare at 3.7 per team per game. The 30-yard chain is a scoring gate more
-  than a rhythm; retuning it is a design decision nobody has made yet.
+- **First downs are still rare at 3.6 per team per game, and the cause is now known.** It is not
+  the chain: `FIRST_DOWN_YARDS` was swept at 30 / 24 / 20 and first downs measured 3.6 / 3.6 / 3.4.
+  Drives end before the chain is in question — 16 a game, 3.2 plays each, 44 % of them scoring —
+  because the deep shot completes 81 % of the time for 23-25 yards a play with half of all attempts
+  going twenty-plus. Diagnosed in QA_REPORT.md §12; not fixed.
+- Third and short converts *worse* than third and long (roughly 9-21 % against 27-31 %), for the
+  same reason: the only concept that reliably gains is the one that gains thirty.
+- A designed run still loses yardage on about a quarter of carries even with all seven blockers
+  working.
 
 ## COMMANDS
 
@@ -210,4 +244,6 @@ npm run sim        npm run sim:batch  npm run invariants
 npm run smoke      npm run capture    npm run perf       npm run qa
 npm run smoothness npm run pacing     npm run perf:sim
 npm run artifact   npm run artifact:check
+npm run acceptance npm run driveprobe npm run runprobe   npm run passprobe
+npm run human      npm run fieldpos   npm run footslip   npm run poses
 ```

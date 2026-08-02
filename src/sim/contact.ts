@@ -9,7 +9,7 @@ import {
 import { clamp, clamp01, dist, angDelta, heading } from '../core/math.ts';
 import type { World } from './world.ts';
 import { OFF_START, DEF_START, carrier } from './world.ts';
-import { knockDown, stun, isLineman } from './movement.ts';
+import { knockDown, stun, isLineman, isBlocking } from './movement.ts';
 import { dropLoose } from './ball.ts';
 
 const DOWN_TICKS = s(1.15);
@@ -93,7 +93,7 @@ export function resolveBodyOverlap(w: World): void {
 export function updateBlocking(w: World): void {
   for (let i = 0; i < 7; i++) {
     const bl = w.athletes[OFF_START + i];
-    if (bl.role !== 'LINE' || bl.hasBall) continue;
+    if (!isBlocking(bl) || bl.hasBall) continue;
     if (bl.move === 'DOWN' || bl.move === 'GETUP') { releaseEngagement(w, bl); continue; }
 
     let target = bl.engagedWith >= 0 ? w.athletes[bl.engagedWith] : null;
@@ -103,17 +103,27 @@ export function updateBlocking(w: World): void {
       releaseEngagement(w, bl); target = null;
     }
     if (!target) {
-      let best: Athlete | null = null; let bestD = 5.2;
+      // Pick the man who is about to make the tackle, not the man who happens to be nearest.
+      // Scoring by proximity to the BLOCKER makes a lead blocker wall off whoever he drifted past;
+      // scoring by proximity to the BALL makes him do his job. Reach still gates the choice — he
+      // cannot block someone he cannot get to.
+      const car = carrier(w);
+      const px = car && car.side === bl.side ? car.x : w.athletes[w.qbId].x;
+      const pz = car && car.side === bl.side ? car.z : w.athletes[w.qbId].z;
+      let best: Athlete | null = null; let bestScore = 1e9; let bestD = 0;
       for (let j = 0; j < 7; j++) {
         const d = w.athletes[DEF_START + j];
         if (d.blockedBy >= 0 && d.blockedBy !== bl.id) continue;
         if (d.move === 'DOWN') continue;
         const dd = dist(bl.x, bl.z, d.x, d.z);
-        if (dd < bestD) { bestD = dd; best = d; }
+        if (dd > BLOCK_RADIUS * 2.6) continue;
+        const threat = dist(d.x, d.z, px, pz) + dd * 0.35;
+        if (threat < bestScore) { bestScore = threat; best = d; bestD = dd; }
       }
-      if (best && bestD < BLOCK_RADIUS * 2.6) {
+      if (best) {
         bl.engagedWith = best.id; best.blockedBy = bl.id;
         target = best;
+        void bestD;
         w.bus.emit({ type: 'block.win', tick: w.tick, by: bl.id, on: best.id, pancake: false });
       }
     }

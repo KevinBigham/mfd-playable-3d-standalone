@@ -36,7 +36,9 @@
     "footslip": "tsx tools/footslip.ts",
     "fieldpos": "tsx tools/fieldpos.ts",
     "acceptance": "tsx tools/acceptance.ts",
-    "passprobe": "tsx tools/passprobe.ts"
+    "passprobe": "tsx tools/passprobe.ts",
+    "driveprobe": "tsx tools/driveprobe.ts",
+    "runprobe": "tsx tools/runprobe.ts"
   },
   "dependencies": {
     "three": "^0.169.0"

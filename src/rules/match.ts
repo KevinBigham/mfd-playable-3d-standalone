@@ -15,7 +15,7 @@ import { clamp, clamp01, dist } from '../core/math.ts';
 import {
   createMatchState, applyOutcome, blankOutcome, computeFirstDown, kickoffSpot, conversionSpot,
   safetyFreeKickSpot, touchbackSpot, dirOf, goalOf, other, noteCatch, noteSack, breakStreaks,
-  extinguish, tickOverdrive, matchShouldEnd, winnerOf, validateMatchState, clampSpot,
+  extinguish, tickOverdrive, matchShouldEnd, winnerOf, validateMatchState, clampSpot, distanceToGo,
   type PlayOutcome, type Violation,
 } from './rulesEngine.ts';
 import {
@@ -904,6 +904,10 @@ export class Match {
       }
     }
     if (o.turnoverKind === 'DOWNS') this.bus.emit({ type: 'turnover', tick: w.tick, to: m.possession, kind: 'DOWNS' });
+    // The down-and-distance the offence is about to face. Declared in the event union and
+    // handled by the audio director since the day it was written, and emitted by nobody — so the
+    // down-marker cue never played, and no instrument could see what down a play happened on.
+    this.bus.emit({ type: 'down.change', tick: w.tick, down: m.down, distance: Math.round(distanceToGo(m)) });
     this.setPhase('POST_PLAY');
   }
 

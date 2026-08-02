@@ -4,7 +4,7 @@ import type {
 import { Action, has } from '../input/actions.ts';
 import {
   FIELD_HALF_WIDTH, MOVE_TICKS, TURBO_COST, LEAD_TIME_SCALE, PASS_SPEED,
-  OVERDRIVE_ACCURACY, s, FIXED_DT, MOMENTUM_YARDS,
+  OVERDRIVE_ACCURACY, PASS_ERROR_NEAR, PASS_ERROR_PER_YARD, s, FIXED_DT, MOMENTUM_YARDS,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist, heading, angDelta } from '../core/math.ts';
 import type { World } from './world.ts';
@@ -188,8 +188,20 @@ export function throwTo(w: World, qb: Athlete, receiver: Athlete, kind: PassKind
   }
   const acc = qb.def.ratings.accuracy * (qb.onFire ? OVERDRIVE_ACCURACY : 1);
   const baseErr = clamp(1.9 - acc / 70, 0.05, 2.2) + aimErrorYd;
-  tx += w.rng.spread(baseErr);
-  tz += w.rng.spread(baseErr);
+  // A throw misses by an ANGLE, not by a fixed number of yards. The same wrist that puts a flat
+  // route on the numbers puts a forty-yard post five yards off it, because the error is at the
+  // release and the ball magnifies it all the way down the field.
+  //
+  // This was flat, and the consequence was the single largest distortion in the game: deep shots
+  // completed 80% of the time for 24 yards a play with 47% of them going twenty-plus, so every
+  // drive was two bombs and a score. Forty-four percent of possessions ended in a touchdown, drives
+  // lasted 3.4 plays, and the thirty-yard chain never came up — measured, not guessed. Shortening
+  // the chain to 24 and to 20 changed the first-down count by less than a fifth of a down a game,
+  // because the chain was never what was stopping anybody.
+  const range = Math.hypot(tx - qb.x, tz - qb.z);
+  const spread = baseErr * (PASS_ERROR_NEAR + range * PASS_ERROR_PER_YARD);
+  tx += w.rng.spread(spread);
+  tz += w.rng.spread(spread);
   tx = clamp(tx, -FIELD_HALF_WIDTH - 2, FIELD_HALF_WIDTH + 2);
   tz = clamp(tz, -12, 112);
   qb.move = 'THROWING'; qb.moveTicks = MOVE_TICKS.THROW;
@@ -417,6 +429,29 @@ export function routeSteer(w: World, a: Athlete, out: { x: number; z: number; tu
   const node = route[a.routeIdx];
   const tx = a.homeX + node.x * dir;
   const tz = a.homeZ + node.z * dir;
+
+  // A BLOCK node names a JOB, not a destination. The landmark says which part of the field the
+  // blocker is responsible for; the thing he actually has to get in front of is a person. Steering
+  // to the landmark meant lead blockers arrived at an empty square of turf and held it while the
+  // man they were supposed to wall off ran past them to the tackle.
+  if (node.action === 'BLOCK' && !a.hasBall) {
+    const mark = blockMark(w, a, tx, tz);
+    if (mark) {
+      // Get to the far side of him — between the defender and the ball, not merely next to him.
+      const car = carrier(w);
+      const px = car && car.side === a.side ? car.x : w.athletes[w.qbId].x;
+      const pz = car && car.side === a.side ? car.z : w.athletes[w.qbId].z;
+      let ax = mark.x - px, az = mark.z - pz;
+      const ad = Math.hypot(ax, az);
+      if (ad > 0.01) { ax /= ad; az /= ad; } else { ax = 0; az = dir; }
+      const gx = mark.x + ax * 0.55, gz = mark.z + az * 0.55;
+      const bx = gx - a.x, bz = gz - a.z;
+      const bd = Math.hypot(bx, bz);
+      if (bd > 0.35) { out.x = bx / bd; out.z = bz / bd; out.turbo = bd > 4; }
+      return;                     // stay on this node: blocking is not a waypoint to tick past
+    }
+  }
+
   const dx = tx - a.x, dz = tz - a.z;
   const d = Math.hypot(dx, dz);
   if (d < 1.1) {
@@ -427,6 +462,35 @@ export function routeSteer(w: World, a: Athlete, out: { x: number; z: number; tu
   out.x = dx / d; out.z = dz / d;
   out.turbo = node.action === 'SPEED' || (node.action === 'RUN' && d > 9);
 }
+
+/**
+ * The defender this blocker should be working on: the biggest threat to the ball that he has any
+ * chance of reaching, searched from his assigned landmark rather than from his own feet so he does
+ * not abandon his area to chase someone across the formation.
+ */
+function blockMark(w: World, a: Athlete, tx: number, tz: number): Athlete | null {
+  if (a.engagedWith >= 0) return w.athletes[a.engagedWith];
+  const car = carrier(w);
+  const px = car && car.side === a.side ? car.x : w.athletes[w.qbId].x;
+  const pz = car && car.side === a.side ? car.z : w.athletes[w.qbId].z;
+  let best: Athlete | null = null; let bestScore = 1e9;
+  for (let j = 0; j < 7; j++) {
+    const d = w.athletes[DEF_START + j];
+    if (d.side === a.side) continue;
+    if (d.move === 'DOWN' || d.move === 'GETUP') continue;
+    if (d.blockedBy >= 0 && d.blockedBy !== a.id) continue;
+    // Area first, threat second: a blocker who leaves his landmark to chase the nearest man to
+    // the ball is how you get six blockers converging on one defender and a clean lane for the
+    // other six.
+    const fromMark = dist(d.x, d.z, tx, tz);
+    if (fromMark > BLOCK_SEARCH) continue;
+    const score = fromMark * 0.85 + dist(d.x, d.z, px, pz) * 0.7;
+    if (score < bestScore) { bestScore = score; best = d; }
+  }
+  return best;
+}
+/** How far from his landmark a blocker will go looking for work. */
+const BLOCK_SEARCH = 7.5;
 
 // ── dead-ball detection ────────────────────────────────────────────────────
 
