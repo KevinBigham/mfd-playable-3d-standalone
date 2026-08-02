@@ -100,20 +100,20 @@ produce different games. RNG reseeds deterministically, stays in `[0,1)`, is unb
 | games completed | **200 / 200** | 100 % | pass |
 | rules violations | **0** | 0 | pass |
 | watchdog trips | **0** | 0 | pass |
-| combined points | **49.0** (range 22–91) | 44–60 | pass |
-| home / away | **25.1 / 23.9** | within 4 | pass |
-| plays per game | **59.9** | 55–70 | pass |
-| touchdowns | **6.8** | 5–8 | pass |
-| interceptions | **2.6** | 1.5–4 | pass |
-| sacks | **6.4** | 4–9 | pass |
-| forced fumbles | 3.7 | — | — |
-| **safeties** | **0.14** | ≤ 1 | **pass — was 2.96; see §10** |
+| combined points | **54.0** (range 21–104) | 44–60 | pass |
+| home / away | **27.6 / 26.5** | within 4 | pass |
+| plays per game | **56.0** | 55–70 | pass — thin |
+| touchdowns | **7.7** | 5–8 | pass |
+| interceptions | **2.7** | 1.5–4 | pass |
+| sacks | **4.3** | 4–9 | pass — thin, see §12.8 |
+| forced fumbles | 3.3 | — | — |
+| **safeties** | **0.22** | ≤ 1 | **pass — was 2.96; see §10** |
 | Overdrive activations | 1.3 | ≥1 | pass |
-| field goals / punts | 1.2 / 3.0 | — | — |
-| first downs / team | **3.7** | 8–12 wanted | **fail — see §12** |
-| ties | 0 | 0 | pass |
-| overtimes | 16 / 200 | — | — |
-| wall clock | **260 ms per game** | — | — |
+| field goals / punts | 1.1 / 1.9 | — | — |
+| first downs / team | **4.6** | 8–12 wanted | **fail — see §12** |
+| ties | 1 | 0 | — |
+| overtimes | 9 / 200 | — | — |
+| wall clock | **256 ms per game** | — | — |
 
 Re-measured after §12. The only target this table misses is one it did not used to state at all:
 first downs. It is written in now, with the number it actually produces, because a balance table
@@ -1190,7 +1190,60 @@ Final 200-game balance, every target in range:
 Plays per game at 55.7 is inside the 55–70 band but close to its floor, and that is worth watching:
 drives that score faster produce fewer snaps.
 
-### 12.8 What is still open
+### 12.8 Sacked before the game let him look
+
+Making the play caller honest (§12.7) had a side effect worth chasing: once it rated the quick game
+accurately it almost stopped calling it — down to two snaps a game at 2.7 yards each with a **33 %
+sack rate**. An honest caller declining a broken concept is correct behaviour and a bad outcome; a
+third of the playbook was effectively out of the game.
+
+The cause is a single line and it is not a tuning problem:
+
+```
+readyTick = max(0.35 s, primaryTick - reactionTicks)
+```
+
+The quarterback may not *consider* throwing before that landmark. On quick concepts the landmarks
+sit at 1.05–1.45 s, so `readyTick` lands around 0.87–1.27 s. **The median sack on a quick concept
+landed at 0.68 s.** On a third of those snaps he was on the ground before the code allowed him to
+look at a receiver. Not beaten, not indecisive — gated.
+
+Per play, the correlation is exact:
+
+| play | primary read | sack rate |
+|---|---|---|
+| Pylon Dart | 1.05 s | 36 % |
+| Quick Nails | 1.15 s | 50 % |
+| Snap Hitch | 1.25 s | 8 % |
+| Stick Trigger | 1.20 s | 0 % |
+| Sprint Cannon | 1.45 s | 50 % |
+
+A quarterback whose protection has already failed does not stand and wait for his primary to come
+open. There is now a **hot read**: an unblocked rusher inside 3.6 yards overrides the timing
+landmark entirely and he throws to the best man available, in a window he would never take with a
+clean pocket.
+
+> quick-concept sacks **33 % → 20 %** · earliest throw **0.88 s → 0.30 s**
+
+The trade is real and shows in the batch: sacks fell from 5.8 a game to 4.3, which is inside the
+4–9 band but near its floor, and combined points rose from 51.4 to 54.0. Roughly 2.2 sacks per team
+per game is closer to real football than the 3.5 it replaced; whether it is right for *this* game is
+a judgement, and it is recorded here as one rather than presented as a win.
+
+The full-curve effect on down and distance, which is what this whole section was chasing:
+
+| third down | at the start of §12 | now |
+|---|---|---|
+| and 1–8 | 7 % | **15 %** |
+| and 9–16 | 3 % | **20 %** |
+| and 17–24 | 23 % | 23 % |
+| and 25+ | 36 % | 28 % |
+| goal to go | 8 % | **18 %** |
+
+The 5× inversion is gone and the curve is monotonic in the right direction for the first time,
+though short yardage still converts worst rather than best.
+
+### 12.9 What is still open
 
 - **First downs are 4.3, not the 8–12 that would make the chain a pulse.** Up from 3.8, having gone
   the wrong way twice on the road there, but drives still average 3.1 plays and still score too
@@ -1201,10 +1254,14 @@ drives that score faster produce fewer snaps.
 - **Goal-to-go on third down converts 6 %.** The end zone is a hard ceiling behind the defence and
   nothing in the playbook is built for that specific problem.
 - **Plays per game is 55.7 against a 55 floor.** In band, with no margin.
-- **The quick game has regressed to 2.7 yards a play on a 33 % sack rate**, on 2 calls a game — the
-  caller now rates it accurately and mostly declines to call it, which is honest but means a whole
-  concept family is effectively out of the game. `SNAP_HITCH` and `QUICK_NAILS` need work the way
-  the run just got it.
+- **The quick game still only gains 2.2 yards a play on 2 calls a game.** The hot read took its sack
+  rate from 33 % to 20 % but did not make the concept gain, and the caller still rarely picks it. A
+  whole concept family effectively out of the game.
+- **Third and short still converts worst**, at 15 % against 28 % on third and long. The 5×
+  inversion is gone and the curve is monotonic, but in football third-and-1 should be the easiest
+  down there is.
+- **Sacks are 4.3 a game against a 4–9 band.** The hot read bought the quick game's life with sack
+  pressure and the margin is now thin.
 - **Runs still lose yardage on roughly a quarter of carries** even with all seven blockers working,
   and designed-run yards fell to 3.26/play once zone defenders started sprinting — coverage that
   runs also arrives in run support faster.

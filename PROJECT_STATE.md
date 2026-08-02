@@ -24,10 +24,17 @@ editor — was read by nothing, so the playbook contained no designed hole anywh
 third-and-short conversion went 7 % → 16 % while third-and-long went 36 % → 26 %, closing an
 inversion that had short yardage 5× harder than long.
 
-Over 200 games: first downs 3.8 → 4.3, combined points 52.4 → 51.4, plays 59.6 → 55.7, sacks
-6.9 → 5.8, interceptions 2.4 → 2.6, rules violations 0 → 0. Every balance target in range. The
-milestone's headline goal — a chain with a pulse — is **improved, not met**: drives still average
-3.1 plays. Three other hypotheses were tested and rejected along the way (QA_REPORT.md §12).
+And one more gate: `readyTick` forbade the quarterback from *considering* a throw before the play's
+timing landmark, which on quick concepts lands around 0.9–1.3 s — while the median sack on those
+concepts landed at **0.68 s**. On a third of quick snaps he was on the ground before the code let
+him look at a receiver. There is a hot read now: immediate pressure overrides the landmark.
+
+Over 200 games: first downs 3.8 → 4.6, combined points 52.4 → 54.0, plays 59.6 → 56.0, sacks
+6.9 → 4.3, interceptions 2.4 → 2.7, rules violations 0 → 0. Third-down conversion by distance went
+from a 5× inversion (7 % short, 36 % long) to monotonic (15 / 20 / 23 / 28), and goal-to-go from
+8 % to 18 %. Every balance target in range, two of them thin. The milestone's headline goal — a
+chain with a pulse — is **improved, not met**: drives still average 3.0 plays. Three other
+hypotheses were tested and rejected along the way (QA_REPORT.md §12).
 
 **M14 — one button, two actions.** Reported from play as "the ball starts with the WR on Ripcord
 Mesh". ACTION snaps the ball and ACTION throws it, and both were resolving in the same tick, so the
@@ -92,9 +99,9 @@ how the game *moves*, measured by two new harnesses rather than asserted.
 Full detail in QA_REPORT.md. Headline numbers:
 
 - 200-game CPU-vs-CPU batch: 100 % completion, **0 rules violations**, **0 watchdog trips**.
-- 49.0 combined points, 59.9 plays, 6.8 touchdowns, 2.6 interceptions, 3.7 first downs per team.
-- Home/away split 25.1 / 23.9 across the batch — no directional bias. 16 of 200 needed overtime.
-- 260 ms to simulate a full game headless.
+- 54.0 combined points, 56.0 plays, 7.7 touchdowns, 2.7 interceptions, 4.6 first downs per team.
+- Home/away split 27.6 / 26.5 across the batch — no directional bias. 9 of 200 needed overtime.
+- 256 ms to simulate a full game headless.
 - Every balance target in range except first downs, which is stated as a miss rather than omitted.
 - Browser smoke: **19/19**. Unit tests **214/214**. Scene at HIGH: **40 draw calls, 210 k
   triangles** against a 180 / 420 k budget — the whole graphics pass cost one draw call.
@@ -251,14 +258,12 @@ None.
 - **First downs are still rare at 4.3 per team per game.** Not the chain — `FIRST_DOWN_YARDS` was
   swept at 30 / 24 / 20 and first downs measured 3.6 / 3.6 / 3.4. Drives end before the chain is in
   question: 15 a game, 3.1 plays each. Improved twice in M15, not solved.
-- Third and 9-16 converts 4 % — a hole in the middle of the distance curve. Short and long both work
-  now; the middle does not.
-- Goal-to-go on third down converts 6 %. Nothing in the playbook is built for a defence with the end
-  zone at its back.
-- Plays per game is 55.7 against a 55 floor. In band with no margin.
-- The quick game is down to 2.7 yd/play on a 33 % sack rate and about 2 calls a game — the caller
-  now rates it accurately and mostly declines to call it. A whole concept family effectively out of
-  the game.
+- Third and short still converts worst (15 % against 28 % on third and long). The 5× inversion is
+  gone and the curve is monotonic, but in football third-and-1 should be the easiest down there is.
+- The quick game gains 2.2 yd/play on about 2 calls a game. The hot read cut its sack rate from
+  33 % to 20 % but did not make the concept gain. A whole concept family effectively out of use.
+- Plays per game 56.0 against a 55 floor and sacks 4.3 against a 4 floor: both in band, neither with
+  margin.
 
 ## COMMANDS
 

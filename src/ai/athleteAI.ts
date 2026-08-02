@@ -232,6 +232,29 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
   const secondaryTick = play ? play.timing.secondary : s(1.8);
   const readyTick = Math.max(s(0.35), primaryTick - p.reactionTicks);
 
+  // THE HOT READ. Immediate pressure overrides the timing landmark, because a quarterback whose
+  // protection has already failed does not stand and wait for his primary read to come open.
+  //
+  // Measured on quick concepts before this existed: the median sack landed at 0.68 s and the
+  // earliest the code ALLOWED him to look at a receiver was 0.97 s. On a third of those snaps he
+  // was on the ground before the game let him consider throwing — not beaten, not indecisive,
+  // gated. The quick game fell to 2.7 yards a play and the play caller, once it started rating
+  // concepts honestly, stopped calling it at all.
+  //
+  // The bar is low but not absent: he throws to the best man available even in a bad window, and
+  // if there is genuinely nobody he still has to deal with the rush the hard way below.
+  if (pressure < HOT_PRESSURE && t > s(0.28)) {
+    const hot = bestReceiver(w, a, 2, p);
+    if (hot.id >= 0 && hot.open > HOT_FLOOR) {
+      out.held |= Action.ACTION;
+      const idx = w.passTargets.indexOf(hot.id);
+      if (idx === 0) out.held |= Action.TARGET_L;
+      else if (idx === 1) out.held |= Action.TARGET_M;
+      else if (idx === 2) out.held |= Action.TARGET_R;
+      return;
+    }
+  }
+
   if (t > readyTick) {
     const cand = bestReceiver(w, a, t >= secondaryTick ? 2 : 1, p);
     // Under pressure or late in the down, take what is there.
@@ -613,6 +636,13 @@ function matchTheRelease(a: Athlete, r: Athlete): boolean {
 const COVER_MATCH_SPEED = 11.0;
 /** Meter a cover man keeps back for the tackle rather than spending on the chase. */
 const COVER_MATCH_RESERVE = 22;
+/**
+ * How close an unblocked rusher has to be before the quarterback abandons the play's timing and
+ * throws hot. Tight on purpose — this is "he is already here", not "he is coming".
+ */
+const HOT_PRESSURE = 3.6;
+/** How covered the hot man may be and still be worth the throw. Low: the alternative is a sack. */
+const HOT_FLOOR = -1.4;
 /** A zone landmark this far past the line is a DEEP zone: its job is the ceiling, not the spot. */
 const DEEP_ZONE_DEPTH = 18;
 /** How far on top of the deepest route in his area a deep-zone defender tries to stay. */
