@@ -100,19 +100,24 @@ produce different games. RNG reseeds deterministically, stays in `[0,1)`, is unb
 | games completed | **200 / 200** | 100 % | pass |
 | rules violations | **0** | 0 | pass |
 | watchdog trips | **0** | 0 | pass |
-| combined points | **48.2** (range 23–82) | 44–60 | pass |
-| home / away | **24.9 / 23.3** | within 4 | pass |
-| plays per game | **63.0** | 55–70 | pass |
-| touchdowns | **5.9** | 5–8 | pass |
-| interceptions | **2.3** | 1.5–4 | pass |
-| sacks | **6.9** | 4–9 | pass |
-| forced fumbles | 3.2 | — | — |
-| **safeties** | **0.12** | ≤ 1 | **pass — was 2.96; see §10** |
+| combined points | **49.0** (range 22–91) | 44–60 | pass |
+| home / away | **25.1 / 23.9** | within 4 | pass |
+| plays per game | **59.9** | 55–70 | pass |
+| touchdowns | **6.8** | 5–8 | pass |
+| interceptions | **2.6** | 1.5–4 | pass |
+| sacks | **6.4** | 4–9 | pass |
+| forced fumbles | 3.7 | — | — |
+| **safeties** | **0.14** | ≤ 1 | **pass — was 2.96; see §10** |
 | Overdrive activations | 1.3 | ≥1 | pass |
-| field goals / punts | 1.3 / 3.8 | — | — |
+| field goals / punts | 1.2 / 3.0 | — | — |
+| first downs / team | **3.7** | 8–12 wanted | **fail — see §12** |
 | ties | 0 | 0 | pass |
-| overtimes | 6 / 200 | — | — |
-| wall clock | **198 ms per game** | — | — |
+| overtimes | 16 / 200 | — | — |
+| wall clock | **260 ms per game** | — | — |
+
+Re-measured after §12. The only target this table misses is one it did not used to state at all:
+first downs. It is written in now, with the number it actually produces, because a balance table
+that only lists the rows it passes is a marketing document.
 
 ### Why the scoring band moved down during hardening
 

@@ -85,10 +85,10 @@ how the game *moves*, measured by two new harnesses rather than asserted.
 Full detail in QA_REPORT.md. Headline numbers:
 
 - 200-game CPU-vs-CPU batch: 100 % completion, **0 rules violations**, **0 watchdog trips**.
-- 48.0 combined points, 62.6 plays, 5.9 touchdowns, 2.2 interceptions per game, played at each
-  home team's real ground for the first time.
-- Home/away split 24.6 / 23.4 across the batch — no directional bias.
-- 143 ms to simulate a full game headless.
+- 49.0 combined points, 59.9 plays, 6.8 touchdowns, 2.6 interceptions, 3.7 first downs per team.
+- Home/away split 25.1 / 23.9 across the batch — no directional bias. 16 of 200 needed overtime.
+- 260 ms to simulate a full game headless.
+- Every balance target in range except first downs, which is stated as a miss rather than omitted.
 - Browser smoke: **19/19**. Unit tests **214/214**. Scene at HIGH: **40 draw calls, 210 k
   triangles** against a 180 / 420 k budget — the whole graphics pass cost one draw call.
   Scenarios **24/24**. Determinism **12/12**.
