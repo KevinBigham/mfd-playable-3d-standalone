@@ -1,6 +1,7 @@
 import type { Screen, ScreenContext, FocusItem } from '../uiKit.ts';
 import {
   el, clear, FocusRing, driveFocus, button, optionRow, sliderRow, panel, svgNode, ordinal,
+  coarsePointer,
 } from '../uiKit.ts';
 import { Action } from '../../input/actions.ts';
 import type { Game } from '../../app/Game.ts';
@@ -27,9 +28,11 @@ export class TitleScreen implements Screen {
   private node: HTMLElement | null = null;
   private ctx!: ScreenContext;
   private t = 0;
+  private tapped = false;
   constructor(private game: Game) {}
   mount(ctx: ScreenContext): void {
     this.ctx = ctx;
+    this.tapped = false;
     const s = screenShell();
     const mark = el('div');
     mark.style.cssText = 'text-align:center;position:relative';
@@ -39,10 +42,21 @@ export class TitleScreen implements Screen {
     l2.style.cssText = 'font-size:clamp(52px,12vw,158px);letter-spacing:2px;color:var(--hot);transform:skewX(-9deg);text-shadow:0 8px 0 #6d1800, 0 0 60px rgba(255,90,30,.55);margin-top:-14px';
     const sub = el('div', 'muted', 'ORIGINAL 7-ON-7 ARCADE FOOTBALL · UNITED GRIDIRON CIRCUIT');
     sub.style.cssText = 'letter-spacing:.32em;margin-top:16px;font-size:14px';
-    const prompt = el('div', '', 'PRESS START');
+    // A phone has no START button. Ask for what the device can actually do.
+    const prompt = el('div', '', coarsePointer() ? 'TAP TO START' : 'PRESS START');
     prompt.style.cssText = 'margin-top:52px;font-size:26px;letter-spacing:.3em;animation:pulse .9s ease-in-out infinite alternate';
     mark.append(l1, l2, sub, prompt);
     s.appendChild(mark);
+    /**
+     * Touch users had no way off this screen: update() only ever asked the keyboard and the
+     * gamepad. The listener is `click`, not `pointerdown`, and it only raises a flag that
+     * update() consumes on the next frame. Both of those are deliberate. `click` is the last
+     * event of a tap, so the title is still mounted when the sequence finishes; advancing on
+     * `pointerdown` instead would unmount it under a finger that has not lifted yet, and the
+     * release would land on whatever main-menu button had moved into that spot.
+     */
+    s.style.cursor = 'pointer';
+    s.addEventListener('click', () => { this.tapped = true; });
     ctx.root.appendChild(s);
     this.node = s;
     this.game.audio.music.start();
@@ -50,7 +64,8 @@ export class TitleScreen implements Screen {
   update(dt: number): void {
     this.t += dt;
     const i = this.ctx.input;
-    if (i.menuPressed(Action.ACTION) || i.menuPressed(Action.PAUSE)) {
+    if (this.tapped || i.menuPressed(Action.ACTION) || i.menuPressed(Action.PAUSE)) {
+      this.tapped = false;
       this.ctx.sound('select');
       this.ctx.go('mainMenu');
     }

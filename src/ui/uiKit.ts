@@ -17,6 +17,17 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 
 export function clear(node: HTMLElement): void { while (node.firstChild) node.removeChild(node.firstChild); }
 
+/**
+ * True for a finger, false for a mouse. Used to word prompts for the device actually in
+ * front of the player — a phone has no START button and no keyboard to press it with.
+ * Guarded like the audio engine is: headless harnesses have no `matchMedia`, and a screen
+ * that throws while mounting is worse than one that says "PRESS START" to a mouse user.
+ */
+export function coarsePointer(): boolean {
+  if (typeof matchMedia !== 'function') return false;
+  return matchMedia('(pointer: coarse)').matches;
+}
+
 export interface FocusItem {
   el: HTMLElement;
   onSelect?: () => void;
