@@ -4,6 +4,7 @@ import {
   BREAK_TACKLE_BASE, FUMBLE_BASE, FUMBLE_POWER_SCALE, FUMBLE_SPIN_MULT, FUMBLE_WEATHER_MULT,
   BIG_HIT_POWER, SPIN_EVADE, HURDLE_CLEAR_HEIGHT, HIGH_HURDLE_CLEAR, STIFFARM_RANGE,
   STIFFARM_CONE, MOVE_TICKS, OVERDRIVE_BREAK_TACKLE, FIXED_DT, s,
+  JUKE_EVADE_DIVE, JUKE_EVADE_STANDING, PROTECT_FUMBLE,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist, angDelta, heading } from '../core/math.ts';
 import type { World } from './world.ts';
@@ -237,6 +238,18 @@ export function updateTackling(w: World): TackleOutcome {
       continue;
     }
 
+    // Juke evasion. This is the whole point of the move: it is devastating against a man who has
+    // already left his feet or thrown his weight forward, and nearly useless against one who is
+    // still balanced and square. A move that beat everything would just be a button you hold.
+    if (car.move === 'JUKE') {
+      const committed = d.move === 'DIVE_TACKLE' || d.move === 'POWER_TACKLE';
+      if (w.rng.chance(committed ? JUKE_EVADE_DIVE : JUKE_EVADE_STANDING)) {
+        if (committed) stun(d, s(0.5));
+        w.bus.emit({ type: 'brokenTackle', tick: w.tick, by: car.id, on: d.id });
+        continue;
+      }
+    }
+
     // Contact power: closing speed + power ratings + move multiplier.
     const closing = Math.hypot(d.vx - car.vx, d.vz - car.vz);
     const power = (0.45 + closing / 16) * powerMult * (0.7 + d.def.ratings.power / 140)
@@ -269,7 +282,9 @@ export function updateTackling(w: World): TackleOutcome {
       * (car.move === 'SPIN' ? FUMBLE_SPIN_MULT : 1)
       * (w.conditions.weather === 'RAIN' || w.conditions.weather === 'SNOW' ? FUMBLE_WEATHER_MULT : 1)
       * (1 - (car.def.ratings.hands - 50) * 0.006)
-      * (d.move === 'POWER_TACKLE' ? 2.1 : 1),
+      * (d.move === 'POWER_TACKLE' ? 2.1 : 1)
+      // Two hands on it. The one thing protecting the ball is actually for.
+      * (car.protecting ? PROTECT_FUMBLE : 1),
     );
     const isBig = power > BIG_HIT_POWER;
 

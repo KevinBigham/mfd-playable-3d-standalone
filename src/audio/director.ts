@@ -152,6 +152,14 @@ export class AudioDirector {
         this.crowd.gasp(0.8);
         return;
 
+      // A bobble is a gasp that has not resolved yet. The crowd noise deliberately RISES and is
+      // left hanging — whatever happens next (catch, pick, incomplete) supplies its own resolution.
+      case 'bobble':
+        this.sfx.drop(this.panFor(e.by));
+        this.crowd.gasp(0.55);
+        this.crowd.swell(0.5, 1100);
+        return;
+
       case 'swat':
         this.sfx.swat(this.panFor(e.by));
         this.crowd.swell(0.35, 900);
@@ -203,6 +211,7 @@ export class AudioDirector {
       case 'move': {
         const pan = this.panFor(e.by);
         if (e.move === 'SPIN') this.sfx.spin(pan);
+        else if (e.move === 'JUKE') this.sfx.juke(pan);
         else if (e.move === 'DIVE') this.sfx.dive(pan);
         else if (e.move === 'STIFFARM') this.sfx.stiffArm(pan);
         else this.sfx.hurdle(pan);

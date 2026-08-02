@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "GRIDIRON OVERDRIVE \u2014 an original 7-on-7 arcade football game for the browser.",
+  "description": "GRIDIRON OVERDRIVE — an original 7-on-7 arcade football game for the browser.",
   "license": "MIT",
   "engines": {
     "node": ">=18"
@@ -35,7 +35,8 @@
     "poses": "tsx tools/poses.ts",
     "footslip": "tsx tools/footslip.ts",
     "fieldpos": "tsx tools/fieldpos.ts",
-    "acceptance": "tsx tools/acceptance.ts"
+    "acceptance": "tsx tools/acceptance.ts",
+    "passprobe": "tsx tools/passprobe.ts"
   },
   "dependencies": {
     "three": "^0.169.0"

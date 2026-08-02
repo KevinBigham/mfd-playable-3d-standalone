@@ -222,7 +222,7 @@ export interface AnimSlot {
 }
 
 export type MoveState =
-  | 'NORMAL' | 'SPIN' | 'HURDLE' | 'HIGH_HURDLE' | 'DIVE' | 'STIFFARM'
+  | 'NORMAL' | 'SPIN' | 'JUKE' | 'HURDLE' | 'HIGH_HURDLE' | 'DIVE' | 'STIFFARM'
   | 'TACKLING' | 'DIVE_TACKLE' | 'POWER_TACKLE' | 'DOWN' | 'GETUP'
   | 'BLOCK_ENGAGE' | 'THROWING' | 'JUMP' | 'KICKING' | 'CELEBRATE' | 'STUNNED';
 
@@ -248,6 +248,8 @@ export interface Athlete {
   hasBall: boolean;
   turbo: number;               // 0..100
   turboHeld: boolean;
+  /** Holding the ball in two hands: slower, less agile, far harder to strip. */
+  protecting: boolean;
   turboLockTicks: number;      // regen delay
   stamina: number;             // 0..100 (slow drain, cosmetic pressure)
   downTicks: number;
@@ -289,7 +291,12 @@ export type BallState =
       arc: number;
       contested: boolean;
     }
-  | { kind: 'loose'; lastTouch: AthleteId | -1; ticks: number; fromFumble: boolean }
+  // `tipped` marks a ball that is loose because a forward pass was juggled or batted up rather
+  // than dropped. Legally it is still a forward pass: anyone may take it out of the air, either
+  // team, but the instant it touches the ground the play is incomplete, not a fumble. Without the
+  // flag a tipped ball would bounce as a live fumble and hand the defence free possession on
+  // every contested throw.
+  | { kind: 'loose'; lastTouch: AthleteId | -1; ticks: number; fromFumble: boolean; tipped?: boolean }
   | {
       kind: 'kicked';
       from: AthleteId;
@@ -403,6 +410,7 @@ export type GameEvent =
   | ({ type: 'pass.arrive'; at: Vec3 } & BaseEvent)
   | ({ type: 'catch'; by: AthleteId; contested: boolean; diving: boolean; yards: number } & BaseEvent)
   | ({ type: 'drop'; by: AthleteId } & BaseEvent)
+  | ({ type: 'bobble'; by: AthleteId; contested: boolean } & BaseEvent)
   | ({ type: 'swat'; by: AthleteId } & BaseEvent)
   | ({ type: 'interception'; by: AthleteId } & BaseEvent)
   | ({ type: 'lateral'; from: AthleteId; to: AthleteId } & BaseEvent)
@@ -412,7 +420,7 @@ export type GameEvent =
   | ({ type: 'bigHit'; by: AthleteId; on: AthleteId; power: number } & BaseEvent)
   | ({ type: 'brokenTackle'; by: AthleteId; on: AthleteId } & BaseEvent)
   | ({ type: 'sack'; by: AthleteId; on: AthleteId; yards: number } & BaseEvent)
-  | ({ type: 'move'; by: AthleteId; move: 'HURDLE' | 'HIGH_HURDLE' | 'SPIN' | 'DIVE' | 'STIFFARM' } & BaseEvent)
+  | ({ type: 'move'; by: AthleteId; move: 'HURDLE' | 'HIGH_HURDLE' | 'SPIN' | 'DIVE' | 'STIFFARM' | 'JUKE' } & BaseEvent)
   | ({ type: 'block.win'; by: AthleteId; on: AthleteId; pancake: boolean } & BaseEvent)
   | ({ type: 'firstDown'; side: TeamSide } & BaseEvent)
   | ({ type: 'down.change'; down: number; distance: number } & BaseEvent)

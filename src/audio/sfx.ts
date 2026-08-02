@@ -338,6 +338,25 @@ export class Sfx {
     s.v.end(end);
   }
 
+  /**
+   * A juke is heard from the ground up: cleats biting turf, then the body going the other way.
+   * Shorter and quieter than the spin on purpose — it is the cheap move, and if it were as loud
+   * as the spin the mix would read them as the same event.
+   */
+  juke(pan = 0): void {
+    const s = this.slot('sfx', 0.35, pan, 0.45);
+    if (!s) return;
+    let end = noiseBurst(s.ctx, s.dest, {
+      t0: s.t0, dur: 0.11, level: 0.34, kind: 'white', filter: 'bandpass',
+      freq: vary(1500, 0.15), freqEnd: vary(520, 0.15), q: 1.4, attack: 0.004, track: s.tr,
+    });
+    end = Math.max(end, whoosh(s.ctx, s.dest, {
+      t0: s.t0 + 0.03, dur: 0.18, level: 0.26, f0: vary(520, 0.15), f1: vary(1400, 0.15), q: 1.1,
+      panFrom: pan, panTo: clamp(pan + 0.45, -1, 1), track: s.tr,
+    }));
+    s.v.end(end);
+  }
+
   stiffArm(pan = 0): void {
     const s = this.slot('sfx', 0.35, pan, 0.6);
     if (!s) return;

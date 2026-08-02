@@ -24,6 +24,10 @@ export const Action = {
   HIDE_PLAY: 1 << 17,
   /** Modern passing mode: aim assist toggle / free-aim throw. */
   LOB: 1 << 18,
+  /** Ball carrier: plant and cut. Beats a committed dive, does little against a balanced man. */
+  JUKE: 1 << 19,
+  /** Ball carrier: two hands on it. Slower and less agile, far harder to strip. */
+  PROTECT: 1 << 20,
 } as const;
 
 export type ActionMask = number;
@@ -35,6 +39,8 @@ export function has(mask: number, a: number): boolean { return (mask & a) !== 0;
 
 /** Human-facing labels used by the settings screen and help prompts. */
 export const ACTION_LABELS: Record<ActionName, string> = {
+  JUKE: 'Juke',
+  PROTECT: 'Protect ball',
   TURBO: 'Turbo',
   ACTION: 'Pass / Snap / Switch',
   JUMP: 'Jump / Tackle / Hurdle',

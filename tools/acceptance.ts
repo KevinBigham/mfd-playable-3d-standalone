@@ -204,10 +204,10 @@ test('INP-002', 'Gate 1', 'Input', () => {
   // Radial dead zone: sweeping the stick in a circle at constant magnitude must produce a
   // constant output magnitude. A PER-AXIS dead zone fails this — it carves a square hole out of
   // a round stick, so the diagonals behave differently from the cardinals.
-  const { applyDeadzone } = req('../src/input/manager.ts') as
+  const { applyDeadzone } = req('../src/input/buffer.ts') as
     { applyDeadzone?: (x: number, y: number) => { x: number; y: number } };
   if (!applyDeadzone) {
-    return { ok: false, detail: 'no radial dead-zone function is exported; the manager thresholds each axis separately' };
+    return { ok: false, detail: 'no radial dead-zone function exists; the stick is thresholded per axis' };
   }
   let min = Infinity; let max = 0;
   for (let deg = 0; deg < 360; deg += 5) {
@@ -644,23 +644,51 @@ test('RUN-002', 'Gate 4', 'Running move', () => {
   };
 });
 
-test('RUN-004', 'Gate 4', 'Running move', () => {
+/**
+ * Peak carrier speed over one live play, sampled only while the ball is actually in his hands.
+ *
+ * The first version of this measured both halves inside ONE match, back to back: sprint for a
+ * second, read the speed, then hold protect for a second and read it again. By the second read the
+ * play was over and the carrier was standing still, so it compared 0.11 yd/s against 0.00 and
+ * reported a pass. A test that cannot fail is not a test. Both arms now run their own match from
+ * the same seed, so they see the same play, and a sample too slow to be running at all is rejected
+ * by the caller rather than quietly compared.
+ */
+function peakCarrierSpeed(protect: boolean, seed: number): number {
   clearInput();
-  const m = makeMatch();
-  if (!toLivePlay(m)) return { ok: false, detail: 'never reached a live play' };
+  const m = makeMatch({ seed });
+  if (!toLivePlay(m)) return -1;
   const car = carrier(m.world);
-  if (!car) return { ok: false, detail: 'no carrier' };
-  held.moveZ = 1; held.mask = Action.TURBO;
-  for (let i = 0; i < 60; i++) m.tick();
-  const free = Math.hypot(car.vx, car.vz);
-  held.mask = Action.TURBO | (ACT.PROTECT ?? 0);
-  for (let i = 0; i < 60; i++) m.tick();
-  const prot = Math.hypot(car.vx, car.vz);
+  if (!car) return -1;
+  held.moveZ = 1;
+  held.mask = Action.TURBO | (protect ? (ACT.PROTECT ?? 0) : 0);
+  let peak = 0;
+  for (let i = 0; i < 90; i++) {
+    m.tick();
+    if (m.world.playPhase !== 'LIVE' || !car.hasBall) break;
+    peak = Math.max(peak, Math.hypot(car.vx, car.vz));
+  }
   clearInput();
+  return peak;
+}
+
+test('RUN-004', 'Gate 4', 'Running move', () => {
   if (!ACT.PROTECT) return { ok: false, detail: 'no protect-ball action exists' };
+  let free = 0; let prot = 0; let samples = 0;
+  for (const seed of [4242, 5150, 6060, 7007]) {
+    const f = peakCarrierSpeed(false, seed);
+    const p = peakCarrierSpeed(true, seed);
+    if (f < 0 || p < 0) continue;
+    free += f; prot += p; samples++;
+  }
+  if (samples === 0) return { ok: false, detail: 'never reached a live play' };
+  free /= samples; prot /= samples;
+  // Guard against the degenerate sample the old version passed on: if the unprotected carrier
+  // never got moving, the comparison is meaningless whatever it says.
+  if (free < 4) return { ok: false, detail: `carrier never ran (${free.toFixed(2)} yd/s free) — nothing to compare` };
   return {
     ok: prot < free * 0.97,
-    detail: `top speed ${free.toFixed(2)} → ${prot.toFixed(2)} yd/s while protecting the ball`,
+    detail: `peak carrier speed ${free.toFixed(2)} → ${prot.toFixed(2)} yd/s protecting the ball, ${samples} plays`,
   };
 });
 

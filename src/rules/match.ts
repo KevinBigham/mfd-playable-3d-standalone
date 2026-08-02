@@ -39,6 +39,7 @@ import {
 import { OFFENSE_PLAYS } from '../plays/offense.ts';
 import { DEFENSE_PLAYS } from '../plays/defense.ts';
 import { Action, has } from '../input/actions.ts';
+import { ActionBuffer, inputDebug } from '../input/buffer.ts';
 import { getStadium } from '../data/stadiums.ts';
 
 /** Phases whose handlers call `stepPlay` and therefore advance the world themselves. */
@@ -103,6 +104,18 @@ export class Match {
   private snapArmed = false;
   private snapHeldPrev = true;
   private snapRequested = false;
+  /**
+   * One action buffer per seat, plus last tick's held mask so press edges can be derived here
+   * rather than trusting a caller to supply them.
+   *
+   * A press a few frames before an action becomes legal is a press the player made, and dropping
+   * it teaches them the game misses inputs. The bespoke snap latch below predates this and is
+   * kept because the snap has an extra rule the general buffer does not model — it must see a
+   * RELEASE first, since the same button picked the play — but everything else that consumes a
+   * press now goes through the buffer and leaves a reason behind when it expires.
+   */
+  private buffers: ActionBuffer[] = [new ActionBuffer(), new ActionBuffer(), new ActionBuffer(), new ActionBuffer()];
+  private seatHeldPrev = [0, 0, 0, 0];
   /**
    * Seats whose ACTION press was spent on the snap, and which must release it before that button
    * means anything again.
@@ -300,6 +313,7 @@ export class Match {
     // A spent ACTION is only released by the player letting go of it. Checked here rather than
     // where the intent is read, because a seat that is not driving anybody this tick would
     // otherwise never get the chance to clear the latch.
+    this.pumpBuffers();
     if (this.actionSpent.size > 0) {
       for (const seat of [...this.actionSpent]) {
         const it = this.seatIntent(seat);
@@ -545,10 +559,42 @@ export class Match {
     if (snapNow && m.phaseTicks > s(0.3)) this.doSnap();
   }
 
+  /**
+   * Derive this tick's press edges for every active seat, buffer them, and expire anything that
+   * has sat too long — with the reason it never fired, which is the whole point.
+   */
+  private pumpBuffers(): void {
+    const m = this.state;
+    for (let seat = 0; seat < 4; seat++) {
+      const cfgSeat = this.config.seats[seat];
+      if (!cfgSeat || !cfgSeat.active) continue;
+      const it = this.seatIntent(seat);
+      const held = it ? it.held : 0;
+      const pressed = held & ~this.seatHeldPrev[seat];
+      this.seatHeldPrev[seat] = held;
+      const buf = this.buffers[seat];
+      buf.push(pressed, this.world.tick);
+      buf.age(this.world.tick, (bit) => {
+        if (bit === Action.ACTION) {
+          if (m.phase === 'PRE_SNAP') return 'snap not legal yet: still inside the settle window';
+          if (m.phase === 'PLAY_CALL') return 'no play selected yet';
+          if (m.phase === 'LIVE') return 'ball already live and this seat is not the passer';
+          return `no action bound to ACTION in phase ${m.phase}`;
+        }
+        return `no consumer for this action in phase ${m.phase}`;
+      });
+    }
+  }
+
+  /** What a seat has pressed recently and nothing has claimed yet. For debugging and for tests. */
+  bufferedFor(seat: number): number { return this.buffers[seat]?.pending() ?? 0; }
+  get inputStats(): typeof inputDebug { return inputDebug; }
+
   private doSnap(): void {
     const w = this.world;
     // Whoever is holding ACTION right now spent it on this snap.
     for (const seat of this.seatsFor(this.state.possession)) {
+      this.buffers[seat]?.consume(Action.ACTION);
       const it = this.seatIntent(seat);
       if (it && has(it.held, Action.ACTION)) this.actionSpent.add(seat);
     }

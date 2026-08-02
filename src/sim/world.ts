@@ -104,7 +104,7 @@ function blankAthlete(id: number): Athlete {
       state: 'IDLE', phase: 0, prevPhase: 0, ticks: 0,
       speed01: 0, accelFwd: 0, accelLat: 0, ground: 0, lastX: 0, lastZ: 0,
     },
-    hasBall: false, turbo: 100, turboHeld: false, turboLockTicks: 0, stamina: 100,
+    hasBall: false, turbo: 100, turboHeld: false, protecting: false, turboLockTicks: 0, stamina: 100,
     downTicks: 0, stunTicks: 0, blockedBy: -1, engagedWith: -1, onFire: false,
     role: 'WIDE', route: null, routeIdx: 0, routeHold: 0, assign: null, targetButton: null,
     homeX: 0, homeZ: 0,
@@ -169,7 +169,7 @@ export function resetAthlete(a: Athlete, side: TeamSide, slot: number, unit: 'OF
   a.anim.state = 'SET'; a.anim.phase = 0; a.anim.prevPhase = 0; a.anim.ticks = 0;
   a.anim.speed01 = 0; a.anim.accelFwd = 0; a.anim.accelLat = 0;
   a.anim.ground = 0; a.anim.lastX = a.x; a.anim.lastZ = a.z;
-  a.hasBall = false; a.turbo = 100; a.turboHeld = false; a.turboLockTicks = 0;
+  a.hasBall = false; a.turbo = 100; a.turboHeld = false; a.protecting = false; a.turboLockTicks = 0;
   a.downTicks = 0; a.stunTicks = 0; a.blockedBy = -1; a.engagedWith = -1;
   a.route = null; a.routeIdx = 0; a.routeHold = 0; a.assign = null; a.targetButton = null;
   a.reactionQueue = 0; a.aiScratch = 0;

@@ -48,18 +48,39 @@ export const TURBO_REGEN = 26;            // per second once unlocked
 export const TURBO_REGEN_DELAY_MIN = s(0.25);
 export const TURBO_REGEN_DELAY_MAX = s(0.85);
 export const TURBO_COST = {
+  JUKE: 10,
   SPIN: 20, STIFFARM: 15, HIGH_HURDLE: 25, DIVE: 18,
   POWER_TACKLE: 25, DIVE_TACKLE: 10, PUSH: 12, BULLET: 8, JUMP_PASS: 10,
 } as const;
 
 // ── special moves (ticks) ──────────────────────────────────────────────────
 export const MOVE_TICKS = {
-  SPIN: s(0.52), HURDLE: s(0.58), HIGH_HURDLE: s(0.86), DIVE: s(0.75),
+  SPIN: s(0.52), HURDLE: s(0.58), HIGH_HURDLE: s(0.86), DIVE: s(0.75), JUKE: s(0.33),
   STIFFARM: s(0.40), DIVE_TACKLE: s(0.62), POWER_TACKLE: s(0.50), TACKLE: s(0.34),
   GETUP: s(0.70), STUN: s(0.55), THROW: s(0.26), KICK: s(0.55), JUMP: s(0.62),
   /** Recovery frames: a high hurdle lands helpless, a missed power tackle is committed. */
   LANDING: s(0.18), WHIFF: s(0.20),
 } as const;
+
+/**
+ * The juke: a short plant and cut, cheap, and specifically a counter to a COMMITTED dive.
+ *
+ * It is not a small spin. A spin beats one close side threat and costs most of the meter; a juke
+ * beats a defender who has already left his feet or overcommitted his angle, costs little, and
+ * does almost nothing against a patient wrap tackler who is still balanced. That distinction is
+ * the whole reason to have both — a move that is good against everything is a button you hold.
+ */
+export const JUKE_LATERAL = 2.3;          // yards of sideways displacement across the cut
+export const JUKE_EVADE_DIVE = 0.86;      // chance a committed dive tackle whiffs through a juke
+export const JUKE_EVADE_STANDING = 0.18;  // ...and how little it does against a balanced tackler
+
+/**
+ * Protect the ball: trade speed and agility for security. Deliberately unglamorous — it is the
+ * option a player takes when they have already won and only need to finish.
+ */
+export const PROTECT_SPEED = 0.88;        // fraction of top speed
+export const PROTECT_TURN = 0.85;         // fraction of turn rate
+export const PROTECT_FUMBLE = 0.55;       // multiplier on fumble chance
 
 export const SPIN_EVADE = 0.62;           // base chance a tackle attempt whiffs during a spin
 export const HURDLE_CLEAR_HEIGHT = 0.75;  // tackle volumes below this are ignored
@@ -94,6 +115,21 @@ export const SWAT_ANGLE_BONUS = 0.25;
 export const CONTEST_PENALTY = 0.34;      // catch chance reduction when contested
 export const DROP_PRESSURE = 0.12;
 export const LEAD_TIME_SCALE = 0.92;
+
+// ── bobbles ────────────────────────────────────────────────────────────────
+// A failed catch that juggles instead of dying. These are chances that a DROP becomes a bobble,
+// not chances that a catch fails, so they compose on top of the existing catch roll and do not
+// change how often the ball is caught. They are additive and are allowed to exceed 1 in the
+// worst case (contested + bullet + diving = 1.02), which simply means that particular drop always
+// juggles — a diving contested grab at a bullet is exactly the ball that should never die quietly.
+export const BOBBLE_CONTESTED = 0.62;
+export const BOBBLE_BULLET = 0.22;
+export const BOBBLE_DIVING = 0.18;
+export const BOBBLE_POP = 4.6;            // yd/s upward off the hands: ≈0.6 s of hang
+export const BOBBLE_SCATTER = 2.2;        // ± lateral drift, small enough to stay contestable
+export const BOBBLE_GRAB = 0.34;          // per-tick chance a man in reach secures a tumbling ball
+export const SWAT_TIP_UP = 0.22;          // share of batted forward passes that go up, not down
+export const TIP_SELF_PENALTY = 0.26;     // how much worse the man who tipped it is at recovering it
 
 // ── kicking ────────────────────────────────────────────────────────────────
 export const FG_MAX_YARDS = 50;

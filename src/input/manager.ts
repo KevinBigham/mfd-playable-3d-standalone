@@ -1,5 +1,6 @@
 import type { PlayerIntent } from '../core/types.ts';
 import { Action, type ActionName } from './actions.ts';
+import { applyDeadzone } from './buffer.ts';
 import {
   KEYBOARD_P1, KEYBOARD_P2, GAMEPAD_BUTTONS, GAMEPAD_MENU, ACTION_BY_NAME,
   type KeyboardBinding,
@@ -170,9 +171,12 @@ export class InputManager {
         const pad = pads[dev.padIndex];
         if (pad) {
           dev.connected = true;
+          // Radial, not per-axis: thresholding each axis separately carves a square hole out of
+          // a round stick, so the same physical deflection produced a different speed on the
+          // diagonals than on the cardinals.
           const ax0 = pad.axes[0] ?? 0, ax1 = pad.axes[1] ?? 0;
-          if (Math.abs(ax0) > DEADZONE) mx = normAxis(ax0);
-          if (Math.abs(ax1) > DEADZONE) mz = -normAxis(ax1);
+          const st = applyDeadzone(ax0, ax1);
+          mx = st.x; mz = -st.y;
           for (let bi = 0; bi < pad.buttons.length; bi++) {
             const btn = pad.buttons[bi];
             if (!btn || !(btn.pressed || btn.value > 0.4)) continue;
@@ -224,12 +228,6 @@ export class InputManager {
     return (this.menuEdges[seat] & action) !== 0;
   }
   clearEdges(): void { for (let i = 0; i < 4; i++) this.menuEdges[i] = 0; }
-}
-
-function normAxis(v: number): number {
-  const s = Math.sign(v);
-  const m = (Math.abs(v) - DEADZONE) / (1 - DEADZONE);
-  return s * Math.min(1, Math.max(0, m));
 }
 
 export { Action };

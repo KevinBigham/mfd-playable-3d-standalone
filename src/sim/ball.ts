@@ -71,6 +71,21 @@ export function dropLoose(w: World, from: AthleteId, vx: number, vy: number, vz:
   w.ball.state = { kind: 'loose', lastTouch: from, ticks: 0, fromFumble };
 }
 
+/**
+ * A pass that was juggled instead of caught cleanly. The ball pops up off the hands and stays
+ * live IN THE AIR — either team can still take it — but it is legally still a forward pass, so
+ * touching the ground ends the play as incomplete. `stepBall` and `detectDead` both key off
+ * `tipped` for that.
+ *
+ * Note the position: unlike a fumble, the ball does not start at the athlete's chest. It starts
+ * where the BALL was, because that is the point in space both players were reaching for.
+ */
+export function bobbleBall(w: World, from: AthleteId, vx: number, vy: number, vz: number): void {
+  for (const a of w.athletes) a.hasBall = false;
+  w.ball.vx = vx; w.ball.vy = vy; w.ball.vz = vz;
+  w.ball.state = { kind: 'loose', lastTouch: from, ticks: 0, fromFumble: false, tipped: true };
+}
+
 export function launchKick(
   w: World, from: AthleteId, kickKind: KickKind, vx: number, vy: number, vz: number,
 ): void {
@@ -124,6 +139,9 @@ export function stepBall(w: World): boolean {
       b.x += b.vx * FIXED_DT; b.y += b.vy * FIXED_DT; b.z += b.vz * FIXED_DT;
       if (b.y <= 0.12) {
         b.y = 0.12;
+        // A tipped forward pass does not bounce back into play. It is down where it landed and
+        // the down is over; `detectDead` reads that as INCOMPLETE.
+        if (st.tipped) { b.vx = 0; b.vy = 0; b.vz = 0; return true; }
         if (b.vy < -1.2) {
           b.vy = -b.vy * 0.42;
           // Prolate spheroid: bounces sideways unpredictably (deterministic RNG).

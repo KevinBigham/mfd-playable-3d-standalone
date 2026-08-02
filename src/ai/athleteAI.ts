@@ -154,7 +154,8 @@ function offenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
       out.moveX = (b.x - a.x) / Math.max(0.001, d);
       out.moveZ = (b.z - a.z) / Math.max(0.001, d);
       out.held |= Action.TURBO;
-      if (shouldDiveOnLoose(w, a, d)) out.held |= Action.DIVE;
+      if (shouldGoUpForTip(w, a, d)) out.held |= Action.JUMP;
+      else if (shouldDiveOnLoose(w, a, d)) out.held |= Action.DIVE;
     }
   } else if (w.passThrown === false && w.playTicks > s(1.4)) {
     // Nobody blocking for a scrambling QB: come back to the ball.
@@ -418,7 +419,8 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
     const d = dist(a.x, a.z, b.x, b.z);
     if (d < 22) {
       pursue(w, a, b.x, b.z, out, ctx, 1);
-      if (shouldDiveOnLoose(w, a, d)) out.held |= Action.DIVE;
+      if (shouldGoUpForTip(w, a, d)) out.held |= Action.JUMP;
+      else if (shouldDiveOnLoose(w, a, d)) out.held |= Action.DIVE;
       return;
     }
   }
@@ -593,6 +595,18 @@ function returnBlockAI(w: World, a: Athlete, car: Athlete, out: PlayerIntent, ct
   pursue(w, a, target.x + (car.x - target.x) * 0.25, target.z + (car.z - target.z) * 0.25,
     out, ctx, 1);
   if (a.turbo > 12) out.held |= Action.TURBO;
+}
+
+/**
+ * A ball tumbling in the air off a tip is not a fumble on the turf, and diving at it is exactly
+ * wrong — you go under it and land on your face. You go UP. This says when.
+ */
+function shouldGoUpForTip(w: World, a: Athlete, d: number): boolean {
+  const st = w.ball.state;
+  if (st.kind !== 'loose' || !st.tipped) return false;
+  // Only worth the commitment when the ball is genuinely overhead and genuinely close: a jump
+  // freezes him for the better part of a second and the ball is only up for about that long.
+  return d < 2.6 && w.ball.y > 2.0 && w.ball.vy > -6;
 }
 
 /**

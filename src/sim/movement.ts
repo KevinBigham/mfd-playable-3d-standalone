@@ -5,6 +5,7 @@ import {
   SPEED_RATING_SCALE, ACCEL_GROUND, DECEL_GROUND, TURN_RATE_BASE, TURN_RATE_SPRINT,
   TURBO_MAX, TURBO_DRAIN, TURBO_REGEN, TURBO_REGEN_DELAY_MIN, TURBO_REGEN_DELAY_MAX,
   TURBO_COST, MOVE_TICKS, DIVE_BOOST, FIELD_HALF_WIDTH, OVERDRIVE_SPEED, CARRIER_SPEED_BONUS,
+  JUKE_LATERAL, PROTECT_SPEED, PROTECT_TURN,
 } from '../core/constants.ts';
 import { clamp, clamp01, angDelta, heading, lerp } from '../core/math.ts';
 import type { World } from './world.ts';
@@ -172,6 +173,7 @@ export function locomote(w: World, a: Athlete, desiredX: number, desiredZ: numbe
   if (mag > 1) { desiredX /= mag; desiredZ /= mag; mag = 1; }
 
   const maxSpeed = (sprinting ? turboSpeed(a) : baseSpeed(a))
+    * (a.protecting && a.hasBall ? PROTECT_SPEED : 1)
     * (a.onFire ? OVERDRIVE_SPEED : 1)
     * (a.hasBall ? CARRIER_SPEED_BONUS : 1)
     * (a.engagedWith >= 0 ? 0.55 : 1)
@@ -214,7 +216,10 @@ export function locomote(w: World, a: Athlete, desiredX: number, desiredZ: numbe
     if (Math.abs(tx) > 1e-5 || Math.abs(tz) > 1e-5) {
       // Squared so the turn stays loose through mid speed and only tightens near the top.
       const t = clamp01(sp / Math.max(1, maxSpeed));
-      const turnRate = lerp(TURN_RATE_BASE, TURN_RATE_SPRINT, t * t) * (0.75 + a.def.ratings.agility / 200);
+      const turnRate = lerp(TURN_RATE_BASE, TURN_RATE_SPRINT, t * t)
+        * (0.75 + a.def.ratings.agility / 200)
+        // Both hands on the ball is a worse posture to cut from, not just a slower one.
+        * (a.protecting && a.hasBall ? PROTECT_TURN : 1);
       steerFacing(a, heading(tx, tz), turnRate);
     } else {
       decayTurn(a);
@@ -245,6 +250,21 @@ function applyCommittedMove(a: Athlete, maxSpeed: number): void {
       const sp = maxSpeed * (0.72 + 0.28 * t);
       const h = a.aiScratch; // stored entry heading
       a.vx = Math.sin(h) * sp; a.vz = Math.cos(h) * sp;
+      break;
+    }
+    case 'JUKE': {
+      // A cut, not a turn: he keeps travelling roughly where he was going while his body shifts
+      // sideways out of the tackler's path. Heading is nudged, not swung, so the exit is smooth.
+      const t = 1 - a.moveTicks / MOVE_TICKS.JUKE;
+      const bite = Math.sin(t * Math.PI);              // strongest through the middle of the cut
+      const side = a.aiScratch >= 0 ? 1 : -1;
+      const rx = Math.cos(a.facing), rz = -Math.sin(a.facing);   // athlete's right
+      const lat = JUKE_LATERAL * bite * side;
+      a.vx += rx * lat * 0.5; a.vz += rz * lat * 0.5;
+      a.facing += side * 0.05 * bite;
+      const sp = Math.hypot(a.vx, a.vz);
+      const cap = maxSpeed * 0.97;
+      if (sp > cap) { a.vx = (a.vx / sp) * cap; a.vz = (a.vz / sp) * cap; }
       break;
     }
     case 'HURDLE':
@@ -319,6 +339,23 @@ export function startSpin(a: Athlete): boolean {
   if (!spendTurbo(a, TURBO_COST.SPIN)) return false;
   a.move = 'SPIN'; a.moveTicks = MOVE_TICKS.SPIN;
   a.aiScratch = a.facing;
+  a.anim.state = 'SPIN'; a.anim.phase = 0;
+  return true;
+}
+
+/**
+ * Plant and cut. Cheap, short, and only worth pressing against somebody who has committed.
+ *
+ * The cut direction comes from the stick relative to the athlete's own facing, so it reads as a
+ * cut rather than a turn: the displacement is sideways, the heading barely changes, and he keeps
+ * most of his forward speed. That is what separates it from simply steering.
+ */
+export function startJuke(a: Athlete, lateral: number): boolean {
+  if (!canAct(a) || isCommitted(a)) return false;
+  if (!spendTurbo(a, TURBO_COST.JUKE)) return false;
+  a.move = 'JUKE'; a.moveTicks = MOVE_TICKS.JUKE;
+  // Sign of the cut, remembered for the whole move so it cannot be steered mid-flight.
+  a.aiScratch = lateral >= 0 ? 1 : -1;
   a.anim.state = 'SPIN'; a.anim.phase = 0;
   return true;
 }

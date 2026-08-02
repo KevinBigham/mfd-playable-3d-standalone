@@ -12,6 +12,7 @@ import { OFF_START, DEF_START, dirOf, goalOf, ownGoalOf, other, carrier, savePre
 import {
   locomote, tickMoveState, syncAnim, resetGait, startSpin, startHurdle, startDive, startStiffArm,
   startJump, startDiveTackle, startPowerTackle, spendTurbo, canAct, isCommitted, isLineman,
+  startJuke,
 } from './movement.ts';
 import { giveBall, releasePass, stepBall, killBall, syncHeldBall, dropLoose } from './ball.ts';
 import { resolveAirBall, resolveLooseBall } from './catching.ts';
@@ -311,6 +312,18 @@ export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
     if (has(it.pressed, Action.SPECIAL)) {
       if (startSpin(a)) { w.bus.emit({ type: 'move', tick: w.tick, by: a.id, move: 'SPIN' }); return; }
     }
+    // Juke: a stick flick with the modifier. Cheap, short, and specifically a counter to a man
+    // who has already committed — it sits below the spin in priority because the spin costs
+    // twice as much and should win the tie when a player asks for both.
+    if (has(it.pressed, Action.JUKE)) {
+      const lateral = it.moveX * Math.cos(a.facing) - it.moveZ * Math.sin(a.facing);
+      if (Math.abs(lateral) > 0.15 && startJuke(a, lateral)) {
+        w.bus.emit({ type: 'move', tick: w.tick, by: a.id, move: 'JUKE' });
+        return;
+      }
+    }
+    // Protect the ball. Not a committed move — a stance he can hold and drop at will.
+    a.protecting = has(it.held, Action.PROTECT);
     return;
   }
 
@@ -463,6 +476,15 @@ export function detectDead(w: World): DeadReason | null {
   }
 
   if (st.kind === 'loose') {
+    // A tipped forward pass is still a forward pass. It is live only while it is in the air; the
+    // moment it is on the ground or outside the sideline the down is incomplete. It never becomes
+    // a fumble, never a safety, never a touchback — those all belong to a ball somebody possessed.
+    if (st.tipped) {
+      if (b.y <= 0.13) return 'INCOMPLETE';
+      if (Math.abs(b.x) > FIELD_HALF_WIDTH || b.z < -10.5 || b.z > 110.5) return 'INCOMPLETE';
+      if (st.ticks > s(2.5)) return 'INCOMPLETE';
+      return null;
+    }
     // Kick plays route through resolveKickPlay, which already knows what a ball in an end zone
     // means for a return. Only scrimmage fumbles get the touchback/safety treatment here.
     if (w.special !== null) {

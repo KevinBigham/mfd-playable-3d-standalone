@@ -596,7 +596,7 @@ export class PracticeScreen implements Screen {
     switch (b.state.kind) {
       case 'held': ballLine = `held  by #${w.athletes[b.state.carrier]?.def.number ?? '?'} (id ${b.state.carrier})`; break;
       case 'inAir': ballLine = `inAir ${b.state.passKind} from ${b.state.from} to ${b.state.intended ?? '-'}`; break;
-      case 'loose': ballLine = `loose last ${b.state.lastTouch} ${b.state.fromFumble ? 'fumble' : 'muff'}`; break;
+      case 'loose': ballLine = `loose last ${b.state.lastTouch} ${b.state.tipped ? 'tipped' : b.state.fromFumble ? 'fumble' : 'muff'}`; break;
       case 'kicked': ballLine = `kick  ${b.state.kickKind}${b.state.landed ? ' landed' : ''}`; break;
       default: ballLine = 'dead'; break;
     }
