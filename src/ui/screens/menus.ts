@@ -71,7 +71,16 @@ export class MainMenuScreen implements Screen {
     const p = panel('GRIDIRON <em>OVERDRIVE</em>'.replace(/<em>|<\/em>/g, ''), 'CHOOSE YOUR MODE');
     (p.querySelector('.go-title') as HTMLElement).innerHTML = 'GRIDIRON <em>OVERDRIVE</em>';
     const save = getSave();
-    const items: FocusItem[] = [
+    const items: FocusItem[] = [];
+    // A game you walked away from is the first thing you want back, so it goes above everything
+    // else — and it names the score and the clock, because "CONTINUE" on its own is a question.
+    const suspended = this.game.suspendedMatchLabel();
+    if (suspended) {
+      items.push(button(`CONTINUE MATCH · ${suspended}`, () => {
+        ctx.reset('match', { config: {}, resume: true, returnScreen: 'mainMenu' });
+      }));
+    }
+    items.push(
       button('QUICK PLAY', () => ctx.go('quickPlay')),
       button('TOURNAMENT', () => ctx.go('tournament')),
       button(save.season ? 'SEASON · CONTINUE' : 'SEASON', () => ctx.go('season')),
@@ -80,7 +89,7 @@ export class MainMenuScreen implements Screen {
       button('SETTINGS', () => ctx.go('settings')),
       button('CONTROLS', () => ctx.go('controls')),
       button('CREDITS & LEGAL', () => ctx.go('credits')),
-    ];
+    );
     for (const it of items) p.appendChild(it.el);
     s.appendChild(p);
     ctx.root.appendChild(s);
@@ -305,8 +314,25 @@ export class PauseScreen implements Screen {
       button('RESUME', () => { this.game.paused = false; ctx.back(); }),
       button('SETTINGS', () => ctx.go('settings')),
       button('CONTROLS', () => ctx.go('controls')),
-      button('QUIT TO MENU', () => { this.game.paused = false; this.game.endMatch(); ctx.reset('mainMenu'); }, 'danger'),
     ];
+    // Saving and quitting is only offered when there is something worth keeping. A finished match
+    // is a result, not a game in progress, and offering to "continue" into a final whistle is
+    // worse than not offering at all.
+    if (this.game.match && !this.game.match.state.finished) {
+      items.push(button('SAVE & QUIT', () => {
+        this.game.paused = false;
+        if (!this.game.suspendMatch()) this.game.endMatch();
+        ctx.reset('mainMenu');
+      }));
+    }
+    items.push(
+      button('QUIT TO MENU', () => {
+        this.game.paused = false;
+        this.game.discardSuspendedMatch();
+        this.game.endMatch();
+        ctx.reset('mainMenu');
+      }, 'danger'),
+    );
     for (const it of items) p.appendChild(it.el);
     s.appendChild(p);
     ctx.root.appendChild(s);

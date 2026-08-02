@@ -54,6 +54,12 @@ export interface TournamentSave {
 export interface SaveFile {
   version: 1;
   settings: Settings;
+  /**
+   * A match paused mid-game. One slot: this is "put the controller down", not a save-state
+   * library, and a second slot would need a UI that earns its place on the pause menu.
+   * Cleared when the match is resumed or abandoned, so it never resurrects a game you finished.
+   */
+  suspendedMatch: unknown | null;
   season: SeasonSave | null;
   tournament: TournamentSave | null;
   customPlays: CustomPlay[];
@@ -105,6 +111,7 @@ export function defaultSave(): SaveFile {
     settings: defaultSettings(),
     season: null,
     tournament: null,
+    suspendedMatch: null,
     customPlays: [],
     records: { wins: 0, losses: 0, ties: 0, longestTd: 0, mostPoints: 0, gamesPlayed: 0 },
     lastTeams: { home: '', away: '', stadium: '', weather: 'CLEAR' },
@@ -171,6 +178,7 @@ export function loadSave(): SaveFile {
       settings: { ...base.settings, ...(parsed.settings ?? {}), volumes: { ...base.settings.volumes, ...(parsed.settings?.volumes ?? {}) }, bindings: parsed.settings?.bindings ?? base.settings.bindings },
       season: parsed.season ?? null,
       tournament: parsed.tournament ?? null,
+      suspendedMatch: parsed.suspendedMatch ?? null,
       customPlays: Array.isArray(parsed.customPlays) ? parsed.customPlays : [],
       records: { ...base.records, ...(parsed.records ?? {}) },
       lastTeams: { ...base.lastTeams, ...(parsed.lastTeams ?? {}) },

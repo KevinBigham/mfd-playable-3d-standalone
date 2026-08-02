@@ -77,6 +77,7 @@ how the game *moves*, measured by two new harnesses rather than asserted.
 | Area | State |
 |---|---|
 | Fixed-timestep loop, seeded RNG, typed event bus | done |
+| Mid-match snapshot: pause → save & quit → continue, verified by event-stream equality | done |
 | Canonical rules engine + match state machine + watchdogs | done |
 | Simulation: movement, turbo, special moves, blocking, tackling, catching, kicking, laterals | done |
 | Ball authority (single mutator, per-tick invariant) | done |
@@ -270,6 +271,9 @@ None.
   drives a game; comeback assist bounds it rather than removing it.
 - The crowd is instanced billboards; it reads as a crowd, not as individuals.
 - Instant replay covers scores and turnovers only, not arbitrary rewind.
+- Mid-match save is a single slot with no manual slot management, and it is cleared the moment the
+  game is resumed. That is deliberate — it is "put the controller down", not a save-state library —
+  but it means there is no way to keep two games going at once.
 - Planted feet grip the turf when an athlete runs straight, but slip during a hard cut: the stride
   is solved in the body's own frame, and a cutting athlete travels somewhere other than where he
   faces. Measured in `npm run footslip` (QA_REPORT.md §9); fixing it needs world-space foot

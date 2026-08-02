@@ -1285,7 +1285,54 @@ harder for a player who ignores it and no harder for one who uses it. It is now 
 `reading the play beats hammering one button` — so if coverage ever stops rewarding the read and
 starts taxing everybody, a harness says so instead of a person noticing months later.
 
-### 12.10 What is still open
+### 12.10 Saving the game you are actually in
+
+`SIM-003` had sat as an N/A with the words "a real gap rather than an inapplicable test" written
+next to it. Save covered settings, season and records — everything except the match you were in the
+middle of — so quitting threw the game away.
+
+It is now a feature and a PASS. **Pause → SAVE & QUIT**, and the main menu offers **CONTINUE MATCH**
+with the score and the clock on the button, because "CONTINUE" on its own is a question. One slot,
+cleared on resume, and never offered for a match that has already finished.
+
+The interesting part is not the storage, it is what the determinism buys. A state snapshot can be
+*verified*: snapshot, keep playing, and separately restore and play the same span — if the two event
+streams are not identical, something is not being carried. They were not identical, twice:
+
+1. **The previous tick's held-button mask, per athlete.** Press edges are derived as
+   `held & ~prevHeld`, so an athlete restored with `prevHeld = 0` sees every button he is *already*
+   holding as a brand-new press. It surfaced as a defender who was mid-dive-tackle at the save
+   re-triggering the move on the first tick after the load.
+2. **The special-teams formations.** They are built in `specialFormations.ts` and never offered to a
+   player, so they are not in the playbook — and a snapshot taken during a field goal restored with
+   every defender's assignment set to `null`. The players stood in the right places and did nothing.
+
+Both were found by snapshotting at **four different points instead of one**. A snapshot between
+plays carries almost nothing and round-trips trivially; the ones that find bugs land mid-play,
+mid-flight and mid-kick. The first version of the unit test took one snapshot, landed between plays,
+and passed — a green test proving nothing.
+
+A restore into a different matchup is refused rather than attempted, because it would not throw: it
+would write one team's positions and stats into another team's game and run perfectly, producing a
+match that is quietly wrong.
+
+**And a bug in the harness itself, which is the worse kind.** This line had been in the acceptance
+matrix for as long as it has existed:
+
+```js
+rows.splice(rows.findIndex((r) => r.id === 'INP-002-note'), 1)
+```
+
+`findIndex` returns −1 when the row is absent — which is *every run with `--only`*, since the filter
+drops that placeholder along with everything else — and `splice(-1, 1)` removes the **last** element.
+Every filtered run had been silently deleting its own last result. It hid for as long as it did
+precisely because the thing it deleted was never printed; it surfaced as SIM-003 appearing not to
+exist while sitting in the file.
+
+> Acceptance **42 pass / 0 fail / 19 N/A** · unit tests **222** · browser smoke **21/21**, including
+> pause → save → menu → continue landing back in the same score, quarter and tick
+
+### 12.11 What is still open
 
 - **First downs are 4.3, not the 8–12 that would make the chain a pulse.** Up from 3.8, having gone
   the wrong way twice on the road there, but drives still average 3.1 plays and still score too

@@ -1,6 +1,7 @@
 import type { MatchConfig, PlayerIntent, TeamDef, StadiumDef, GameEvent } from '../core/types.ts';
 import { FIXED_DT, MAX_SUBSTEPS } from '../core/constants.ts';
 import { Match, defaultMatchConfig } from '../rules/match.ts';
+import { configFromSnapshot, snapshotMatches, type MatchSnapshot } from '../rules/snapshot.ts';
 import { GameRenderer } from '../render/renderer.ts';
 import { InputManager } from '../input/manager.ts';
 import { getSave, writeSave, type Settings } from '../persistence/save.ts';
@@ -198,6 +199,71 @@ export class Game {
     m.bus.on('*', (e: GameEvent) => this.onGameEvent(e));
     return m;
   }
+
+  // ── suspend and resume ────────────────────────────────────────────────
+  //
+  // "Put the controller down" rather than a save-state library: one slot, written on the way out
+  // and cleared on the way back in, so a finished game never resurrects. The snapshot itself is
+  // plain data produced by the match (see `rules/snapshot.ts`); everything here is storage and
+  // wiring, which is why none of it lives in the deterministic layer.
+
+  /** Freeze the live match into the save file and tear it down. Returns false if nothing is live. */
+  suspendMatch(): boolean {
+    if (!this.match || !this.inMatch) return false;
+    // A finished match is a result, not a game in progress. Saving one would offer to "continue"
+    // into a final whistle.
+    if (this.match.state.finished) return false;
+    try {
+      writeSave({ suspendedMatch: this.match.captureSnapshot() as unknown });
+    } catch { return false; }
+    this.paused = false;
+    this.endMatch();
+    return true;
+  }
+
+  /** Whether there is a game waiting to be picked up. */
+  hasSuspendedMatch(): boolean { return getSave().suspendedMatch !== null; }
+
+  /** A one-line description for the menu, or null. Reads the slot without consuming it. */
+  suspendedMatchLabel(): string | null {
+    const raw = getSave().suspendedMatch as MatchSnapshot | null;
+    if (!raw) return null;
+    try {
+      const home = getTeam(raw.homeId), away = getTeam(raw.awayId);
+      const q = raw.state.quarter > 4 ? 'OT' : `Q${raw.state.quarter}`;
+      const secs = Math.max(0, Math.ceil(raw.state.clockTicks / 60));
+      const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      return `${away.abbr} ${raw.state.teams[1].score} — ${raw.state.teams[0].score} ${home.abbr}`
+        + `  ·  ${q} ${clock}`;
+    } catch { return null; }
+  }
+
+  /** Rebuild the suspended match and hand it back live. Clears the slot on success. */
+  resumeSuspendedMatch(): Match | null {
+    const raw = getSave().suspendedMatch as MatchSnapshot | null;
+    if (!raw) return null;
+    const cfg = configFromSnapshot(raw);
+    const guard = snapshotMatches(raw, {
+      seed: cfg.seed, home: cfg.home, away: cfg.away,
+      stadium: cfg.stadium, quarterSeconds: cfg.quarterSeconds,
+    });
+    // A restore into the wrong matchup does not throw — it runs perfectly and is nonsense. The
+    // slot is dropped rather than kept around to fail again on the next boot.
+    if (!guard.ok) { writeSave({ suspendedMatch: null }); return null; }
+    let m: Match;
+    try {
+      m = this.startMatch(cfg as Partial<MatchConfig>);
+      m.applySnapshot(raw);
+    } catch { writeSave({ suspendedMatch: null }); return null; }
+    // Everything downstream of the match was set up for the pre-restore state: re-point the
+    // camera and let the HUD read the restored score rather than 0-0 at the 25.
+    this.renderer.gameCamera.snapTo(0, m.state.losZ, 1);
+    writeSave({ suspendedMatch: null });
+    return m;
+  }
+
+  /** Throw the suspended game away without loading it. */
+  discardSuspendedMatch(): void { writeSave({ suspendedMatch: null }); }
 
   endMatch(): void {
     this.replayPlayer.stop();

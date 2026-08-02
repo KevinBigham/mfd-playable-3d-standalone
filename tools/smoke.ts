@@ -150,6 +150,61 @@ async function main(): Promise<void> {
     p = await probe(page);
     check('resume returns to the match', p.screen === 'match', `screen=${p.screen}`);
 
+    // Save & quit, then continue. The unit tests prove the snapshot round-trips; this proves the
+    // path a person actually walks — pause, save, land on the menu, find the game there, pick it
+    // up, and arrive back in the same score and quarter rather than a fresh kickoff.
+    // Play some football first. Suspending at tick 0 makes every "is it the same game" comparison
+    // trivially true — 0-0 in the first quarter at tick 0 is also what a brand new match looks
+    // like, so the check would pass just as happily if `resume` started a fresh one.
+    await page.evaluate(async () => {
+      const g = (window as unknown as { GO: any }).GO;
+      for (let i = 0; i < 2400; i++) g.match.tick();
+    });
+    await page.waitForTimeout(200);
+    const suspend = await page.evaluate(() => {
+      const g = (window as unknown as { GO: any }).GO;
+      const before = {
+        home: g.match.state.teams[0].score, away: g.match.state.teams[1].score,
+        quarter: g.match.state.quarter, tick: g.match.world.tick,
+      };
+      const ok = g.suspendMatch();
+      g.reset('mainMenu');
+      return { ok, before, label: g.suspendedMatchLabel() };
+    });
+    await page.waitForTimeout(500);
+    p = await probe(page);
+    check('save & quit lands on the menu with the game kept',
+      suspend.ok && p.screen === 'mainMenu' && !!suspend.label,
+      `screen=${p.screen} · "${suspend.label ?? 'nothing saved'}"`);
+
+    const resumed = await page.evaluate(() => {
+      const g = (window as unknown as { GO: any }).GO;
+      g.reset('match', { config: {}, resume: true, returnScreen: 'mainMenu' });
+      return true;
+    });
+    await page.waitForTimeout(1200);
+    const after = await page.evaluate(() => {
+      const g = (window as unknown as { GO: any }).GO;
+      return g.match ? {
+        home: g.match.state.teams[0].score, away: g.match.state.teams[1].score,
+        quarter: g.match.state.quarter, tick: g.match.world.tick,
+        stillSaved: g.hasSuspendedMatch(),
+      } : null;
+    });
+    p = await probe(page);
+    check('continue picks the same game back up',
+      resumed && !!after && p.screen === 'match'
+      && after.home === suspend.before.home && after.away === suspend.before.away
+      && after.quarter === suspend.before.quarter && after.tick >= suspend.before.tick
+      // World ticks only advance in stepping phases, so 2400 match ticks is fewer world ticks —
+      // this bar just has to be far enough from zero that a fresh match could not clear it.
+      && suspend.before.tick > 900 && !after.stillSaved,
+      after
+        ? `${after.away}-${after.home} Q${after.quarter} at tick ${after.tick}`
+          + ` (saved ${suspend.before.away}-${suspend.before.home} Q${suspend.before.quarter}`
+          + ` at ${suspend.before.tick}); slot cleared=${!after.stillSaved}`
+        : 'no match after resume');
+
     await page.evaluate(() => { const g = (window as unknown as { GO: any }).GO; g.endMatch(); g.reset('mainMenu'); });
     await page.waitForTimeout(400);
     p = await probe(page);

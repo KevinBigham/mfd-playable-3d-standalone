@@ -10,6 +10,12 @@ export interface MatchParams {
   /** Where to go when the match finishes. */
   onFinish?: (result: { home: number; away: number }) => void;
   returnScreen?: string;
+  /**
+   * Pick up the suspended match instead of starting a new one. The screen still owns the match
+   * lifecycle either way — it would be too easy for a caller to start the game and then have this
+   * screen immediately start another one over the top of it.
+   */
+  resume?: boolean;
 }
 
 /**
@@ -39,7 +45,9 @@ export class MatchScreen implements Screen {
     this.ps = new PlaySelect(this.layer);
     this.ps.onSound = (k) => ctx.sound(k === 'move' ? 'move' : 'select');
 
-    const m = this.game.startMatch(this.params.config);
+    const m = this.params.resume
+      ? (this.game.resumeSuspendedMatch() ?? this.game.startMatch(this.params.config))
+      : this.game.startMatch(this.params.config);
     this.game.onMatchEnd = () => {
       if (this.finished) return;
       this.finished = true;
