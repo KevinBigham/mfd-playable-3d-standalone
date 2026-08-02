@@ -25,6 +25,14 @@ import { join } from 'node:path';
 const OUT_DIR = 'dist-artifact';
 const OUT_FILE = join(OUT_DIR, 'gridiron-overdrive.html');
 
+/**
+ * The same bytes, second home. `docs/index.html` is what GitHub Pages serves, so this is the
+ * playable link. It is written by the build rather than copied by hand for one reason: a Pages
+ * site that silently serves last week's game is worse than no Pages site, and a copy step a
+ * human has to remember will eventually be forgotten.
+ */
+const PAGES_FILE = join('docs', 'index.html');
+
 /** Injected before the game. Everything here is about surviving an iframe. */
 const PRELUDE = `
 (function () {
@@ -131,6 +139,11 @@ function main(): void {
   mkdirSync(OUT_DIR, { recursive: true });
   writeFileSync(OUT_FILE, html, 'utf8');
 
+  mkdirSync('docs', { recursive: true });
+  writeFileSync(PAGES_FILE, html, 'utf8');
+  // Pages runs Jekyll unless told not to, and Jekyll drops anything starting with an underscore.
+  writeFileSync(join('docs', '.nojekyll'), '', 'utf8');
+
   const kb = (n: number) => `${(n / 1024).toFixed(0)} kB`;
   console.log(`\n${OUT_FILE}`);
   console.log(`  javascript   ${kb(js.length)}`);
@@ -140,6 +153,7 @@ function main(): void {
     throw new Error('the artifact still references an external file');
   }
   console.log('  self-contained: no external script, stylesheet, font or image reference.');
+  console.log(`  ${PAGES_FILE}   same bytes — this is what the Pages link serves.`);
 }
 
 main();

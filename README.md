@@ -2,6 +2,16 @@
 
 **An original 7-on-7 arcade football game that runs in your browser.**
 
+### ▶ [**PLAY IT**](https://kevinbigham.github.io/mfd-playable-3d-standalone/)
+
+No install, no download, no account. It is one HTML file that contains the whole game — engine, 3D
+renderer, audio, sixteen teams, every mode — and it makes no network requests once it loads.
+
+**On a phone you can look but not yet play.** The title screen takes a tap and the menus browse
+fine, but the game itself still needs a keyboard or a controller: touch controls are the next
+thing being built, and [`MOBILE_PLAN.md`](MOBILE_PLAN.md) is the plan for them. The page says as
+much when it detects a touch screen rather than letting you find out at kickoff.
+
 > ### Picking this up on a new machine
 >
 > ```bash
