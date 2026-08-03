@@ -30,7 +30,7 @@ strictly monotone; QUICK human validation pending).
 Done: W4-001 Mobile Home (PLAY DRIVE/RESUME front door), W4-003 three-card selector with More
 (`.ps-card` via recommendCards), W4-005 Drive Results with instant ONE MORE DRIVE, Drive Rush wired
 end-to-end (7/7 `npm run driverush` browser checks; 18/18 classic, 32/32 touch, 20/20 lifecycle
-still green). Remaining: W4-002 orientation/manifest split, W4-004 FTUE, W4-006 renderer reuse,
+still green). Persistence v2 CORE landed (src/persistence/persistenceV2.ts — envelopes/checksums/revisions/LKG/v1 migration; Game integration behind persistenceV2 flag still to do). Remaining: W4-002 orientation/manifest split, W4-004 FTUE, W4-006 renderer reuse,
 W4-007 staged startup, W4-008 multi-axis governor, W4-009 persistence v2, W4-010 hosted PWA.
 
 ## Wave 0 results
