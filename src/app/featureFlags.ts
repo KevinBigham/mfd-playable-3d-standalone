@@ -27,7 +27,7 @@ const DEFAULTS = {
   mobileHomeV2: true,
   mobilePlayCardsV2: true,
   persistenceV2: true,
-  performanceGovernorV2: false,
+  performanceGovernorV2: true,
 };
 
 export type FeatureFlag = keyof typeof DEFAULTS;

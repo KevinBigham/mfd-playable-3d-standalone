@@ -495,6 +495,21 @@ export class Game {
       this.dynScale = Math.min(1, this.dynScale + 0.05);
       this.dynUnder = 0;
       this.renderer.setResolutionScale(this.settings.resolutionScale * this.dynScale);
+    } else if (flag('performanceGovernorV2') && this.dynScale <= 0.6 && this.dynOver >= 40) {
+      // Multi-axis ladder (v2): resolution has hit its floor and frames are STILL late — the
+      // remaining cost is fixed-function (shadows, post, crowd density), which only a tier drop
+      // can shed. One axis at a time, long hysteresis, and never upward mid-match: quality that
+      // oscillates is worse to look at than quality that is simply a bit lower. Essential cues
+      // (ball, badges, possession, down/distance) live in the HUD/DOM and survive every tier.
+      const tiers = ['LOW', 'MEDIUM', 'HIGH'] as const;
+      const cur = tiers.indexOf(this.settings.quality);
+      if (cur > 0 && this.inMatch) {
+        const next = tiers[cur - 1];
+        this.dynOver = 0; this.dynUnder = 0;
+        this.renderer.setQuality(next, this.settings.resolutionScale * this.dynScale);
+        // Session-only: the SETTING the player chose is untouched; the drop lasts until the
+        // renderer is next reconfigured (new match applies the saved setting again).
+      }
     }
   }
 
