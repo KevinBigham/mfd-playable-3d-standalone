@@ -37,6 +37,19 @@ left **on your screen** no matter which end of the field you are driving toward.
 
 This is the one control with real depth, and it is the only one you have to practise.
 
+**A dashed, dimmed badge means that receiver is off the side of the screen.** He is still a legal
+target and the throw still works, but the badge is pinned to the edge on his side rather than
+sitting on him, so you are throwing to a man you cannot currently see. A solid badge is on the
+player.
+
+### What a phone changes on its own
+
+Nothing here is a setting, and none of it appears on a desktop. The game reads the pointer once and
+decides: graphics start on the **LOW** tier, the camera sits **15 % closer** so the players are
+legible, the keyboard prompts are suppressed (they name keys you do not have), and the title screen
+comes up before the stadium is built so your first tap is never swallowed. Use **Add to Home
+Screen** and it also drops the browser chrome and keeps clear of the notch.
+
 ---
 
 ## GAMEPAD (any standard controller)

@@ -50,7 +50,11 @@ npm run typecheck    clean, strict, across src + tools + tests
 npm test             10 files, 222 tests, all passing (~12 s)
 npm run scenarios    25 / 25 deterministic gameplay scenarios
 npm run replay       12 / 12 determinism + persistence checks
-npm run smoke        19 / 19 browser checks
+npm run smoke        21 / 21 browser checks
+npm run human        19 / 19 scripted-player checks
+npm run touch        29 / 29 touch-only checks, phone-sized, no keyboard
+npm run acceptance   42 pass / 0 fail / 19 not applicable
+npm run artifact:check  11 / 11, single self-contained file in a sandboxed iframe
 npm run sim:batch    200 games, 0 violations, 0 watchdogs
 npm run perf:sim     simulation tick cost
 npm run perf         browser frame profile at all three presets
@@ -58,7 +62,7 @@ npm run smoothness   motion quality: churn, jerk, foot-slide, interpenetration
 npm run pacing       frame pacing across eight display models
 ```
 
-**Unit tests (214)** cover: the rules engine (chains, scoring, spots, Overdrive, endgame,
+**Unit tests (222)** cover: the rules engine (chains, scoring, spots, Overdrive, endgame,
 invariants), the league data (16 teams, unique ids/abbrs/numbers, valid colours, banned-name
 screen, logo markup), the playbook (27 offensive / 14 defensive plays, target stamping, route
 bounds, page/slot completeness, diagram output), procedural audio in a Node no-op context,
@@ -70,7 +74,7 @@ tournament brackets, season scheduling and playoffs, the play editor, the frame 
 `Date.now` and `performance.now`. All six directories are clean. A second test asserts the
 repository ships no image, model, audio or font files.
 
-### Scenario harness — 24 / 24
+### Scenario harness — 25 / 25
 
 kickoff and return · snap to dead ball · 30 yards is a first down · failing to gain advances the
 down · touchdown scores 6 and routes to a conversion · safety scores 2 for the defence ·
@@ -578,7 +582,7 @@ origin, with every path other than the document itself returning 404.** Anything
 a module, a font or an asset fails rather than silently succeeding.
 
 ```
-PASS  one file, no external references                     980 kB
+PASS  one file, no external references                    1027 kB
 PASS  boots inside a sandboxed iframe
 PASS  reaches a screen                                     screen=title
 PASS  survives a host that forbids the gamepad API         getGamepads throws, poll ok, pads=0
@@ -1821,11 +1825,174 @@ to put badges on, and the check reported "no badges visible" for a defect that d
 It now calls the deepest drop in the book — no handoff in the routes, out of the gun, latest primary
 read — which is the down it always needed and never asked for. Its failure message prints the pad
 mode, who the seat is driving and the dead-ball reason, so the next time it fails for a reason that
-is not badges, it says so. **24/24.**
+is not badges, it says so. **24/24** at that point; **29/29** today, after §15 added the
+app-shell checks.
 
 ---
 
-## 15. WHAT WAS RUN TO PRODUCE THIS
+## 15. THE PHONE HAD NEVER BEEN MEASURED
+
+Mobile playability became the first priority, and the first honest finding was that every mobile
+claim in this repository up to that point came from reading the code rather than running it. This
+section is the measurement round. **Read §15.5 before quoting any number in it.**
+
+### 15.1 Three things that are not the problem
+
+Worth stating first, because each is somewhere a mobile pass would normally spend a week.
+
+**Geometry is already phone-sized.** Live gameplay at 844×390, dpr 3:
+
+| tier | draw calls | triangles | textures |
+|---|---|---|---|
+| LOW | 48 | 51,666 | 42 |
+| MEDIUM | 49 | 112,326 | 76 |
+| HIGH | 47 | 190,750 | 103 |
+
+Forty-eight draw calls is not a mobile problem on any handset of the last decade. No batching, no
+LOD, no instancing work is warranted.
+
+**The receiver badges work.** They were built in M16 and never measured. Over seven seeds and 896
+frames of genuine dropback — forced SHOTGUN, latest primary read — all three badges are visible
+**86 %** of the time, mean 2.57 of 3, and **0 of 767** frames had two badges closer than 60 px.
+
+*This corrects a wrong result taken an hour earlier the same day.* A screenshot at the instant of
+the snap showed three badges piled together and a first probe "confirmed" it at 100 %. That probe
+picked `offensePlays[0]` — usually a run — so it was measuring a four-frame QB window on a handoff,
+not a progression. The badge overlap it reported does not exist.
+
+**JavaScript is not the boot cost.** A CPU profile of boot attributes **94.7 % to `(program)`** —
+native driver and shader compilation. Our own code is ~670 ms of it (three.js 545, game 126).
+Minifying, tree-shaking or code-splitting would buy essentially nothing.
+
+### 15.2 Boot is one un-yielded block, and it is shader-bound
+
+| GPU | DOMContentLoaded | first frame | longest single blocking task |
+|---|---|---|---|
+| M4 / Metal, cold shader cache | 2953 ms | **4029 ms** | 2931 ms |
+| M4 / Metal, warm shader cache | 1027 ms | **1332 ms** | 999 ms |
+| swiftshader (weak-GPU stand-in) | 564 ms | **12710 ms** | 17331 ms |
+
+CPU throttling at 4× and 6× barely moves the M4 rows, which is the tell: GPU work, not script work.
+Network is irrelevant — 1022 kB, fetched in 9 ms locally.
+
+Two things are true on any hardware. It is a **single synchronous task**, so nothing paints and no
+touch is answered for its whole duration; and most of it is work the title screen does not need —
+`src/main.ts` built a full attract-mode stadium before the first tap was possible.
+
+Moving the stadium behind a `requestIdleCallback`, after the title is registered and listening, does
+not make the block shorter. It makes it happen behind a screen that already exists and is already
+answering. **Title interactive: 185–508 ms**, against a first frame at 1332–4029 ms.
+
+The 1.3 s ↔ 12.7 s spread across GPUs is also the argument for the tier default. `defaultQuality()`
+had **no device check at all** and returned HIGH, or MEDIUM inside the artifact. Under swiftshader,
+HIGH costs **67.5 ms at p95 against LOW's 16.8** — invisible on an M4, decisive on a cheap Android.
+A coarse pointer now takes LOW. Dynamic resolution does not cover this: it scales the framebuffer,
+while the shadow map, post chain and crowd are fixed by the tier.
+
+### 15.3 The game was too small to read, and the fix has a hard ceiling
+
+An athlete is projected foot-to-crown and measured in CSS pixels:
+
+| | median athlete height | share of screen height |
+|---|---|---|
+| 1280×720 (designed at) | 60 px | 8.3 % |
+| 844×390 (phone) | 25 px | 6.3 % |
+
+The *fraction* is the same, because the camera scales with the viewport. The problem is physical:
+that fraction on a six-inch screen is about **five millimetres of football player**, roughly a 2.4×
+smaller visual angle than the same game on a desk. Downfield receivers measure 17 px.
+
+Pulling the camera toward its own look point fixes the size. **It also breaks the read, and that is
+the result worth recording.** Swept over 864 frames of dropback per step, six seeds:
+
+| dolly | median athlete | athletes on screen | badges still on the man |
+|---|---|---|---|
+| 0.00 | 24 px | 100.0 % | **98.4 %** |
+| 0.15 | 28 px | 99.6 % | **87.9 %** |
+| 0.22 | 31 px | 99.1 % | **64.4 %** |
+| 0.28 | 34 px | 98.6 % | **60.7 %** |
+| 0.35 | 38 px | 92.7 % | **56.0 %** |
+| 0.45 | 46 px | 88.6 % | **51.6 %** |
+
+"On the man" is the gate `npm run touch` enforces: the badge centre within 4 px of its receiver.
+
+**This shipped at 0.35 first, on the strength of the middle column alone.** The right-hand column is
+why it came back down. On a screen this size you cannot magnify without cropping, and the first
+thing cropped is the outside receiver; `paintBadges` then clamps his badge to the bezel, so the
+control still throws to him but has stopped being a *read* — and the read is the entire argument for
+drawing badges on players instead of in a row. 0.15 is the knee; past it fidelity collapses for very
+little extra size.
+
+**Getting meaningfully bigger needs fewer or tighter-aligned players, not a longer lens.** That is
+the strongest argument in this repository for a reduced mobile mode.
+
+A badge whose receiver is genuinely outside the viewport now says so — dashed ring, dimmed number —
+rather than pointing confidently at grass. The gate was tightened to match: an `edge` badge is
+exempt from the position test and must instead prove its receiver really is off-frame. That closes a
+hole rather than opening one; the old single-frame test passed or failed on luck.
+
+### 15.4 A missing meta tag had silently killed five CSS rules
+
+| | before |
+|---|---|
+| `viewport-fit=cover` | **missing** |
+| web-app manifest | missing |
+| `apple-mobile-web-app-capable` | missing |
+| `overscroll-behavior` | not set |
+| `env(safe-area-inset-*)` | used in 5 rules |
+
+The first line made the last line dead. **Without `viewport-fit=cover`, iOS returns 0 for every
+`env(safe-area-inset-*)`**, so all five rules carefully avoiding the notch and the home indicator did
+nothing on the device they were written for. The pause button sat at 10,10 — under the notch in
+landscape — and measured 42×42 against a 44 pt floor.
+
+The manifest is a **data URI**, not a file: `tools/artifact.ts` folds the page into one
+self-contained HTML file and an external `manifest.webmanifest` would be the first thing to break
+that. Chromium parses the data form with zero errors and resolves `start_url` and `scope` against
+the document. A `blob:` manifest was tried first and fails both — *"property 'start_url' ignored,
+URL is invalid."*
+
+Also fixed: the kickoff hint told a touch player to `Hold UP + TURBO + JUMP`, naming three keys that
+do not exist to describe a play the touch pad cannot call; and `.hud-help` at `bottom: 48px` shared a
+strip with `.tc-coach` at `bottom: 15%` — 58 px on a 390 px screen — so the two drew over each other
+in every capture. `.hud-help` is now off entirely on a coarse pointer.
+
+`npm run touch` gained five checks and runs **29 / 29**.
+
+### 15.5 What none of this proves
+
+**No number in this section is a device measurement.** Everything was taken in Chromium with touch
+emulation at 844×390 on an Apple M4, using ANGLE Metal for the strong-GPU rows and swiftshader as a
+stand-in for the weak end. That is honest about layout, geometry, draw calls, input plumbing and
+boot structure. It says nothing about thermals, sustained frame rate, or touch latency on real
+hardware, and the gap between the two GPU columns above is a warning about how wide that unknown is.
+
+The safe-area work is specifically unverified: emulated devices have no notch, so the insets are
+genuinely 0 and no probe can distinguish "supported and zero" from "unsupported". The gate proves
+the syntax parses and the meta is present. **The values need a notched screen.**
+
+The machine that produced this has Xcode command-line tools but no full Xcode, so the iOS Simulator
+could not be used. Installing Xcode and running
+`sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` unblocks real Mobile Safari, and
+that is the single highest-value outstanding item for mobile.
+
+### 15.6 Two more probes that measured the wrong thing
+
+Both are the failure mode this report keeps recording, and both had been passing.
+
+`TO_PRE_SNAP` returned the moment the **phase** reached `PRE_SNAP`. But PRE_SNAP begins a tick or
+two before the quarterback is actually holding the ball, and `modeFor` only turns the touch pad on
+once he is — so it handed the next caller a control layer still at `display:none`, and every control
+measured 0×0. It had passed for as long as the timing happened to fall the right way, and broke the
+moment anything upstream moved by a frame. It now waits for the pad, not the phase.
+
+The badge-overlap probe of §15.1 is the other, and it is worse: it produced a confident, specific,
+wrong headline result — "badges overlap 100 % of the time" — that survived exactly as long as it
+took to ask why three of five seeds had reported zero frames.
+
+---
+
+## 16. WHAT WAS RUN TO PRODUCE THIS
 
 > **The capture set is not in the repository.** Screenshots referenced throughout this report live
 > in `docs/captures/` and are regenerated by `npm run capture` (whole set) or `npm run shot`
@@ -1843,11 +2010,11 @@ npm test                 # 222 / 222
 npm run scenarios        # 25 / 25
 npm run replay           # 12 / 12
 npm run human            # 19 / 19  scripted human on the sticks, §9
-npm run touch            # 24 / 24  two thumbs and nothing else, §14
+npm run touch            # 29 / 29  two thumbs and nothing else, §14, §15
 npm run sim -- --games 200 --invariants
 npm run perf:sim
 npm run build
-npm run smoke            # 19 / 19
+npm run smoke            # 21 / 21
 npm run perf
 npm run smoothness       # motion quality, §6
 npm run footslip         # do planted feet grip the turf, §9
@@ -1869,7 +2036,7 @@ npm run artifact:check   # boots and plays that file in a sandboxed iframe, §8
 
 ---
 
-## 16. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
+## 17. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
 
 Stated as failures rather than omissions:
 
@@ -1885,8 +2052,11 @@ Stated as failures rather than omissions:
    measured directly instead (§6), which is exact and hardware-independent; the rendering changes it
    sits alongside — cross-fading, camera easing, lean and bank — were judged on the capture set by
    eye and are **not** backed by a number.
-3. **Boot time is over budget as measured** (9.3 s vs 2.5 s), on software rendering. Unverified on
-   hardware.
+3. **Boot time is over budget as measured** (9.3 s vs 2.5 s), on software rendering. Re-measured on
+   a real GPU in §15.2: 1.3 s warm / 4.0 s cold to first frame, and 12.7 s under the software
+   rasteriser — the spread is the point, and neither end is a phone. What is hardware-independent
+   is that boot is a **single un-yielded task**; the title screen is now put up before it runs, so
+   the block happens behind something that is already answering taps (185–508 ms).
 4. **Four-player local multiplayer is untested with four real devices.** Seat assignment, control
    binding and the disconnect path are covered by code and by the "controller vanishing mid-play"
    scenario, but four humans on one machine has not been played.
@@ -1908,7 +2078,9 @@ Stated as failures rather than omissions:
    15-point margin. Bounded by comeback assist, not eliminated.
 8. **First downs are rare** (3.4 a game). Faithful to the genre, but it means the chain is more of a
    scoring gate than a rhythm, and it is why the Overdrive trigger needed a team-streak path.
-9. **No touch controls, no online play.** Deliberate.
+9. **No online play.** Deliberate. (Touch controls shipped in M16 and are gated by
+   `npm run touch`, 29/29 — this line used to say "no touch controls" and was two milestones
+   stale.)
 10. **Teams switch ends only at halftime**, not every quarter, for camera and local-multiplayer
     orientation stability.
 11. **Instant replay is a transform-buffer clip**, not a general rewind: it re-poses the rigs from a
@@ -1928,7 +2100,20 @@ Stated as failures rather than omissions:
     straight (1.19 yd/s, §9) but skate during a hard change of direction (11.0 yd/s at the 95th
     percentile), because the stride is solved in the athlete's own frame and a cutting athlete is
     travelling somewhere other than where he is facing. Measured, reported, not fixed.
-16. **The nineteen animation states were reviewed as still frames, not in motion.** `npm run poses`
+16. **Nothing has ever run on a real phone.** Every mobile figure in §15 is Chromium with touch
+    emulation at 844×390 on an Apple M4 — honest about layout, geometry, draw calls, input plumbing
+    and boot structure, and silent on thermals, sustained frame rate and touch latency. The iOS
+    Simulator was unavailable (command-line tools, no full Xcode). This is the largest single
+    unknown in the report.
+17. **The safe-area insets are unverified.** `viewport-fit=cover` is present and the touch gate
+    proves the engine parses `env(safe-area-inset-*)`, but an emulated device has no notch, so the
+    insets are genuinely 0 and no probe can separate "supported and zero" from "unsupported".
+18. **Play cards cannot be reached by a thumb.** Held sideways the 430 px panel occupies the middle
+    48 % of the screen. The cap is forced by height, not taste — full width makes a cell 266×187 and
+    three rows come to 561 px inside a 390 px screen, putting the top row at y=−90. The fix is fewer
+    cards per page, which is a playbook change (plays carry a `slot` of 0..8; the cursor starts at 4
+    because 4 is the middle of a 3×3), not a stylesheet change. Measured and left undone.
+19. **The nineteen animation states were reviewed as still frames, not in motion.** `npm run poses`
     renders one instant of each. The one-shot poses — dive, tackle, get-up, kick — were checked at a
     single point in their timeline, so their *timing* is unverified even though their shapes are
     now right.

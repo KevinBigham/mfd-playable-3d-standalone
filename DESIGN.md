@@ -323,6 +323,20 @@ possession filmed kick returns, pick-sixes and fumble returns from in front — 
 at the lens with his own end zone behind him. The turn happens once, on the change of possession,
 and it is damped like every other framing parameter, so it pans rather than cuts.
 
+**On a phone the whole shot comes 15 % closer**, and the number is a compromise rather than a
+preference. An athlete occupies about the same fraction of the screen on either device — the camera
+scales with the viewport — but on a six-inch screen that fraction is roughly five millimetres of
+football player, a 2.4× smaller visual angle than the same game on a desk, with downfield receivers
+at seventeen pixels. Separation is the read this game is built on and it was not legible.
+
+You cannot magnify without cropping, though, and the first thing cropped is the outside receiver.
+Past about 15 % the badges over the wide men start clamping to the edge of the screen, and a badge
+on the bezel still throws to him but has stopped being a *read* — which is the entire reason badges
+are drawn on players instead of in a row. Measured across six seeds, badge fidelity runs 98 % at no
+pull-in, 88 % at 15 % and 56 % at 35 %. Fifteen is the knee, and **getting bigger than that needs
+fewer players on the field, not a longer lens.** A badge whose receiver really has left the frame
+goes dashed and dimmed rather than pretending to point at him.
+
 The framing numbers — distance, height, look-ahead, field of view — are eased in their own right
 before the camera is placed from them, so a change of shot is a second-order move rather than a
 lurch toward a target that jumped. Shot changes need a clear reason and a minimum dwell: a runner

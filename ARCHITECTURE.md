@@ -208,6 +208,7 @@ Rules:
 ```ts
 interface PlayerIntent {
   moveX: number; moveZ: number;        // -1..1, deadzoned, normalized
+  aimX: number; aimZ: number;          // where the BALL goes, independent of where the passer goes
   held: number;    // bitmask of Action
   pressed: number; // edge-triggered this tick
   released: number;
@@ -218,8 +219,31 @@ Sim consumes only `PlayerIntent`. It never sees a key code or a gamepad button. 
 gamepad support, and AI are all just different producers of `PlayerIntent` — **AI-controlled
 athletes produce intents through the same struct**, which is why difficulty tuning is honest.
 
+**Aim is a separate channel from movement, and that separation is load-bearing.** `throwTo` reads
+`aimX/aimZ`, never `moveX/moveZ`. When the two were the same pair, one thumb could not steer and
+place on different axes, no script could hold a passer still while varying the throw — so ball
+placement shipped unverifiable — and the read got diluted by a channel that was really a steering
+channel. Keyboard and gamepad copy movement into aim inside `InputManager`, which is what keeps
+desktop replays byte-identical; touch supplies aim independently. The AI zeroes it.
+
+**Touch attaches as an `IntentSource`, not as a fourth device enum.** `InputManager` exposes one
+hook that merges a contribution into seat 0; with nothing attached the file behaves exactly as it
+did before touch existed, which is the property that protects determinism. Pointer coordinates stop
+at `src/ui` — nothing under `src/sim`, `src/rules` or `src/ai` can tell a thumb from a key.
+
 Latency budget: device poll → intent → sim tick → render ≤ 2 rendered frames. Input is polled at
 the top of the rAF callback, before the fixed-step accumulator drains.
+
+### Device-conditional behaviour
+
+A coarse pointer changes five things, all decided once from the pointer and none of them a setting:
+the touch pad appears, the title says TAP rather than PRESS, the graphics tier defaults to `LOW`,
+the camera pulls in by `PHONE_DOLLY`, and the keyboard help prompts are suppressed.
+
+Every one of those decisions is made in `src/ui`, `src/app` or `src/persistence`. **No file in
+`src/core`, `src/data`, `src/rules`, `src/plays`, `src/sim` or `src/ai` asks what device it is on** —
+those six are the directories `tests/purity.test.ts` polices, and `matchMedia` would fail that test
+in any of them. A mode that genuinely needs different rules gets a ruleset, not a conditional.
 
 ## 12. RENDER OWNERSHIP SPLIT
 

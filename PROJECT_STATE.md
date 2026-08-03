@@ -6,6 +6,40 @@
 
 ## CURRENT MILESTONE
 
+**M19 — the phone is a first-class device.** Mobile playability became the number one priority, so
+the phone was measured properly for the first time rather than audited from documentation. Three
+things a mobile pass would normally attack turned out to be **already fine, and should be left
+alone**: geometry is phone-sized at 48 draw calls and 51 k–191 k triangles; the receiver badges show
+all three targets 86 % of the time across 896 frames of real dropback and **never** overlap; and
+94.7 % of boot CPU is native driver and shader work, so splitting the bundle buys nothing.
+
+Four things were real. **`viewport-fit=cover` was missing**, and the failure was silent and total:
+without it iOS returns 0 for every `env(safe-area-inset-*)`, so all five rules that dodge the notch
+and the home indicator were dead on the one device they were written for. Added, with the
+apple/mobile web-app meta, a **data-URI web-app manifest** (a file would break the single-file
+artifact; `blob:` fails to resolve `start_url`), `overscroll-behavior`, and a 46 px pause button.
+**`defaultQuality()` had no device check at all** and handed a phone HIGH — a coarse pointer now
+takes LOW, free on a strong GPU (2.7 ms p50 at every tier) and decisive on a weak one (67.5 ms
+against 16.8 at p95). **The attract stadium moved behind the title**, which is now interactive at
+**185–508 ms** against a first frame at 1332–4029 ms. And the camera pulls in on a coarse pointer.
+
+The camera number is the interesting one, because it shipped wrong and came back. A first pass took
+0.35 on athlete size alone; the sweep that followed added the column that mattered — at 0.35 only
+**56 %** of badges still sit on their receiver, against 98.4 % at zero. On a screen this size you
+cannot magnify without cropping, and what crops first is the outside receiver, whose badge then pins
+to the bezel and stops being a *read*. Shipped at **0.15**, the knee of the curve: 24 → 28 px median
+athlete at 87.9 % fidelity. **Getting bigger than this needs fewer players, not a longer lens**,
+which is now the strongest argument in the repo for Drive Rush. A badge whose receiver is genuinely
+off-frame says so — dashed and dimmed — instead of pointing confidently at grass.
+
+Two probe defects fixed, both the class this repo keeps producing: `TO_PRE_SNAP` returned on the
+phase alone, but PRE_SNAP starts a tick or two before the quarterback has the ball and the pad turns
+on, so it handed the next caller a control layer still at `display:none` and every control measured
+0×0 — passing only for as long as the timing fell the right way. And a first badge-overlap probe
+drew `offensePlays[0]`, usually a run, so it measured a four-frame QB window on a handoff and
+"confirmed" a 100 % overlap rate that does not exist. Touch checks 24 → **29**. Full write-up in
+QA_REPORT §15; the measurement round and the plan are MOBILE_PLAN §9–§10.
+
 **M18 — the kick return is a play now.** The ask: put a man in the back of the end zone, have him
 run up and catch every kickoff cleanly, and make everyone else on the receiving team a blocker.
 There was no catch to improve — a kickoff had never been caught. The ball hit the turf, bounced,
@@ -175,9 +209,14 @@ Full detail in QA_REPORT.md. Headline numbers:
   (54.7 against a 55 floor). Both are the same unsolved problem — drives end too soon.
 - Scripted human on the sticks: 19/19 checks, 271 yards and 21 points reading the play.
 - Every balance target in range except first downs, which is stated as a miss rather than omitted.
-- Browser smoke: **19/19**. Unit tests **222/222**. Scene at HIGH: **40 draw calls, 210 k
+- Browser smoke: **21/21**. Unit tests **222/222**. Scene at HIGH: **40 draw calls, 210 k
   triangles** against a 180 / 420 k budget — the whole graphics pass cost one draw call.
-  Scenarios **25/25**. Determinism **12/12**. Touch **24/24**. Artifact **11/11**.
+  Scenarios **25/25**. Determinism **12/12**. Touch **29/29**. Artifact **11/11**.
+- Phone, at 844×390 CSS / dpr 3 with touch emulation, on a real GPU (ANGLE Metal, Apple M4):
+  live gameplay is **48 draw calls** and 51.7 k / 112.3 k / 190.8 k triangles at LOW / MEDIUM /
+  HIGH. Title interactive at **185–508 ms**. Median on-screen athlete **28 px** with the phone
+  camera dolly, against 24 before. Receiver badges: all three visible **86 %** of frames,
+  **0 of 767** overlapping. **None of this is a device measurement** — see KNOWN LIMITATIONS.
 - Kick returns: **100 % of kickoffs fielded cleanly** by the deep man (1 125 of 1 125 over 120
   games, onside excluded), at **15.1 yd/s** against a 9.4 base. Returns end on the own 26.2 against
   17.1, and none go backwards against 17 % before.
@@ -331,8 +370,24 @@ None.
 
 ## KNOWN LIMITATIONS
 
+- **Nothing has been run on a real phone.** Every mobile number in this repository is Chromium with
+  touch emulation at 844×390. That is honest about layout, geometry, input plumbing and boot
+  structure, and it says nothing at all about thermals, sustained frame rate or touch latency on
+  actual hardware. The machine that built this has Xcode command-line tools but no full Xcode, so
+  the iOS Simulator is unavailable; installing Xcode and running
+  `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` unblocks real Mobile Safari.
+- **The safe-area insets are unverified.** `viewport-fit=cover` is present and `npm run touch`
+  proves the engine parses `env(safe-area-inset-*)`, but emulated devices have no notch, so the
+  insets are genuinely 0 and no probe can tell "supported and zero" from "unsupported". The values
+  need a notched screen.
 - Ball placement on touch is measured by `npm run touch` but **unverified against a human** — nobody
   has played a full game with a thumb and reported back.
+- **Play cards are not reachable by a thumb.** Held sideways the 430 px play panel sits in the
+  middle 48 % of the screen, which is the one region a thumb cannot reach. The cap is forced by
+  height, not taste: full width makes a cell 266×187, three rows come to 561 px inside a 390 px
+  screen, and the top row lands at y=−90. Fixing it means fewer cards per page, which is a change
+  to the playbook — plays carry a `slot` of 0..8 and the cursor starts at 4 because 4 is the middle
+  of a 3×3 — not to the stylesheet. MOBILE_PLAN §10.4.
 - No online multiplayer, by design.
 - Frame-time figures produced in this repository's container are software-rendered (no GPU
   available), so they are a worst case; draw calls, triangles and memory are hardware-independent.

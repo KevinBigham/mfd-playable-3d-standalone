@@ -7,14 +7,21 @@
 No install, no download, no account. It is one HTML file that contains the whole game — engine, 3D
 renderer, audio, sixteen teams, every mode — and it makes no network requests once it loads.
 
-**It plays on a phone.** Hold it sideways. Your left thumb is a floating stick that appears
-wherever you put it; push past the ring for turbo. Everything else is your right thumb: tap **SNAP**
-to hike, tap the badge over a receiver to throw to him — and **drag off that badge to place the
-ball**, away from the defender or back to the sideline. Swipe to juke, hurdle and dive.
+**It plays on a phone.** Open [the link above](https://kevinbigham.github.io/mfd-playable-3d-standalone/)
+on your handset and hold it sideways. Your left thumb is a floating stick that appears wherever you
+put it; push past the ring for turbo. Everything else is your right thumb: tap **SNAP** to hike, tap
+the badge over a receiver to throw to him — and **drag off that badge to place the ball**, away from
+the defender or back to the sideline. Swipe to juke, hurdle and dive.
+
+Use your browser's **Add to Home Screen** and it runs without browser chrome, which on a landscape
+phone is the scarce axis. A phone also gets its own graphics tier, its own camera framing and a
+title screen that answers a tap in under half a second — decided from the pointer, with nothing to
+configure. A desktop with a mouse never sees any of it.
 
 Placement is the one control with real depth, and it is why the phone version is not a lesser
-version. [`CONTROLS.md`](CONTROLS.md) has the full grammar; [`MOBILE_PLAN.md`](MOBILE_PLAN.md) has
-what is still missing. A desktop with a mouse never sees any of this.
+version. [`CONTROLS.md`](CONTROLS.md) has the full grammar. [`MOBILE_PLAN.md`](MOBILE_PLAN.md) has
+the measurement round and what is still missing — including the honest ceiling on how big the
+players can be made before the receivers stop fitting on the screen.
 
 > ### Picking this up on a new machine
 >
@@ -92,9 +99,11 @@ npm run preview   # serves dist/ on http://localhost:4173
 npm run typecheck    # strict TypeScript across src, tools and tests
 npm test             # unit tests (rules, league data, playbook, audio, layer purity)
 npm run scenarios    # 25 deterministic gameplay scenarios with assertions
+npm run replay       # determinism: same seed, byte-identical event log, three ways
 npm run sim          # CPU-vs-CPU batch simulation with a balance report
 npm run sim:batch    # 200 games
 npm run invariants   # 50 games with per-tick rules-invariant checking
+npm run acceptance   # the 61-test release matrix
 npm run smoke        # boots the real build in Chromium and plays a match to a final score
 npm run capture      # regenerates the 30-image visual review set in docs/captures/
 npm run perf         # frame-time profile of moving gameplay at every quality preset
@@ -104,6 +113,9 @@ npm run human        # scripts a PLAYER onto the sticks and checks what the game
 npm run touch        # plays a down on a phone-sized screen with two thumbs and no keyboard
 npm run footslip     # do planted feet actually grip the turf, measured at the shoe
 npm run fieldpos     # where drives start, how kick returns go, and every safety explained
+npm run driveprobe   # yards and conversions by concept, down and distance
+npm run runprobe     # run-game autopsy: blockers, first contact, gain shape
+npm run passprobe    # what happens to every forward pass
 npm run poses        # contact sheet: one frame of every animation state
 npm run gait         # contact sheet: one sprint stride, frame by frame
 npm run anthro       # athlete proportions, asserted rather than eyeballed
@@ -189,9 +201,14 @@ far more than any other setting.
 
 ## ONE-FILE BUILD
 
-`npm run artifact` writes `dist-artifact/gridiron-overdrive.html` — the entire game, about 980 kB,
+`npm run artifact` writes `dist-artifact/gridiron-overdrive.html` — the entire game, about 1 027 kB,
 in a single document. No module imports, no stylesheet link, no fonts, no images, no network of any
-kind. Open it from a disk, email it to somebody, or drop it in an iframe and it plays.
+kind. Open it from a disk, email it to somebody, or drop it in an iframe and it plays. The same
+bytes are written to `docs/index.html`, which is what the play link at the top of this file serves,
+so the link can never quietly serve last week's game.
+
+Even the web-app manifest is inlined as a `data:` URI rather than shipped as a second file, which is
+what lets the game install to a home screen without giving up the one-file property.
 
 `npm run artifact:check` proves that rather than assuming it: it loads the file inside a
 **sandboxed iframe** on a different origin with every other path returning 404, then checks that it
@@ -208,6 +225,10 @@ Needs **WebGL2** and a reasonably modern browser: Chrome/Edge 100+, Firefox 100+
 Desktop, laptop, phone or tablet — keyboard, controller or thumbs. On a phone, hold it sideways;
 portrait raises a rotate prompt and stops the clock. Audio starts on your first click, tap or key
 press, as browsers require. Everything runs locally — no network traffic after the page loads.
+
+**Add to Home Screen** works on iOS and Android and is worth doing: it drops the browser chrome,
+which is vertical space a landscape phone cannot spare, and the game declares itself fullscreen and
+landscape. On a notched phone the interface keeps clear of the notch and the home indicator.
 
 ---
 
@@ -226,12 +247,23 @@ consume a typed event stream; they never write back. Full contract in
 Recorded honestly here and in QA_REPORT.md:
 
 - **No online play.** Local multiplayer only, by design.
+- **Nothing has ever been run on a real phone.** Every mobile number in this repository is Chromium
+  with touch emulation at 844×390. That is honest about layout, geometry, draw calls, input plumbing
+  and boot structure, and says nothing about thermals, sustained frame rate or touch latency. It is
+  the largest unknown here.
 - **Ball placement on touch is unverified against a human.** The grammar works and is measured by
   `npm run touch`, but nobody has played a full game with a thumb and reported back.
-- **Performance numbers from this repository's CI are software-rendered.** The container that built
-  this has no GPU, so Chromium falls back to SwiftShader. Draw calls, triangle counts and memory
-  figures in QA_REPORT.md are hardware-independent and meaningful; frame times from that environment
-  are a worst case and are labelled as such.
+- **The notch-avoidance is unverified.** `viewport-fit=cover` is in place and the touch gate proves
+  the engine parses `env(safe-area-inset-*)`, but an emulator has no notch, so the insets read 0 and
+  no probe can tell "supported and zero" from "unsupported".
+- **Play cards are not reachable by a thumb.** Held sideways they sit in the middle 48 % of the
+  screen. The panel cannot simply be widened — three rows of that card shape do not fit in a 390 px
+  screen — so the fix is fewer cards per page, which is a playbook change. Measured in
+  [`MOBILE_PLAN.md`](MOBILE_PLAN.md) §10.4 and left undone.
+- **Frame times depend heavily on which GPU ran them.** Draw calls, triangle counts and memory in
+  QA_REPORT.md are hardware-independent and meaningful. Wall-clock frame and boot times are given
+  for both a real GPU (Apple M4 via ANGLE Metal) and a software rasteriser, and the gap between them
+  is roughly ten to one — treat either as a bound, not as a device figure.
 - **Teams switch which end they attack only at halftime**, not every quarter. This keeps the camera
   and local-multiplayer orientation stable, which matters more here than the convention.
 - **Instant replay is limited** to short deterministic clips of scores and turnovers rather than a
