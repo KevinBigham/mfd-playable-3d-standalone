@@ -26,7 +26,12 @@ placement authority, screen diagnose window, wider block pickup. Fun gate: infor
 over blind with fewer turnovers; the read now outscores the blind arm in the human probe too.
 PlayGrade facts, three-card recommendations, flag-gated skill Overdrive. Open: third-down curve not
 strictly monotone; QUICK human validation pending).
-**Wave 4 — Mobile product/reliability/performance: in progress.**
+**Wave 4 — Mobile product: PHONE LOOP COMPLETE, reliability/performance tasks remaining.**
+Done: W4-001 Mobile Home (PLAY DRIVE/RESUME front door), W4-003 three-card selector with More
+(`.ps-card` via recommendCards), W4-005 Drive Results with instant ONE MORE DRIVE, Drive Rush wired
+end-to-end (7/7 `npm run driverush` browser checks; 18/18 classic, 32/32 touch, 20/20 lifecycle
+still green). Remaining: W4-002 orientation/manifest split, W4-004 FTUE, W4-006 renderer reuse,
+W4-007 staged startup, W4-008 multi-axis governor, W4-009 persistence v2, W4-010 hosted PWA.
 
 ## Wave 0 results
 

@@ -227,9 +227,9 @@ async function main(): Promise<void> {
       await page.touchscreen.tap(422, 300);
       await page.waitForTimeout(400);
       afterTap = await page.evaluate(() => (window as unknown as { GO: any }).GO.currentScreen) as string;
-      if (afterTap === 'mainMenu') break;
+      if (afterTap === 'mainMenu' || afterTap === 'mobileHome') break;
     }
-    check('a real touch gets past the title screen', afterTap === 'mainMenu', `screen=${afterTap}`);
+    check('a real touch gets past the title screen', afterTap === 'mainMenu' || afterTap === 'mobileHome', `screen=${afterTap}`);
 
     // ── into a match, at the snap ────────────────────────────────────
     const arrive = await page.evaluate(TO_PRE_SNAP.replace('SEED', '90210')) as { ok: boolean; phase: string; play?: string };

@@ -4,6 +4,7 @@ import { PlaySelect } from '../playSelect.ts';
 import { Action } from '../../input/actions.ts';
 import type { Game } from '../../app/Game.ts';
 import type { MatchConfig } from '../../core/types.ts';
+import { PlayGradeTracker } from '../../gameplay/playGrade.ts';
 
 export interface MatchParams {
   config: Partial<MatchConfig>;
@@ -32,6 +33,7 @@ export class MatchScreen implements Screen {
   private params: MatchParams | null = null;
   private lastPhase = '';
   private finished = false;
+  private grades: PlayGradeTracker | null = null;
 
   constructor(game: Game) { this.game = game; }
 
@@ -48,9 +50,32 @@ export class MatchScreen implements Screen {
     const m = this.params.resume
       ? (this.game.resumeSuspendedMatch() ?? this.game.startMatch(this.params.config))
       : this.game.startMatch(this.params.config);
+    this.grades?.dispose();
+    this.grades = new PlayGradeTracker(m);
     this.game.onMatchEnd = () => {
       if (this.finished) return;
       this.finished = true;
+      // Drive Rush ends on its own result card with instant retry; Classic keeps the final
+      // whistle ceremony.
+      if (m.ruleset.endOnDriveEnd) {
+        const cfg = this.params?.config ?? {};
+        const facts = this.grades?.facts ?? [];
+        const st = m.state;
+        const scored = st.teams[0].score > 0 && st.teams[0].score > st.teams[1].score;
+        const outcome = scored ? 'TOUCHDOWN DRIVE' : st.teams[1].score > 0 ? 'SAFETY — DRIVE OVER' : 'DRIVE OVER';
+        const yards = st.teams[0].stats.totalYds;
+        const points = st.teams[0].score;
+        setTimeout(() => {
+          this.ctx.go('driveResults', {
+            outcome, yards, points, facts,
+            retry: () => this.ctx.reset('match', {
+              config: { ...cfg, seed: ((cfg.seed ?? 0) + 1) >>> 0 },
+              returnScreen: this.params?.returnScreen ?? 'mobileHome',
+            }),
+          });
+        }, 900);
+        return;
+      }
       setTimeout(() => {
         this.ctx.go('final', { returnScreen: this.params?.returnScreen ?? 'mainMenu', onFinish: this.params?.onFinish });
       }, 2200);
@@ -203,6 +228,8 @@ export class MatchScreen implements Screen {
   }
 
   unmount(): void {
+    this.grades?.dispose();
+    this.grades = null;
     this.ps?.close();
     this.closeConversion();
     this.closeKickoff();

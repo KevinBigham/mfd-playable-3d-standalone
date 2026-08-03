@@ -261,9 +261,9 @@ async function main(): Promise<void> {
       await page.touchscreen.tap(422, 300);
       await page.waitForTimeout(400);
       screen = await page.evaluate('window.GO.currentScreen') as string;
-      if (screen === 'mainMenu') break;
+      if (screen === 'mainMenu' || screen === 'mobileHome') break;
     }
-    check('title falls to a touch', screen === 'mainMenu', `screen=${screen}`);
+    check('title falls to a touch', screen === 'mainMenu' || screen === 'mobileHome', `screen=${screen}`);
 
     // A/B: the kickoff prompt, both arms, deterministically (seed 24600: human kicks the opener).
     const onside = await page.evaluate(KICKOFF_ARM('ONSIDE')) as { clicked: boolean; launched: string };

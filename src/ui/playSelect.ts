@@ -2,7 +2,9 @@ import type { DefensePlay, OffensePlay, TeamSide } from '../core/types.ts';
 import type { Match, SpecialCall } from '../rules/match.ts';
 import type { InputManager } from '../input/manager.ts';
 import { Action } from '../input/actions.ts';
-import { el, clear } from './uiKit.ts';
+import { el, clear, coarsePointer } from './uiKit.ts';
+import { flag } from '../app/featureFlags.ts';
+import { recommendCards } from '../gameplay/playRecommendation.ts';
 import { playDiagramSvg } from '../plays/diagram.ts';
 import { OFFENSE_PAGES } from '../plays/offense.ts';
 import { DEFENSE_PAGE, DEFENSE_PLAYS } from '../plays/defense.ts';
@@ -23,6 +25,9 @@ interface SidePanel {
   isOffense: boolean;
   mirrored: boolean;
   specialBar: HTMLElement;
+  /** Phone three-card surface; the full grid stays one tap away behind MORE. */
+  cardsWrap: HTMLElement;
+  showFullBook: boolean;
 }
 
 /**
@@ -119,7 +124,9 @@ export class PlaySelect {
     bar.appendChild(mkBtn('● HIDE', () => { panel.hidden = !panel.hidden; this.paint(panel); }));
     const specialBar = el('div', 'ps-special');
     specialBar.style.cssText = 'display:none;gap:8px;justify-content:center;margin:6px 0;pointer-events:auto';
-    wrap.append(head, bar, specialBar, grid, hint);
+    const cardsWrap = el('div', 'ps-cards');
+    cardsWrap.style.cssText = 'display:none;gap:10px;justify-content:center;margin:6px 0;pointer-events:auto';
+    wrap.append(head, bar, specialBar, cardsWrap, grid, hint);
     const cells: HTMLElement[] = [];
     for (let i = 0; i < 9; i++) {
       const c = el('div', 'ps-cell');
@@ -129,8 +136,11 @@ export class PlaySelect {
     }
     const panel: SidePanel = {
       wrap, grid, head, cells, page: 0, cursor: 4, hidden: false, locked: false,
-      side, seat, isOffense, mirrored: false, specialBar,
+      side, seat, isOffense, mirrored: false, specialBar, cardsWrap, showFullBook: false,
     };
+    if (isOffense && this.mobileCardsActive()) {
+      bar.appendChild(mkBtn('▦ MORE', () => { panel.showFullBook = !panel.showFullBook; this.paint(panel); }));
+    }
     // The special decisions are whole buttons that dispatch the real special path — a displayed
     // "PUNT" cell that routed through the normal confirm() silently did nothing (F-005).
     if (isOffense) {
@@ -177,6 +187,47 @@ export class PlaySelect {
 
   private paintAll(): void { for (const p of this.panels) this.paint(p); }
 
+  /** Three context-ranked cards replace the phone 3×3 front surface (mobilePlayCardsV2). */
+  private mobileCardsActive(): boolean {
+    return coarsePointer() && flag('mobilePlayCardsV2');
+  }
+
+  private recentCalls: string[] = [];
+
+  private paintCards(p: SidePanel): void {
+    const m = this.match;
+    if (!m) return;
+    clear(p.cardsWrap);
+    const cards = recommendCards(m.offensePlays, m.state, this.recentCalls);
+    for (const c of cards) {
+      const card = el('div', 'ps-card');
+      card.style.cssText = 'flex:1;max-width:31%;min-height:120px;padding:10px;cursor:pointer;'
+        + 'background:linear-gradient(180deg,var(--bg-3),var(--bg-2));border:2px solid var(--edge);'
+        + 'display:flex;flex-direction:column;gap:4px;align-items:center;text-align:center';
+      const role = el('div', '', c.role === 'SAFE' ? '🛡 SAFE' : c.role === 'SHOT' ? '⚡ SHOT' : '⚖ BALANCED');
+      role.style.cssText = `font-size:13px;letter-spacing:.12em;color:${c.role === 'SHOT' ? 'var(--hot-2)' : 'var(--ink-dim)'}`;
+      const dia = el('div');
+      dia.innerHTML = playDiagramSvg(c.play);
+      dia.style.cssText = 'width:82%';
+      const nm = el('div', '', c.play.name);
+      nm.style.cssText = 'font-size:15px;letter-spacing:.05em';
+      const why = el('div', '', c.reason.toUpperCase());
+      why.style.cssText = 'font-size:10px;color:var(--ink-dim);font-family:system-ui;letter-spacing:.04em';
+      card.append(role, dia, nm, why);
+      card.addEventListener('click', () => {
+        if (p.locked) return;
+        this.recentCalls.push(c.play.id);
+        if (this.recentCalls.length > 6) this.recentCalls.shift();
+        m.submitOffense(c.play, null, p.mirrored);
+        p.locked = true;
+        p.wrap.style.opacity = '0.55';
+        this.onSound?.('select');
+        this.paint(p);
+      });
+      p.cardsWrap.appendChild(card);
+    }
+  }
+
   private paint(p: SidePanel): void {
     const m = this.match;
     if (!m) return;
@@ -190,6 +241,11 @@ export class PlaySelect {
     // Fourth down: the special decisions appear as real buttons above the grid. The old path
     // painted a "PUNT" label onto a dead cell whose click handler could never dispatch it.
     p.specialBar.style.display = p.isOffense && m.state.down === 4 && !p.locked && m.ruleset.specialTeams ? 'flex' : 'none';
+    // Phone offense: three reachable cards front the call; MORE opens the full book.
+    const cardsOn = p.isOffense && this.mobileCardsActive() && !p.showFullBook && !p.locked;
+    p.cardsWrap.style.display = cardsOn ? 'flex' : 'none';
+    p.grid.style.display = cardsOn ? 'none' : '';
+    if (cardsOn) this.paintCards(p);
     for (let i = 0; i < 9; i++) {
       const cell = p.cells[i];
       clear(cell);

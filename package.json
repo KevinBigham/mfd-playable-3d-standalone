@@ -34,6 +34,7 @@
     "touch": "tsx tools/touchprobe.ts",
     "lifecycle": "tsx tools/lifecycleprobe.ts",
     "classic": "tsx tools/classicprobe.ts",
+    "driverush": "tsx tools/driverushprobe.ts",
     "gait": "tsx tools/gait.ts",
     "poses": "tsx tools/poses.ts",
     "footslip": "tsx tools/footslip.ts",

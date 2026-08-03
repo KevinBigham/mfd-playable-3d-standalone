@@ -19,13 +19,13 @@ const DEFAULTS = {
   directFieldTargets: true,
   compactHudV2: true,
   /** Wave 3 */
-  rulesetsV2: false,
-  driveRush: false,
-  playGradeV1: false,
+  rulesetsV2: true,
+  driveRush: true,
+  playGradeV1: true,
   overdriveSkillCharge: false,
   /** Wave 4 */
-  mobileHomeV2: false,
-  mobilePlayCardsV2: false,
+  mobileHomeV2: true,
+  mobilePlayCardsV2: true,
   persistenceV2: false,
   performanceGovernorV2: false,
 };

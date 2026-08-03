@@ -10,6 +10,7 @@ import type { Difficulty, TeamDef, TeamSide, WeatherKind } from '../../core/type
 import { TEAMS, getTeam, teamLogoSvg, STADIUMS, getStadium } from '../../data/index.ts';
 import { QUARTER_OPTIONS } from '../../core/constants.ts';
 import { getSave, writeSave, flushSave, resetSave, defaultSettings, storageKind } from '../../persistence/save.ts';
+import { flag } from '../../app/featureFlags.ts';
 import type { QualityTier } from '../../render/registry.ts';
 import { ACTION_LABELS, type ActionName } from '../../input/actions.ts';
 
@@ -68,7 +69,8 @@ export class TitleScreen implements Screen {
     if (this.tapped || i.menuPressed(Action.ACTION) || i.menuPressed(Action.PAUSE)) {
       this.tapped = false;
       this.ctx.sound('select');
-      this.ctx.go('mainMenu');
+      // The phone front door is one dominant action, not a mode directory.
+      this.ctx.go(coarsePointer() && flag('mobileHomeV2') ? 'mobileHome' : 'mainMenu');
     }
   }
   unmount(): void { this.node?.remove(); this.node = null; }
