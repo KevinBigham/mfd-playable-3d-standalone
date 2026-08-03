@@ -403,7 +403,9 @@ export class Game {
     this.match.dispose();
     this.match = null;
     this.inMatch = false;
-    this.renderer.unloadMatch();
+    // Deferred: an immediate same-matchup retry reuses the whole scene; a menu frame pays the
+    // teardown instead.
+    this.renderer.deferUnload();
     this.hud.detach();
   }
 

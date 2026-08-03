@@ -201,8 +201,27 @@ export class GameRenderer {
   }
 
   /** Build (or rebuild) the world for a match. */
+  /** What the current scene was built for. Same key on the next load = reset, not rebuild. */
+  private loadedKey = '';
+  /** Teardown owed but postponed: an immediate retry cancels it; entering a menu performs it. */
+  private unloadDeferred = false;
+
+  /**
+   * The match is over but its scene may be wanted again in a second (ONE MORE DRIVE). Owe the
+   * teardown instead of paying it: the next same-key loadMatch cancels the debt and reuses
+   * everything; the first menu frame settles it for real.
+   */
+  deferUnload(): void { this.unloadDeferred = true; }
+
   loadMatch(home: TeamDef, away: TeamDef, stadium: StadiumDef, conditions: Conditions): void {
+    // Same matchup, same venue, same weather, same quality: every expensive resource — the
+    // environment and its PMREM capture, fourteen athlete rigs, ball, markers, effects pools —
+    // is still exactly right. Reset the dynamic state and skip the rebuild; this is what makes
+    // ONE MORE DRIVE feel instant instead of re-running venue construction and shader warmup.
+    const key = `${home.id}|${away.id}|${stadium.id}|${conditions.weather}|${JSON.stringify(this.quality)}`;
+    if (this.loadedKey === key && this.env) { this.unloadDeferred = false; this.resetMatchScene(); return; }
     this.unloadMatch();
+    this.loadedKey = key;
     this.env = buildEnvironment(this.registry, { home, away, stadium, conditions, quality: this.quality });
     // Capture the finished venue into an environment map BEFORE any athlete exists, so the
     // reflections in a helmet are the sky, the stands and the turf — and not fourteen other
@@ -245,6 +264,14 @@ export class GameRenderer {
     for (const m of this.motion) { m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1; }
     for (let i = 0; i < this.lastAnimState.length; i++) { this.lastAnimState[i] = ''; this.animT[i] = 0; }
     this.prewarm();
+  }
+
+  /** Same-configuration retry: hide and neutralize everything dynamic, dispose nothing. */
+  private resetMatchScene(): void {
+    for (const m of this.rigs) for (const r of m.values()) r.root.visible = false;
+    for (const sp of this.numberSprites) sp.visible = false;
+    for (const m of this.motion) { m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1; }
+    for (let i = 0; i < this.lastAnimState.length; i++) { this.lastAnimState[i] = ''; this.animT[i] = 0; }
   }
 
   /**
@@ -314,6 +341,8 @@ export class GameRenderer {
   }
 
   unloadMatch(): void {
+    this.loadedKey = '';
+    this.unloadDeferred = false;
     this.scene.environment = null;
     this.envRT?.dispose();
     this.envRT = null;
@@ -690,6 +719,7 @@ export class GameRenderer {
   }
 
   renderMenu(t: number): void {
+    if (this.unloadDeferred) this.unloadMatch();
     this.gameCamera.menuOrbit(t);
     this.env?.crowd.setExcitement(0.35);
     this.render();
