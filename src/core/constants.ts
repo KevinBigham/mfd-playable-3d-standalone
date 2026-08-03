@@ -12,7 +12,7 @@ export const MAX_SUBSTEPS = 5;
  * balance, or simulation outcomes so receipts, saves, and challenge codes can refuse to compare
  * incompatible results. Version 1 is the behavior of the received baseline.
  */
-export const RULES_VERSION = 1;
+export const RULES_VERSION = 2;
 
 export function s(seconds: number): number { return Math.round(seconds * TICK_HZ); }
 
@@ -117,7 +117,8 @@ export const CATCH_RADIUS_BASE = 1.35;
 export const CATCH_RADIUS_BY_KIND = { TOUCH: 1.55, NORMAL: 1.35, BULLET: 1.05, LATERAL: 1.5, PUMP: 0 } as const;
 export const CATCH_HANDS_SCALE = 0.006;   // per rating point over 50
 export const CATCH_WINDOW_TICKS = s(0.34);
-export const INT_BASE = 0.30;             // defender in position → chance to pick vs swat
+export const INT_BASE = 0.22;             // defender in position → chance to pick vs swat (v2: fewer
+                                          // marginal errors become takeaways; swats carry the message)
 export const SWAT_ANGLE_BONUS = 0.25;
 export const CONTEST_PENALTY = 0.34;      // catch chance reduction when contested
 export const DROP_PRESSURE = 0.12;
@@ -129,7 +130,8 @@ export const LEAD_TIME_SCALE = 0.92;
  * (×1.7 at 40 yd).
  */
 export const PASS_ERROR_NEAR = 0.60;
-export const PASS_ERROR_PER_YARD = 0.0275;
+export const PASS_ERROR_PER_YARD = 0.024; // v2: less lottery in the deep ball — the read and the
+                                          // placement decide it, not the scatter
 /**
  * Ball placement. How far a passer can move the ball off the solved lead point by holding the stick
  * at release: `PLACE_NEAR + range * PLACE_PER_YARD`, capped at `PLACE_MAX` yards. A nudge on a
@@ -137,8 +139,8 @@ export const PASS_ERROR_PER_YARD = 0.0275;
  * cannot get to — the cap is inside the catch radius plus a stride.
  */
 export const PLACE_NEAR = 0.6;
-export const PLACE_PER_YARD = 0.055;
-export const PLACE_MAX = 3.2;
+export const PLACE_PER_YARD = 0.07;       // v2: placement is the skill; give it real authority
+export const PLACE_MAX = 4.2;
 
 // ── bobbles ────────────────────────────────────────────────────────────────
 // A failed catch that juggles instead of dying. These are chances that a DROP becomes a bobble,
@@ -152,8 +154,31 @@ export const BOBBLE_DIVING = 0.18;
 export const BOBBLE_POP = 4.6;            // yd/s upward off the hands: ≈0.6 s of hang
 export const BOBBLE_SCATTER = 2.2;        // ± lateral drift, small enough to stay contestable
 export const BOBBLE_GRAB = 0.34;          // per-tick chance a man in reach secures a tumbling ball
-export const SWAT_TIP_UP = 0.22;          // share of batted forward passes that go up, not down
+export const SWAT_TIP_UP = 0.15;          // share of batted forward passes that go up, not down
 export const TIP_SELF_PENALTY = 0.26;     // how much worse the man who tipped it is at recovering it
+
+// ── coverage pressure on the catch (rules v2) ─────────────────────────────
+// The old contest was binary: a defender either physically reached the ball or did not exist.
+// Openness at the catch point now matters continuously — which is precisely what makes reading
+// coverage worth doing and throwing into a blanket punishable by an honest breakup, not a coin.
+/** A defender inside this many yards of the catch point pressures the catch. */
+export const COVER_TIGHT_YD = 4.0;
+/** Maximum catch-chance reduction from blanket (0-yard) coverage, before the physical contest. */
+export const COVER_CATCH_PENALTY = 0.36;
+/**
+ * Coverage pressure scales with FLIGHT TIME: a rhythm throw beats tight coverage because the
+ * ball arrives before the defender can play it; a deep ball hangs long enough for a defender in
+ * phase to make his play. This is what gives QUICK its role back while making DEEP accountable.
+ */
+export const COVER_FLIGHT_FULL_S = 1.3;
+/** A defender this close can play the ball even without reaching it — the pass breakup. */
+export const COVER_BREAKUP_YD = 2.3;
+/** Breakup chance at zero separation; scales linearly to zero at COVER_BREAKUP_YD. */
+export const COVER_BREAKUP_MAX = 0.34;
+/** How long the defense needs to diagnose a completion behind the line (the screen's window). */
+export const SCREEN_DIAGNOSE_TICKS = 33;
+/** Offense tracks its own tipped balls better than a defender who just swung through one. */
+export const TIP_OFFENSE_TRACK = 0.22;
 
 // ── kicking ────────────────────────────────────────────────────────────────
 export const FG_MAX_YARDS = 50;

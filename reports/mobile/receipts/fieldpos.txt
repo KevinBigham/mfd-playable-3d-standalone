@@ -1,52 +1,52 @@
 
 GRIDIRON OVERDRIVE — field-position economy (60 games, PRO)
 ──────────────────────────────────────────────────────────────
-drives              798   (13.3 per game)
-drive start         n=798  mean 33.2  p10 14.198172511820898  median 25.133030120532354  p90 67.12213508967929
-  own   0-  4     21    2.6%  #
-  own   5-  9     29    3.6%  ##
-  own  10- 19     78    9.8%  #####
-  own  20- 29    428   53.6%  ###########################
-  own  30- 39     47    5.9%  ###
-  own  40- 49     44    5.5%  ###
-  own  50- 59     50    6.3%  ###
-  own  60- 69     30    3.8%  ##
-  own  70- 79     18    2.3%  #
-  own  80-100     53    6.6%  ###
+drives              754   (12.6 per game)
+drive start         n=754  mean 34.1  p10 12.952139346986414  median 25.59130753574533  p90 71.49206367557174
+  own   0-  4     22    2.9%  #
+  own   5-  9     36    4.8%  ##
+  own  10- 19     67    8.9%  ####
+  own  20- 29    371   49.2%  #########################
+  own  30- 39     66    8.8%  ####
+  own  40- 49     38    5.0%  ###
+  own  50- 59     47    6.2%  ###
+  own  60- 69     29    3.8%  ##
+  own  70- 79     29    3.8%  ##
+  own  80-100     49    6.5%  ###
 
 by how the ball arrived:
-  KICKOFF    n=396  mean 25.6  p10 21.78596723297926  median 24.792372346388646  p90 27.174810247165937
-  INT        n=176  mean 39.8  p10 14.198172511820898  median 44.24652160295323  p90 64.88075731951267
-  OTHER      n=133  mean 41.1  p10 6.892609416054687  median 22.049773948655158  p90 95
-  FUMBLE     n=49  mean 53.3  p10 16.573743331284362  median 59.31974928634912  p90 84.05640519236955
-  DOWNS      n=44  mean 28.1  p10 3.8284429923688093  median 16.429702251146068  p90 58.20040616391428
+  KICKOFF    n=367  mean 25.9  p10 21.428258790573594  median 24.941046287986737  p90 28.12795525861587
+  OTHER      n=151  mean 36.9  p10 6.248661084390264  median 24.307562671724583  p90 95
+  INT        n=131  mean 43.3  p10 16.441392184601167  median 47.019437983556756  p90 66.33948736813619
+  DOWNS      n=61  mean 37.5  p10 5.116995844883547  median 46.2658334867573  p90 73.77551536104568
+  FUMBLE     n=44  mean 60.4  p10 28.22089646417858  median 69.57969142290004  p90 85.94760658972862
 
-plays               3897  (65.0 per game)
-  starting inside own 10   107  (2.7%)
-  starting inside own  5   44  (1.1%)
+plays               3768  (62.8 per game)
+  starting inside own 10   113  (3.0%)
+  starting inside own  5   42  (1.1%)
 
 kick returns (yards from the returning team's own goal):
-  kickoff  n=520
-    fielded at    n=520  mean 16.6  p10 13.345691557807541  median 16.769342976271414  p90 19.924283083376693
-    ended at      n=520  mean 26.2  p10 23.04801003670721  median 25.010670491063834  p90 28.16008156893298
-    net gained    n=520  mean 9.6  p10 4.343049186478289  median 8.656132296446085  p90 12.548301909027145
+  kickoff  n=475
+    fielded at    n=475  mean 16.8  p10 13.596308594403055  median 17.012091058320593  p90 19.868401952015574
+    ended at      n=475  mean 25.8  p10 23.2298698380703  median 25.0413171875136  p90 28.368059491612087
+    net gained    n=475  mean 9.0  p10 4.5167998842770345  median 8.374000028352086  p90 12.556444737064584
     went BACKWARDS on 0% of returns
-  punt     n=113
-    fielded at    n=113  mean 17.8  p10 1.4856996675839014  median 17.731203192358734  p90 37.42003148138476
-    ended at      n=113  mean 20.4  p10 5.267581071779148  median 20  p90 33.070475160992004
-    net gained    n=113  mean 2.6  p10 -8.750072058145829  median -0.2463134638000305  p90 18.23621420998238
-    went BACKWARDS on 57% of returns
+  punt     n=135
+    fielded at    n=135  mean 18.3  p10 1.7742605851568958  median 17.43358628962524  p90 37.54619251019726
+    ended at      n=135  mean 21.5  p10 4.540357657436886  median 19.63837750400036  p90 38.3685040552324
+    net gained    n=135  mean 3.2  p10 -8.528403183978924  median -0.7596991208241093  p90 22.526618837081443
+    went BACKWARDS on 65% of returns
 
-safeties            13  (0.22 per game)
-  ball arrived via KICKOFF 31%  FUMBLE 23%  OTHER 23%  INT 23%
+safeties            11  (0.18 per game)
+  ball arrived via INT 36%  OTHER 27%  FUMBLE 18%  DOWNS 9%  KICKOFF 9%
   play was         SCRIMMAGE 100%
-  on down          1: 38%  2: 31%  3: 31%
-  line of scrimmage n=13  mean 75.6  p10 65.49260912548017  median 83.20437179277286  p90 90.90407472247666
-  ball died at      n=13  mean -10.4  p10 -14.854409898008779  median -11.17835760422718  p90 -1.525296668687162
-  carrier got it at n=13  mean -10.3  p10 -12.08525738030062  median -11.15945798008184  p90 -10.417599247572396
-  conceded by      DEFENCE-turned-carrier 92%  OFFENCE 8%
-  after a pass     92%
+  on down          1: 36%  2: 45%  3: 18%
+  line of scrimmage n=11  mean 62.8  p10 1.0697032088244498  median 73.18377426135719  p90 81.92582024393565
+  ball died at      n=11  mean -9.3  p10 -11.664656315432891  median -11.182671258799422  p90 -0.33605654909918314
+  carrier got it at n=11  mean -9.3  p10 -11.807778811889392  median -11.187871057835777  p90 0.274450128354232
+  conceded by      DEFENCE-turned-carrier 82%  OFFENCE 18%
+  after a pass     91%
 
-first downs / team  2.27 per game
-combined score      54.5   margin 14.0
+first downs / team  2.00 per game
+combined score      47.4   margin 13.7
 ──────────────────────────────────────────────────────────────

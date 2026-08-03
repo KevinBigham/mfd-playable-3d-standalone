@@ -1,23 +1,31 @@
 
  RUN  v2.1.9 /Users/tkevinbigham/Projects/mfd-playable-3d-standalone-main
 
- ✓ tests/throwLedger.test.ts (3 tests) 4ms
- ✓ tests/rules.test.ts (16 tests) 6ms
- ✓ src/audio/audio.test.ts (14 tests) 13ms
- ✓ src/plays/plays.test.ts (52 tests) 61ms
- ✓ src/modes/playEditor.test.ts (38 tests) 42ms
- ✓ src/data/league.test.ts (36 tests) 162ms
- ✓ tests/framePacer.test.ts (8 tests) 30ms
- ✓ tests/purity.test.ts (7 tests) 16ms
- ✓ tests/snapshot.test.ts (8 tests) 947ms
- ✓ src/modes/tournament.test.ts (21 tests) 1106ms
-   ✓ CPU games come from the real engine > plays a whole four-team ladder headlessly and crowns a champion 600ms
-   ✓ CPU games come from the real engine > is deterministic for a given seed and resolves byes without simulating 330ms
- ✓ src/modes/season.test.ts (22 tests) 12502ms
-   ✓ playoffs > crowns exactly one champion through the real match simulator 12054ms
+ ✓ tests/controlLayout.test.ts (8 tests) 28ms
+ ✓ tests/rules.test.ts (16 tests) 3ms
+ ✓ src/audio/audio.test.ts (14 tests) 7ms
+ ✓ src/modes/playEditor.test.ts (38 tests) 15ms
+ ✓ src/data/league.test.ts (36 tests) 98ms
+ ✓ src/plays/plays.test.ts (52 tests) 54ms
+ ✓ tests/throwLedger.test.ts (3 tests) 2ms
+ ✓ tests/purity.test.ts (7 tests) 9ms
+ ✓ tests/pauseController.test.ts (7 tests) 2ms
+ ✓ tests/framePacer.test.ts (8 tests) 32ms
+ ✓ tests/saveDebounce.test.ts (2 tests) 5ms
+ ✓ tests/kickoffChoice.test.ts (4 tests) 915ms
+   ✓ human kickoff choice > CPU-vs-CPU games are byte-identical to the pre-change behavior window 875ms
+ ✓ tests/snapshot.test.ts (8 tests) 994ms
+ ✓ tests/playGrade.test.ts (3 tests) 830ms
+   ✓ play grade facts > produces one fact per resolved throw, with evidence, deterministically 821ms
+ ✓ src/modes/tournament.test.ts (21 tests) 1154ms
+   ✓ CPU games come from the real engine > plays a whole four-team ladder headlessly and crowns a champion 845ms
+ ✓ tests/driveRush.test.ts (3 tests) 1088ms
+   ✓ Drive Rush ruleset > every attempt over 60 seeds ends in a declared way, and all end kinds occur 981ms
+ ✓ src/modes/season.test.ts (22 tests) 12215ms
+   ✓ playoffs > crowns exactly one champion through the real match simulator 11962ms
 
- Test Files  11 passed (11)
-      Tests  225 passed (225)
-   Start at  13:02:08
-   Duration  13.25s (transform 1.11s, setup 0ms, collect 2.57s, tests 14.89s, environment 1ms, prepare 901ms)
+ Test Files  17 passed (17)
+      Tests  252 passed (252)
+   Start at  14:39:28
+   Duration  12.78s (transform 784ms, setup 0ms, collect 2.49s, tests 17.45s, environment 1ms, prepare 878ms)
 

@@ -1,50 +1,50 @@
 
 DRIVE CENSUS — 20 CPU games, 2:00 quarters, 30-yard chain
 ──────────────────────────────────────────────────────────────────────────
-  fingerprint  driveprobe · build 1.0.0@f37230e · rules v1 · chain 30 yd
+  fingerprint  driveprobe · build 1.0.0@e3f0e2d · rules v2 · chain 30 yd
                seeds 4400..4419 · teams rotating home/away over TEAM_IDS · PRO · 120s quarters · assist NONE
 ──────────────────────────────────────────────────────────────────────────
   play type    plays/gm  yd/play  lost  20+  throws  comp%   YAC   separation  sack%
-  RUN          19.3     3.90    26%    1%     26   50%   6.91      9.49       16%
-  other        18.9     1.99     0%    3%      0    —     0.00      0.00        0%
-  DEEP         15.9    19.03     4%   40%    302   58%   7.96      2.90        4%
-  PASS          6.5     6.69     9%   11%    122   43%   5.19      2.92        5%
-  QUICK         2.5     5.06    29%    8%     36   44%   8.61      3.11       24%
-  SCREEN        0.8    -0.73    13%    0%     15   47%   3.45      6.53        0%
+  other        17.4     1.70     0%    2%      0    —     0.00      0.00        0%
+  DEEP         17.3    16.93     7%   36%    320   51%   7.24      3.47        7%
+  RUN          17.1     4.48    21%    2%     29   59%   8.60      8.68       14%
+  PASS          6.4     5.47     4%   10%    122   28%   3.96      2.91        2%
+  QUICK         1.5     1.00    23%    0%     22   27%  16.03      2.36       20%
+  SCREEN        0.6    13.08     8%   17%     12   50%  42.12      6.36        0%
 ──────────────────────────────────────────────────────────────────────────
   throw outcomes (mutually exclusive; each row reconciles to actual throws)
   play type   throws  caught  dropped  swatted  defPoss  fellInc  bobbled  reconciled
-  DEEP          302     176       14       27       62       23       18   yes
-  PASS          122      52        5       26       33        6        2   yes
-  QUICK          36      16        2       11        5        2        1   yes
-  RUN            26      13        1        1        0       11        0   yes
-  SCREEN         15       7        0        1        1        6        0   yes
-  ALL           501     264       22       66      101       48       21   yes
+  DEEP          320     162       39       62       48        9       18   yes
+  PASS          122      34        9       41       34        4        6   yes
+  QUICK          22       6        0        3        7        6        3   yes
+  RUN            29      17        0        1        0       11        2   yes
+  SCREEN         12       6        1        1        0        4        0   yes
+  ALL           505     225       49      108       89       34       29   yes
 ──────────────────────────────────────────────────────────────────────────
   interception is three different measures; never quote one as another:
-    defender-possession events   101/501 = 20.2% of actual throws
-    credited interceptions       55/501 = 11.0% of official pass attempts
-    drives ended by interception 55/320 = 17.2% of all drives
-    bobbles ending with defense  13/21 = 61.9% of bobbled throws
+    defender-possession events   89/505 = 17.6% of actual throws
+    credited interceptions       49/505 = 9.7% of official pass attempts
+    drives ended by interception 49/296 = 16.6% of all drives
+    bobbles ending with defense  7/29 = 24.1% of bobbled throws
 ──────────────────────────────────────────────────────────────────────────
   down          plays/gm   yd/play   moved the chain
-  1              26.1      5.80       8%
-  2              20.4      9.63      18%
-  3              10.6     10.05      20%
-  4               6.7      2.59       7%
+  1              24.6      5.00       7%
+  2              18.8      8.94      19%
+  3              11.4     11.19      24%
+  4               5.5      4.39       9%
 ──────────────────────────────────────────────────────────────────────────
-  third down overall  42/211 =   20%
-    open field         41/170 =   24%
-    goal to go          1/ 41 =    2%
-    3rd and 1-8 yd      2/ 24 =    8%
-    3rd and 9-16 yd     7/ 62 =   11%
-    3rd and 17-24 yd   14/ 58 =   24%
-    3rd and 25+ yd     19/ 67 =   28%
+  third down overall  55/229 =   24%
+    open field         48/189 =   25%
+    goal to go          7/ 40 =   18%
+    3rd and 1-8 yd      3/ 16 =   19%
+    3rd and 9-16 yd     8/ 44 =   18%
+    3rd and 17-24 yd   20/ 65 =   31%
+    3rd and 25+ yd     24/104 =   23%
 ──────────────────────────────────────────────────────────────────────────
-  yards after catch     7.27 per completion
+  yards after catch     7.99 per completion
   first downs            4.3 /game (both teams)
-  drives                16.0 /game,   3.07 plays each
-  drives end in       touchdown 7.5  turnover 4.5  safety 0.2
-  plays end in        TACKLE 39.8  TOUCHDOWN 7.5  FIELD_GOAL_GOOD 7.0  INCOMPLETE 6.5  OUT_OF_BOUNDS 2.1  TOUCHBACK 0.5  FIELD_GOAL_MISS 0.3  SAFETY 0.2
+  drives                14.8 /game,   3.11 plays each
+  drives end in       touchdown 7.0  turnover 3.8  safety 0.3
+  plays end in        TACKLE 34.5  INCOMPLETE 9.3  TOUCHDOWN 7.0  FIELD_GOAL_GOOD 6.0  OUT_OF_BOUNDS 2.4  TOUCHBACK 0.4  FIELD_GOAL_MISS 0.4  SAFETY 0.3
 ──────────────────────────────────────────────────────────────────────────
 

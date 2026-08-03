@@ -293,6 +293,7 @@ export class Game {
       playClock: cfg.playClock ?? this.settings.playClock,
       catchUpBias: cfg.catchUpBias ?? this.settings.catchUpBias,
       lateHits: cfg.lateHits ?? this.settings.lateHits,
+      overdriveSkillCharge: cfg.overdriveSkillCharge ?? flag('overdriveSkillCharge'),
     });
     if (!config.home) config.home = TEAMS[0].id;
     if (!config.away) config.away = TEAMS[1].id;

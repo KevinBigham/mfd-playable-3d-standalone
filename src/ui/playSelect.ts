@@ -189,7 +189,7 @@ export class PlaySelect {
     const list = this.playsFor(p);
     // Fourth down: the special decisions appear as real buttons above the grid. The old path
     // painted a "PUNT" label onto a dead cell whose click handler could never dispatch it.
-    p.specialBar.style.display = p.isOffense && m.state.down === 4 && !p.locked ? 'flex' : 'none';
+    p.specialBar.style.display = p.isOffense && m.state.down === 4 && !p.locked && m.ruleset.specialTeams ? 'flex' : 'none';
     for (let i = 0; i < 9; i++) {
       const cell = p.cells[i];
       clear(cell);

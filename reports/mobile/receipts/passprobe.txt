@@ -1,26 +1,26 @@
 
 PASS CENSUS — 8 full CPU games
 ──────────────────────────────────────────────────────────────────────
-  fingerprint  passprobe · build 1.0.0@f37230e · rules v1 · chain 30 yd
+  fingerprint  passprobe · build 1.0.0@e3f0e2d · rules v2 · chain 30 yd
                seeds 9100..9107 · teams rotating home/away over TEAM_IDS · PRO · 300s quarters · assist NONE
 ──────────────────────────────────────────────────────────────────────
-  actual throws              65.88 /game
-  caught                     35.13 /game   281/527 = 53.3% of throws
-    of which contested        2.00 /game   16/281 = 5.7% of catches
-  dropped                     3.50 /game   28/527 = 5.3% of throws
-  swatted                     7.50 /game   60/527 = 11.4% of throws
-  fell incomplete             7.00 /game   56/527 = 10.6% of throws
-  BOBBLED in flight           1.13 /game   9/527 = 1.7% of throws (intermediate, not an outcome)
-    from a contested ball     0.88 /game
-    → secured by offence      0.38 /game   3/9 = 33.3% of bobbles
-    → taken by defence        0.75 /game   6/9 = 66.7% of bobbles
+  actual throws              64.88 /game
+  caught                     29.88 /game   239/519 = 46.1% of throws
+    of which contested        2.75 /game   22/239 = 9.2% of catches
+  dropped                     6.38 /game   51/519 = 9.8% of throws
+  swatted                    11.75 /game   94/519 = 18.1% of throws
+  fell incomplete             6.88 /game   55/519 = 10.6% of throws
+  BOBBLED in flight           2.50 /game   20/519 = 3.9% of throws (intermediate, not an outcome)
+    from a contested ball     1.38 /game
+    → secured by offence      0.88 /game   7/20 = 35.0% of bobbles
+    → taken by defence        0.88 /game   7/20 = 35.0% of bobbles
 ──────────────────────────────────────────────────────────────────────
   interception, by which question is being asked:
-    defender-possession EVENT   102/527 = 19.4% of actual throws
-    credited interception STAT  58/527 = 11.0% of official attempts
-    interception-ended DRIVES   58/324 = 17.9% of all drives
-    returned for touchdown      50/102 = 49.0% of defender possessions
+    defender-possession EVENT   80/519 = 15.4% of actual throws
+    credited interception STAT  40/519 = 7.7% of official attempts
+    interception-ended DRIVES   40/308 = 13.0% of all drives
+    returned for touchdown      44/80 = 55.0% of defender possessions
 ──────────────────────────────────────────────────────────────────────
-  reconciliation: throws 527 == caught 281 + dropped 28 + swatted 60 + defPoss 102 + fellInc 56 → OK
+  reconciliation: throws 519 == caught 239 + dropped 51 + swatted 94 + defPoss 80 + fellInc 55 → OK
 ──────────────────────────────────────────────────────────────────────
 

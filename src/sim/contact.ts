@@ -121,7 +121,7 @@ export function updateBlocking(w: World): void {
         if (d.blockedBy >= 0 && d.blockedBy !== bl.id) continue;
         if (d.move === 'DOWN') continue;
         const dd = dist(bl.x, bl.z, d.x, d.z);
-        if (dd > BLOCK_RADIUS * 2.6) continue;
+        if (dd > BLOCK_RADIUS * 3.3) continue;   // v2: pick up the rusher before he is past you
         const threat = dist(d.x, d.z, px, pz) + dd * 0.35;
         if (threat < bestScore) { bestScore = threat; best = d; bestD = dd; }
       }

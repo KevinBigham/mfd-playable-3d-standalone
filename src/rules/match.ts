@@ -4,6 +4,7 @@ import type {
 } from '../core/types.ts';
 import { Rng } from '../core/rng.ts';
 import { EventBus } from '../core/events.ts';
+import { rulesetById, type Ruleset } from './rulesets.ts';
 import {
   FIXED_DT, TICK_HZ, s, DEAD_BALL_TICKS, POST_PLAY_TICKS, SCORE_CELEBRATION_TICKS,
   QUARTER_BREAK_TICKS, PLAY_CALL_SECONDS, PLAY_CLOCK_SECONDS, PAT_MAKE_BASE, PAT_DISTANCE,
@@ -137,8 +138,12 @@ export class Match {
    */
   private actionSpent = new Set<number>();
 
+  /** Which football this match plays. Fixed at construction; carried by every snapshot. */
+  readonly ruleset: Ruleset;
+
   constructor(opts: MatchOptions) {
     this.config = opts.config;
+    this.ruleset = rulesetById(opts.config.ruleset);
     this.bus = opts.bus ?? new EventBus();
     this.rng = new Rng(opts.config.seed);
     this.seatIntent = opts.seatIntent ?? (() => null);
@@ -409,7 +414,23 @@ export class Match {
   }
 
   private tickPregame(): void {
-    if (this.state.phaseTicks > s(0.5)) this.setPhase('COIN_TOSS');
+    if (this.state.phaseTicks <= s(0.5)) return;
+    if (this.ruleset.opening === 'DRIVE') { this.beginOpeningDrive(); return; }
+    this.setPhase('COIN_TOSS');
+  }
+
+  /** DRIVE openings skip the ceremony: ball placed, chain set, straight to the call. */
+  private beginOpeningDrive(): void {
+    const m = this.state;
+    const side = this.ruleset.fixedPossession ?? 0;
+    m.possession = side;
+    m.kickoffReceiving = side;
+    m.down = 1;
+    m.losZ = this.ruleset.driveStartZ(side);
+    m.firstDownZ = computeFirstDown(m.losZ, side);
+    m.driveStartZ = m.losZ;
+    m.driveSide = side;
+    this.setPhase('PLAY_CALL');
   }
 
   private tickCoinToss(): void {
@@ -476,7 +497,7 @@ export class Match {
   private autoPickOffense(): void {
     const m = this.state;
     const sit = readSituation(m, m.possession);
-    if (m.down === 4) {
+    if (m.down === 4 && this.ruleset.specialTeams) {
       const choice = chooseFourthDown(sit, this.profile, this.rng);
       if (choice === 'PUNT') { this.pendingSpecial = 'PUNT'; this.offenseLocked = true; return; }
       if (choice === 'FIELD_GOAL') { this.pendingSpecial = 'FIELD_GOAL'; this.offenseLocked = true; return; }
@@ -495,6 +516,7 @@ export class Match {
 
   /** UI entry point. */
   submitOffense(play: OffensePlay | null, special: SpecialCall = null, mirrored = false): void {
+    if (special && !this.ruleset.specialTeams) return;   // no punts or field goals in this football
     if (special) { this.pendingSpecial = special; this.pendingOffense = null; }
     else { this.pendingOffense = play; this.pendingSpecial = null; }
     this.mirrorOffense = mirrored;
@@ -963,7 +985,20 @@ export class Match {
             m.teams[m.possession].stats.passComp++;
             // Track the streak by JERSEY NUMBER: athlete ids are play slots and get
             // rebound to different people every snap.
-            const res = noteCatch(m, m.possession, a.def.number);
+            // Skill-charge experiment: an earned catch (real separation) charges Overdrive
+            // faster than a blanketed checkdown, and repeating one receiver is discounted.
+            // Deterministic, device-neutral, and identical for CPU and human seats.
+            let odWeight = 1;
+            if (this.config.overdriveSkillCharge) {
+              let near = 99;
+              for (const d of w.athletes) {
+                if (d.side === a.side || d.move === 'DOWN') continue;
+                near = Math.min(near, dist(d.x, d.z, a.x, a.z));
+              }
+              odWeight = near >= 3.5 ? 1.5 : near >= 2 ? 1 : 0.5;
+              if (m.teams[m.possession].catchStreakReceiver === a.def.number) odWeight *= 0.75;
+            }
+            const res = noteCatch(m, m.possession, a.def.number, odWeight);
             this.applyOverdriveFlags();
             if (res.started) {
               this.bus.emit({ type: 'overdrive.start', tick: w.tick, side: m.possession, cause: 'CATCH' });
@@ -1244,6 +1279,13 @@ export class Match {
 
   private advanceAfterPlay(): void {
     const m = this.state;
+    // A drive-end ruleset is over the moment the ball changes hands (interception, fumble,
+    // turnover on downs) or the clock dies — there is no next possession to play.
+    if (this.ruleset.endOnDriveEnd && this.pendingNext !== 'SCORE_RESOLVE'
+        && m.possession !== (this.ruleset.fixedPossession ?? m.possession)) {
+      this.finish();
+      return;
+    }
     // Quarter boundary check happens after the play completes.
     if (m.clockTicks <= 0 && this.pendingNext !== 'SCORE_RESOLVE') {
       this.endQuarter();
@@ -1262,6 +1304,7 @@ export class Match {
     const ps = m.pendingScore;
     m.pendingScore = null;
     if (!ps) { this.setPhase('PLAY_CALL'); return; }
+    if (this.ruleset.endOnDriveEnd) { this.finish(); return; }
     if (ps.kind === 'TD') {
       m.possession = ps.side;
       m.down = 1;
@@ -1368,6 +1411,7 @@ export class Match {
   private endQuarter(): void {
     const m = this.state;
     this.bus.emit({ type: 'quarter.end', tick: this.world.tick, quarter: m.quarter });
+    if (!this.ruleset.quarters) { this.finish(); return; }
     if (m.quarter === 2) { this.setPhase('HALFTIME'); return; }
     if (m.quarter >= 4) {
       if (matchShouldEnd(m)) { this.finish(); return; }

@@ -3,19 +3,19 @@ GRIDIRON OVERDRIVE — scripted human
 ──────────────────────────────────────────────────────────────────────
   PASS  at pre-snap the player controls the quarterback          controlling=0 (QB) qb=0
   PASS  at pre-snap the quarterback has the ball                 ball=0 (QB)
-  PASS  the quarterback starts behind the line of scrimmage      qb is -5.0 yd relative to the line
-  PASS  pre-snap movement cannot cross the line of scrimmage     moved 4.7 yd, ended -0.3 yd past the line
+  PASS  the quarterback starts behind the line of scrimmage      qb is -1.6 yd relative to the line
+  PASS  pre-snap movement cannot cross the line of scrimmage     moved 1.3 yd, ended -0.3 yd past the line
   PASS  a held button left over from play select does not snap the ball held ignored
   PASS  a fresh press snaps the ball                             phase=LIVE
   PASS  pressing a receiver button throws the ball               ball held -> inAir, passThrown=true
   PASS  holding the snap button does not also throw the ball     27/27 plays snap into the quarterback's hands
   PASS  a human-offence game reaches a final                     3 full games on the sticks
-  PASS  a human offence throws repeatedly across a game          77 throws over 3 games
-  PASS  those throws are actually caught                         40 catches, 19 picked, from 77 throws
-  PASS  a human offence moves the ball, every time out           182 yards and 18.3 points a game, 40 catches, 8 touchdowns, 0 shutouts
-  PASS  reading the play and hammering one button are within a factor of two 192 yd / 34.7 pts a game blind vs 182 / 18.3 reading  — the read is NOT worth more; see the comment
+  PASS  a human offence throws repeatedly across a game          83 throws over 3 games
+  PASS  those throws are actually caught                         29 catches, 13 picked, from 83 throws
+  PASS  a human offence moves the ball, every time out           134 yards and 16.3 points a game, 29 catches, 7 touchdowns, 0 shutouts
+  PASS  reading the play and hammering one button are within a factor of two 176 yd / 9.3 pts a game blind vs 134 / 16.3 reading  — under rules v2 the read now SCORES more; the matched-seed policy matrix (npm run policyprobe) is the authoritative measurement
   PASS  a kickoff phase is reached                               phase=KICKOFF_SETUP
-  PASS  the kickoff leaves the setup phase                       phase=DEAD_BALL after 316 ticks
+  PASS  the kickoff leaves the setup phase                       phase=DEAD_BALL after 523 ticks
   PASS  the kickoff resolves to a live scrimmage down            phase=PLAY_CALL possession=1 (kicked by 0) los=73.1
   PASS  the kick changes possession to the receiving team        possession=1, kicked by 0
   PASS  the receiving player is given an athlete during the return 

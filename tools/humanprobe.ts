@@ -362,7 +362,8 @@ function playAGame(seed: number, blind = false): { yards: number; score: number;
     ratio > 0.5 && ratio < 2,
     `${Math.round(blindYards / 3)} yd / ${(blindScore / 3).toFixed(1)} pts a game blind`
       + ` vs ${Math.round(readingYards / 3)} / ${(readingScore / 3).toFixed(1)} reading`
-      + '  — the read is NOT worth more; see the comment');
+      + '  — under rules v2 the read now SCORES more; the matched-seed policy matrix'
+      + ' (npm run policyprobe) is the authoritative measurement');
   clearInput();
 }
 

@@ -1,24 +1,24 @@
 
 POLICY MATRIX — 10 matched-seed games per policy, human seat 0
 ────────────────────────────────────────────────────────────────────────────────────────────────
-  fingerprint  policyprobe · build 1.0.0@f37230e · rules v1 · chain 30 yd
+  fingerprint  policyprobe · build 1.0.0@e3f0e2d · rules v2 · chain 30 yd
                seeds 7700..7709 · teams iron-harbor-anvils vs quarry-point-monoliths · PRO · 120s quarters · assist NONE · policy matrix
 ────────────────────────────────────────────────────────────────────────────────────────────────
   policy                  pts/gm  EP/drive  TO-drives      comp            defPoss     20+/gm  sack/gm
-  REPEATED_PRIMARY         14.0      0.97  35/145 = 24.1%  150/293 = 51.2%   74/293 = 25.3%    0.6      3.3
-  REPEATED_DEEPEST         22.5      1.54  21/146 = 14.4%  99/242 = 40.9%    82/242 = 33.9%    2.1      3.5
-  RANDOM_TARGET             9.1      0.67  27/136 = 19.9%  124/280 = 44.3%   77/280 = 27.5%    0.6      2.9
-  CONSERVATIVE_CHECKDOWN   16.6      1.18  35/141 = 24.8%  158/308 = 51.3%   64/308 = 20.8%    1.2      2.7
-  HIGHEST_SEPARATION       18.1      1.27  32/142 = 22.5%  153/304 = 50.3%   62/304 = 20.4%    1.3      2.3
-  LEVERAGE_READ            14.0      0.99  25/141 = 17.7%  118/269 = 43.9%   69/269 = 25.7%    1.1      4.0
-  READ_TIMING              23.3      1.74  24/134 = 17.9%  149/276 = 54.0%   50/276 = 18.1%    3.5      3.5
-  READ_PLACEMENT           18.4      1.35  29/136 = 21.3%  149/281 = 53.0%   60/281 = 21.4%    3.5      5.2
-  DEEP_SPAM                23.4      1.64  23/143 = 16.1%  85/247 = 34.4%    82/247 = 33.2%    4.5      1.1
+  REPEATED_PRIMARY         10.4      0.81  26/128 = 20.3%  139/302 = 46.0%   43/302 = 14.2%    0.8      3.1
+  REPEATED_DEEPEST         17.9      1.29  18/139 = 12.9%  97/261 = 37.2%    57/261 = 21.8%    2.2      2.8
+  RANDOM_TARGET            14.0      1.02  30/137 = 21.9%  97/265 = 36.6%    69/265 = 26.0%    1.1      2.5
+  CONSERVATIVE_CHECKDOWN    9.0      0.68  20/132 = 15.2%  169/321 = 52.6%   43/321 = 13.4%    1.4      2.6
+  HIGHEST_SEPARATION       13.5      1.02  20/133 = 15.0%  101/278 = 36.3%   61/278 = 21.9%    1.1      3.0
+  LEVERAGE_READ            14.8      1.10  16/134 = 11.9%  107/279 = 38.4%   59/279 = 21.1%    1.3      3.9
+  READ_TIMING              13.7      1.16  27/118 = 22.9%  114/269 = 42.4%   47/269 = 17.5%    2.0      2.8
+  READ_PLACEMENT           19.4      1.56  20/124 = 16.1%  128/276 = 46.4%   38/276 = 13.8%    3.1      3.0
+  DEEP_SPAM                20.3      1.51  15/134 = 11.2%  79/260 = 30.4%    65/260 = 25.0%    3.4      0.4
 ────────────────────────────────────────────────────────────────────────────────────────────────
   CORE-FUN GATE — read+placement must beat repeated-target spam by ≥20% EP/drive
-    read+placement EP/drive   1.35  (turnover drives 29/136 = 21.3% )
-    repeated-primary EP/drive 0.97  (turnover drives 35/145 = 24.1% )
-    informed edge             +40.1%  ·  gate PASS
+    read+placement EP/drive   1.56  (turnover drives 20/124 = 16.1% )
+    repeated-primary EP/drive 0.81  (turnover drives 26/128 = 20.3% )
+    informed edge             +92.6%  ·  gate PASS
 ────────────────────────────────────────────────────────────────────────────────────────────────
 
   wrote reports/mobile/receipts/policyprobe.json

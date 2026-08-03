@@ -20,7 +20,13 @@ safe-area ControlLayout with clamped stick + handedness mirroring, hold-at-edge 
 hysteresis, GestureRecognizer with reversal-cancel, THUMB_FAN + DIRECT_FIELD surfaces with proven
 semantic parity, adaptive pass default, compact HUD, 9 customization rows. W2-011 physical A/B:
 WAITING_FOR_PHYSICAL_EVIDENCE — protocol + telemetry shipped, both surfaces retained).
-**Wave 3 — Core fun: in progress.**
+**Wave 3 — Core fun: COMPLETE** (see `reports/mobile/WAVE_3_RECEIPT.md` — Ruleset seam + Drive Rush,
+RULES_VERSION 2 balance package: coverage-aware catches with flight scaling, pass breakups,
+placement authority, screen diagnose window, wider block pickup. Fun gate: informed +92.6% EP/drive
+over blind with fewer turnovers; the read now outscores the blind arm in the human probe too.
+PlayGrade facts, three-card recommendations, flag-gated skill Overdrive. Open: third-down curve not
+strictly monotone; QUICK human validation pending).
+**Wave 4 — Mobile product/reliability/performance: in progress.**
 
 ## Wave 0 results
 

@@ -2,7 +2,7 @@
 GRIDIRON OVERDRIVE — scenario harness
 ────────────────────────────────────────────────────────
   PASS  kickoff and return                             phase=PLAY_CALL kickoffs=1
-  PASS  the deep man fields every kickoff, at a sprint 10/10 fielded, 0 caught below jogging pace, 10/10 lined up in the end zone
+  PASS  the deep man fields every kickoff, at a sprint 6/6 fielded, 0 caught below jogging pace, 6/6 lined up in the end zone
   PASS  play reaches a snap and a dead ball            snapped=true ends=2
   PASS  30 yards is a first down                       down=1 los=51.5 target=50.0
   PASS  failing to gain 30 advances the down           down=2 poss=0 los=24.0
@@ -25,7 +25,7 @@ GRIDIRON OVERDRIVE — scenario harness
   PASS  onside kick resolves to a valid possession     poss=0 los=24.0
   PASS  conversion after a touchdown always resolves   phase=KICKOFF_SETUP
   PASS  dead ball never scores                         before=0 after=0 over 1 ticks, 0 snaps
-  PASS  a controller vanishing mid-play does not stall the match q=2 watchdogs=1
+  PASS  a controller vanishing mid-play does not stall the match q=2 watchdogs=0
 ────────────────────────────────────────────────────────
 25/25 scenarios passed
 
