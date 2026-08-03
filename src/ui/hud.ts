@@ -3,6 +3,7 @@ import type { Match } from '../rules/match.ts';
 import { el, clear, fmtClock, ordinal } from './uiKit.ts';
 import { distanceToGo, isAndGoal, goalOf, dirOf } from '../rules/rulesEngine.ts';
 import { clamp01 } from '../core/math.ts';
+import { FeedbackArbiter, FEEDBACK_PRIORITY as P } from './feedback.ts';
 
 interface TurboRow { wrap: HTMLElement; fill: HTMLElement; bar: HTMLElement; tag: HTMLElement }
 
@@ -22,8 +23,9 @@ export class Hud {
   private turboRows: TurboRow[] = [];
   private match: Match | null = null;
   private teams: [TeamDef, TeamDef] | null = null;
-  private msgTimer = 0;
   private helpTimer = 0;
+  /** One banner, one voice: every match event goes through the arbiter (W6-001). */
+  private feedback = new FeedbackArbiter();
   showHelp = true;
 
   constructor(root: HTMLElement) {
@@ -74,7 +76,7 @@ export class Hud {
     this.setVisible(true);
   }
 
-  detach(): void { this.match = null; this.setVisible(false); }
+  detach(): void { this.match = null; this.clearFeedback(); this.setVisible(false); }
 
   setVisible(v: boolean): void { this.root.style.display = v ? 'block' : 'none'; }
 
@@ -98,12 +100,25 @@ export class Hud {
     });
   }
 
-  message(text: string, holdSeconds = 1.6): void {
-    this.msgEl.textContent = text;
+  message(text: string, holdSeconds = 1.6, priority: number = P.SCORE): void {
+    if (!this.feedback.offer(text, holdSeconds, priority)) return;
+    this.feedback.consumeDirty(); // painted here, not by the next update tick
+    this.paintBanner();
+  }
+
+  private paintBanner(): void {
+    const cur = this.feedback.current;
+    if (!cur) { this.msgEl.classList.remove('show'); return; }
+    this.msgEl.textContent = cur.text;
     this.msgEl.classList.remove('show');
     void this.msgEl.offsetWidth;
     this.msgEl.classList.add('show');
-    this.msgTimer = holdSeconds;
+  }
+
+  /** An interruption clears transient feedback the same way it clears touch state. */
+  clearFeedback(): void {
+    this.feedback.reset();
+    if (this.feedback.consumeDirty()) this.paintBanner();
   }
 
   help(text: string, seconds = 4): void {
@@ -115,22 +130,22 @@ export class Hud {
 
   handleEvent(e: GameEvent): void {
     switch (e.type) {
-      case 'touchdown': this.message('TOUCHDOWN!', 2.4); break;
-      case 'interception': this.message('INTERCEPTED!', 2.0); break;
-      case 'fumble': this.message('FUMBLE!', 1.8); break;
-      case 'sack': this.message('SACK!', 1.4); break;
-      case 'firstDown': this.message('FIRST DOWN', 1.1); break;
-      case 'safety': this.message('SAFETY!', 2.0); break;
-      case 'bigHit': if (e.power > 1.7) this.message('BIG HIT!', 0.9); break;
-      case 'overdrive.start': this.message('OVERDRIVE!', 1.8); break;
-      case 'fieldGoal.result': this.message(e.good ? 'IT’S GOOD!' : 'NO GOOD', 1.6); break;
-      case 'extraPoint': this.message(e.good ? 'EXTRA POINT' : 'MISSED PAT', 1.2); break;
-      case 'twoPoint': this.message(e.good ? 'TWO POINTS!' : 'NO GOOD', 1.4); break;
-      case 'turnover': if (e.kind === 'DOWNS') this.message('TURNOVER ON DOWNS', 1.6); break;
-      case 'quarter.end': this.message(`END OF ${ordinal(e.quarter)}`, 1.6); break;
-      case 'half': this.message('HALFTIME', 2.0); break;
-      case 'overtime': this.message(`OVERTIME ${e.period}`, 2.2); break;
-      case 'match.end': this.message('FINAL', 2.4); break;
+      case 'touchdown': this.message('TOUCHDOWN!', 2.4, P.SCORE); break;
+      case 'interception': this.message('INTERCEPTED!', 2.0, P.TURNOVER); break;
+      case 'fumble': this.message('FUMBLE!', 1.8, P.TURNOVER); break;
+      case 'sack': this.message('SACK!', 1.4, P.SACK); break;
+      case 'firstDown': this.message('FIRST DOWN', 1.1, P.FIRST_DOWN); break;
+      case 'safety': this.message('SAFETY!', 2.0, P.SCORE); break;
+      case 'bigHit': if (e.power > 1.7) this.message('BIG HIT!', 0.9, P.FLAVOR); break;
+      case 'overdrive.start': this.message('OVERDRIVE!', 1.8, P.OVERDRIVE); break;
+      case 'fieldGoal.result': this.message(e.good ? 'IT’S GOOD!' : 'NO GOOD', 1.6, P.SCORE); break;
+      case 'extraPoint': this.message(e.good ? 'EXTRA POINT' : 'MISSED PAT', 1.2, P.CONVERSION); break;
+      case 'twoPoint': this.message(e.good ? 'TWO POINTS!' : 'NO GOOD', 1.4, P.SCORE); break;
+      case 'turnover': if (e.kind === 'DOWNS') this.message('TURNOVER ON DOWNS', 1.6, P.TURNOVER); break;
+      case 'quarter.end': this.message(`END OF ${ordinal(e.quarter)}`, 1.6, P.PERIOD); break;
+      case 'half': this.message('HALFTIME', 2.0, P.PERIOD); break;
+      case 'overtime': this.message(`OVERTIME ${e.period}`, 2.2, P.PERIOD); break;
+      case 'match.end': this.message('FINAL', 2.4, P.MATCH_END); break;
       default: break;
     }
   }
@@ -178,10 +193,8 @@ export class Hud {
       row.tag.textContent = athlete ? `P${i + 1} #${athlete.def.number}` : `P${i + 1}`;
     });
 
-    if (this.msgTimer > 0) {
-      this.msgTimer -= dt;
-      if (this.msgTimer <= 0) this.msgEl.classList.remove('show');
-    }
+    this.feedback.tick(dt);
+    if (this.feedback.consumeDirty()) this.paintBanner();
     if (this.helpTimer > 0) {
       this.helpTimer -= dt;
       if (this.helpTimer <= 0) this.helpEl.style.opacity = '0';

@@ -13,10 +13,22 @@ import { Match, defaultMatchConfig } from '../src/rules/match.ts';
 import { getTeam, TEAM_IDS } from '../src/data/index.ts';
 import { OFFENSE_PLAYS } from '../src/plays/offense.ts';
 import { FIRST_DOWN_YARDS } from '../src/core/constants.ts';
-import type { DeadReason, PlayTag } from '../src/core/types.ts';
+import type { DeadReason, GameEvent, PlayTag } from '../src/core/types.ts';
+import { ThrowLedger, rate } from './lib/throwLedger.ts';
+import { fingerprint, printFingerprint } from './lib/fingerprint.ts';
 
 const argv = process.argv.slice(2);
 const games = Number(argv[argv.indexOf('--games') + 1]) || 20;
+
+/** One entry per actual forward throw, grouped by the play family live at the time. */
+let currentBucket = 'other';
+const ledger = new ThrowLedger(() => currentBucket);
+/** Credited interception stat (rulesEngine `stats.ints`), summed over both teams at each final. */
+let creditedInts = 0;
+/** Official pass attempts from the stat layer, the denominator credited stats are quoted per. */
+let creditedPassAtt = 0;
+/** Drive-ending turnovers, split by kind, from the `turnover` event. */
+const turnoverKinds = new Map<string, number>();
 
 const tagOf = new Map<string, PlayTag[]>();
 for (const p of OFFENSE_PLAYS) tagOf.set(p.id, p.tags);
@@ -59,6 +71,11 @@ for (let g = 0; g < games; g++) {
   });
   const m = new Match({ config: cfg, home: getTeam(cfg.home!), away: getTeam(cfg.away!), seatIntent: () => null });
   const bus = m.bus as unknown as { on: (t: string, f: (e: never) => void) => void };
+  m.bus.on('*', (e: GameEvent) => ledger.handle(e));
+  m.bus.on('turnover', (e) => {
+    const ev = e as GameEvent & { type: 'turnover' };
+    turnoverKinds.set(ev.kind, (turnoverKinds.get(ev.kind) ?? 0) + 1);
+  });
 
   let bucket = 'other';
   let down = 1, distance = FIRST_DOWN_YARDS, goalToGo = false;
@@ -66,6 +83,7 @@ for (let g = 0; g < games; g++) {
 
   bus.on('play.start', ((e: { play: string }) => {
     bucket = bucketOf(e.play);
+    currentBucket = bucket;
     if (!inDrive) { inDrive = true; drives++; thisDrivePlays = 0; }
     thisDrivePlays++;
   }) as never);
@@ -148,6 +166,8 @@ for (let g = 0; g < games; g++) {
   bus.on('quarter.end', (() => { inDrive = false; }) as never);
 
   for (let i = 0; i < 200000 && !m.state.finished; i++) m.tick();
+  creditedInts += m.state.teams[0].stats.ints + m.state.teams[1].stats.ints;
+  creditedPassAtt += m.state.teams[0].stats.passAtt + m.state.teams[1].stats.passAtt;
 }
 
 const n = (v: number, w = 6, dp = 1): string => v.toFixed(dp).padStart(w);
@@ -155,11 +175,41 @@ const pc = (a: number, b: number): string => (b === 0 ? '   —  ' : `${((a / b)
 
 console.log(`\nDRIVE CENSUS — ${games} CPU games, 2:00 quarters, ${FIRST_DOWN_YARDS}-yard chain`);
 console.log('─'.repeat(74));
-console.log('  play type    plays/gm  yd/play  lost  20+   comp%   YAC   separation  sack%');
+printFingerprint(fingerprint({
+  tool: 'driveprobe', seeds: `4400..${4400 + games - 1}`,
+  teams: 'rotating home/away over TEAM_IDS', difficulty: 'PRO', quarterSeconds: 120,
+}));
+console.log('─'.repeat(74));
+// comp% below is caught / ACTUAL THROWS — every throw outcome is in the denominator, including
+// drops, swats, defender-possession events, and untouched incompletions. The old figure divided
+// by catches+incompletes and overstated every family; do not compare against pre-repair receipts.
+console.log('  play type    plays/gm  yd/play  lost  20+  throws  comp%   YAC   separation  sack%');
 for (const [k, b] of [...byBucket].sort((p, q) => q[1].plays - p[1].plays)) {
-  const attempts = b.catches + b.incompletes;
-  console.log(`  ${k.padEnd(10)} ${n(b.plays / games)}   ${n(b.yards / Math.max(1, b.plays), 6, 2)}  ${pc(b.loss, b.plays)} ${pc(b.explosive, b.plays)} ${pc(b.catches, attempts)}  ${n(b.yac / Math.max(1, b.catches), 5, 2)}     ${n(b.sep / Math.max(1, b.catches), 5, 2)}     ${pc(b.sacks, b.plays)}`);
+  const t = ledger.tally(k);
+  console.log(`  ${k.padEnd(10)} ${n(b.plays / games)}   ${n(b.yards / Math.max(1, b.plays), 6, 2)}  ${pc(b.loss, b.plays)} ${pc(b.explosive, b.plays)}  ${String(t.throws).padStart(5)} ${pc(t.caught, t.throws)}  ${n(b.yac / Math.max(1, b.catches), 5, 2)}     ${n(b.sep / Math.max(1, b.catches), 5, 2)}     ${pc(b.sacks, b.plays)}`);
 }
+console.log('─'.repeat(74));
+console.log('  throw outcomes (mutually exclusive; each row reconciles to actual throws)');
+console.log('  play type   throws  caught  dropped  swatted  defPoss  fellInc  bobbled  reconciled');
+for (const k of ledger.buckets().sort()) {
+  const t = ledger.tally(k);
+  console.log(`  ${k.padEnd(10)} ${String(t.throws).padStart(6)} ${String(t.caught).padStart(7)}`
+    + ` ${String(t.dropped).padStart(8)} ${String(t.swatted).padStart(8)} ${String(t.defenderPossession).padStart(8)}`
+    + ` ${String(t.fellIncomplete).padStart(8)} ${String(t.bobbled).padStart(8)}`
+    + `   ${ThrowLedger.reconciles(t) ? 'yes' : 'NO — BUG'}`);
+}
+const all = ledger.tally();
+console.log(`  ${'ALL'.padEnd(10)} ${String(all.throws).padStart(6)} ${String(all.caught).padStart(7)}`
+  + ` ${String(all.dropped).padStart(8)} ${String(all.swatted).padStart(8)} ${String(all.defenderPossession).padStart(8)}`
+  + ` ${String(all.fellIncomplete).padStart(8)} ${String(all.bobbled).padStart(8)}`
+  + `   ${ThrowLedger.reconciles(all) ? 'yes' : 'NO — BUG'}`);
+console.log('─'.repeat(74));
+console.log('  interception is three different measures; never quote one as another:');
+console.log(`    defender-possession events   ${rate(all.defenderPossession, all.throws, 'of actual throws')}`);
+console.log(`    credited interceptions       ${rate(creditedInts, creditedPassAtt, 'of official pass attempts')}`);
+const intDrives = turnoverKinds.get('INT') ?? 0;
+console.log(`    drives ended by interception ${rate(intDrives, drives, 'of all drives')}`);
+console.log(`    bobbles ending with defense  ${rate(all.bobbledToDefender, all.bobbled, 'of bobbled throws')}`);
 console.log('─'.repeat(74));
 console.log('  down          plays/gm   yd/play   moved the chain');
 for (let d = 1; d <= 4; d++) {

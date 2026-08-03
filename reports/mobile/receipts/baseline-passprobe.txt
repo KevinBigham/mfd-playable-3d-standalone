@@ -1,0 +1,19 @@
+
+> gridiron-overdrive@1.0.0 passprobe
+> tsx tools/passprobe.ts
+
+
+PASS CENSUS — 8 full CPU games
+──────────────────────────────────────────────────────────────
+  passes thrown              65.88 /game
+  completions                35.50 /game    53.9% of throws
+    of which contested        2.00 /game     5.6% of catches
+  drops (dead)                5.38 /game     8.2% of throws
+  swats                       7.63 /game    11.6% of throws
+  interceptions              13.38 /game    20.3% of throws
+  BOBBLES                     2.50 /game     3.8% of throws
+    from a contested ball     0.88 /game
+    → secured by offence      0.75 /game    30.0% of bobbles
+    → picked off in air       1.25 /game    50.0% of bobbles
+──────────────────────────────────────────────────────────────
+

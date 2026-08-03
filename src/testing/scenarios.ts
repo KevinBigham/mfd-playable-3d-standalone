@@ -98,11 +98,19 @@ export const SCENARIOS: Scenario[] = [
     // all of them, no bounce, no scramble — and he is running when he does. Catching it standing
     // still is worth 3.9 yards a return, which is what this used to be.
     let kicks = 0; let fielded = 0; let slow = 0; let deep = 0;
+    // The window per kickoff is generous on purpose: rules v2 slowed the scoring rate, so
+    // kickoffs arrive less often. The assertion itself is untouched — every kick fielded, at a
+    // sprint, from a deep line-up.
     for (let i = 0; i < 14; i++) {
-      runUntil(m, (x) => x.phase === 'KICKOFF_LIVE', s(90));
+      runUntil(m, (x) => x.phase === 'KICKOFF_LIVE', s(240));
       if (m.phase !== 'KICKOFF_LIVE') break;
       const w = m.world;
       const ret = kickReturner(w);
+      // Onside kicks are out of scope by design (a ball nobody is meant to field cleanly) — but
+      // `special` only reads ONSIDE after the launch, which happens ~0.55 s into KICKOFF_LIVE.
+      // Checking at phase entry silently let CPU onsides through and failed the fielding count.
+      runUntil(m, (x) => x.world.special === 'ONSIDE' || x.world.ball.state.kind === 'kicked'
+        || x.phase !== 'KICKOFF_LIVE', s(4));
       if (!ret || w.special === 'ONSIDE') { runUntil(m, (x) => x.phase !== 'KICKOFF_LIVE', s(30)); continue; }
       kicks++;
       // He must start in his own end zone: the run-up is the whole design.

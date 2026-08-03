@@ -1,0 +1,16 @@
+
+GRIDIRON OVERDRIVE — determinism & persistence
+────────────────────────────────────────────────────────
+  PASS  seed 1 replays identically x3                        149831a6 · 14-42
+  PASS  seed 31337 replays identically x3                    3612dc85 · 13-40
+  PASS  seed 987654 replays identically x3                   dbbe1dd5 · 7-46
+  PASS  no cross-match state leakage                         6-26 vs 6-26
+  PASS  different seeds produce different games              14-21 vs 27-14
+  PASS  rng reseeds deterministically                        
+  PASS  rng stays inside [0,1)                               
+  PASS  rng is unbiased                                      mean=0.4998
+  PASS  rng state save/load round-trips                      
+  PASS  save round-trips through JSON                        
+  PASS  save has a version                                   v1
+  PASS  corrupt json is detectable (loader quarantines it)   
+────────────────────────────────────────────────────────

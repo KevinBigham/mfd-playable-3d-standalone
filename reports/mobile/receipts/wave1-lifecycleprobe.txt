@@ -1,0 +1,30 @@
+
+> gridiron-overdrive@1.0.0 lifecycle
+> tsx tools/lifecycleprobe.ts
+
+
+GRIDIRON OVERDRIVE — pause/lifecycle/interruption probe
+──────────────────────────────────────────────────────────────────────
+  PASS  a touch match reaches pre-snap with the pad enabled      {"ok":true,"i":7341}
+  PASS  pause freezes the match                                  ticks 2659 -> 2659
+  PASS  settings opened from pause keeps the match frozen        ticks 2659 -> 2659 (the shipped bug let this run)
+  PASS  returning from settings is still paused                  reasons=USER
+  PASS  ten real-time frames behind settings advance nothing     ticks 2659 -> 2659
+  PASS  RESUME releases the user pause                           found=true paused=false
+  PASS  blur leaves zero touch state                             
+  PASS  visibilitychange leaves zero touch state                 
+  PASS  pointercancel leaves zero touch state                    
+  PASS  resetAll leaves zero touch state                         
+  PASS  portrait rotation gates, pauses, and resets input        gate=true paused=true reasons=ORIENTATION
+  PASS  rotating back releases only the orientation pause        reasons=
+  PASS  SNAP press shows immediately and slide-off cancels       {"pressedShown":true,"stuck":false,"phase":"PRE_SNAP","phase0":"PRE_SNAP"}
+  PASS  a clean SNAP tap snaps the ball, no stuck press          {"phase":"LIVE","stuck":false}
+  PASS  100 interruption cycles leave no stale input             100/100 clean
+  PASS  return from interruption lands on the pause card, still paused screen=pause paused=true
+  PASS  pagehide flushes the prepared dead-ball checkpoint       suspendedMatch present in storage
+  PASS  context loss pauses, resets input, checkpoints, and explains itself {"paused":true,"reasons":["RECOVERY"],"overlayShown":true,"clean":true,"checkpointed":true}
+  PASS  context restore lands on the pause card, recovery reason released {"paused":true,"reasons":["USER"],"screen":"pause"}
+  PASS  no page errors during the whole run                      
+──────────────────────────────────────────────────────────────────────
+20/20 lifecycle checks passed
+

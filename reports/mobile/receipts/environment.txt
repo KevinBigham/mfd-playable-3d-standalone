@@ -1,0 +1,5 @@
+commit: f37230e67e964e2e283c74b763093e2a9ff86e83
+date: 2026-08-03T17:52:42Z
+node: v24.14.1
+npm: 11.11.0
+platform: Darwin Mac.lan 25.5.0 Darwin Kernel Version 25.5.0: Tue Jun  9 22:26:22 PDT 2026; root:xnu-12377.121.10~1/RELEASE_ARM64_T8132 arm64

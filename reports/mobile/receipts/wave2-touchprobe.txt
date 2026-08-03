@@ -1,0 +1,42 @@
+
+> gridiron-overdrive@1.0.0 touch
+> tsx tools/touchprobe.ts
+
+
+GRIDIRON OVERDRIVE — touch-only probe
+────────────────────────────────────────────────────────────────
+  PASS  browser reports a coarse pointer                   coarse=true maxTouchPoints=1
+  PASS  viewport opts into the safe-area insets            width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover
+  PASS  the engine parses env(safe-area-inset-*)           inset VALUES need a notched device; this only proves the syntax is live
+  PASS  iOS is told it can run without browser chrome      apple=yes web=yes
+  PASS  a web-app manifest is attached and stays inline    data:application/manifest+json,%7B… (1092 chars)
+  PASS  pull-to-refresh cannot reload a live drive         overscroll-behavior-y: none
+  PASS  title asks for a tap, not a key press              TAP TO START
+  PASS  a real touch gets past the title screen            screen=mainMenu
+  PASS  reaches the snap with the ball                     phase=PRE_SNAP play=o-sail-overload
+  PASS  a snap control exists and is thumb-sized           116x116 px at 766,308
+  PASS  tapping snap hikes the ball                        live after 0 frames
+  PASS  receiver badges are drawn on the receivers, or honestly marked off-frame #35@721,197 #80@279,268 #87@130,194
+  PASS  badges are thumb-sized                             60/60/60 px
+  PASS  a drag off a badge throws the ball                 to #35 on all three runs
+  PASS  the same receiver was targeted every run           #35
+  PASS  dragging left and right places the ball differently left(-16.9,38.0) none(-18.9,38.0) right(-20.8,38.0)  spread=3.94 yd
+  PASS  a plain tap sits between the two drags             tap→left 1.97 yd · tap→right 1.97 yd
+  PASS  fan targets are drawn, thumb-sized, and reachable  64px@747,190 91px@664,213 64px@640,296
+  PASS  tapping fan slot 1 throws to the same receiver as badge slot 1 fan → #80, badge slot 1 = #80
+  PASS  tap on the field spins                             held=128
+  PASS  swipe up hurdles                                   held=4
+  PASS  swipe down dives                                   held=64
+  PASS  swipe sideways jukes                               held=524288
+  PASS  the stick produces a movement vector               move=(-0.40, 0.92) |v|=1.00
+  PASS  holding the edge engages turbo after the dwell, not instantly instant=false held=true after-release=false
+  PASS  lifting the thumb stops the player                 move=(0, 0)
+  PASS  losing the page releases every finger              holding=1.00 → after blur=0
+  PASS  an interruption returns through the pause card, and RESUME works card=true paused=false screen=match
+  PASS  portrait raises the rotate gate and stops the clock gate=true paused=true mode=OFF
+  PASS  rotating back resumes play                         gate=false paused=false
+  PASS  no console errors                                  clean
+  PASS  a mouse-driven desktop gets no touch pad at all    coarse=false mode=OFF display=none phase=PRE_SNAP
+────────────────────────────────────────────────────────────────
+32/32 touch checks passed
+

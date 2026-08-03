@@ -172,11 +172,13 @@ export function safetyFreeKickSpot(conceding: TeamSide): number {
 
 export interface OverdriveResult { started: boolean; cause: 'CATCH' | 'SACK' | null }
 
-export function noteCatch(m: MatchState, side: TeamSide, receiverNumber: number): OverdriveResult {
+export function noteCatch(m: MatchState, side: TeamSide, receiverNumber: number, weight = 1): OverdriveResult {
   const t = m.teams[side];
-  if (t.catchStreakReceiver === receiverNumber) t.catchStreak++;
-  else { t.catchStreakReceiver = receiverNumber; t.catchStreak = 1; }
-  t.teamCatchStreak++;
+  // `weight` is the skill-charge seam: classic play always passes 1 and keeps the integer
+  // streak byte-identical; the flagged experiment passes quality-scaled fractions.
+  if (t.catchStreakReceiver === receiverNumber) t.catchStreak += weight;
+  else { t.catchStreakReceiver = receiverNumber; t.catchStreak = weight; }
+  t.teamCatchStreak += weight;
   m.teams[other(side)].sackStreak = 0;
   const byReceiver = t.catchStreak >= OVERDRIVE_CATCH_STREAK;
   const byDrive = t.teamCatchStreak >= OVERDRIVE_TEAM_STREAK;

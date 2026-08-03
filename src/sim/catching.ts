@@ -3,6 +3,8 @@ import {
   CATCH_RADIUS_BY_KIND, CATCH_HANDS_SCALE, INT_BASE, CONTEST_PENALTY, DROP_PRESSURE,
   OVERDRIVE_CATCH, BOBBLE_CONTESTED, BOBBLE_BULLET, BOBBLE_DIVING, BOBBLE_POP, BOBBLE_SCATTER,
   BOBBLE_GRAB, SWAT_TIP_UP, TIP_SELF_PENALTY, s,
+  COVER_TIGHT_YD, COVER_CATCH_PENALTY, COVER_BREAKUP_YD, COVER_BREAKUP_MAX, COVER_FLIGHT_FULL_S,
+  SCREEN_DIAGNOSE_TICKS, TIP_OFFENSE_TRACK,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist } from '../core/math.ts';
 import type { World } from './world.ts';
@@ -146,8 +148,31 @@ export function resolveAirBall(w: World): boolean {
     return true;
   }
 
-  // Receiver catch.
-  const pressure = contested ? CONTEST_PENALTY : 0;
+  // Receiver catch — but coverage matters CONTINUOUSLY now (rules v2). The old contest was
+  // binary: a defender either physically reached the ball or did not exist, which made deep
+  // completions a pure accuracy lottery and made reading leverage worthless. The nearest live
+  // defender's distance to the catch point pressures the outcome even when he cannot touch it.
+  let defDist = 99; let nearDef: Athlete | null = null;
+  for (const d of w.athletes) {
+    if (d.side === winner.side || d.move === 'DOWN' || d.move === 'GETUP' || d.move === 'STUNNED') continue;
+    const dd = dist(d.x, d.z, winner.x, winner.z);
+    if (dd < defDist) { defDist = dd; nearDef = d; }
+  }
+  // The pass breakup: a defender in phase, close but not to the ball, gets an honest play on it.
+  // A throw into tight coverage now dies as a legible PBU far more often than as a takeaway.
+  const flightScale = clamp01(st.flightTime / COVER_FLIGHT_FULL_S);
+  if (!contested && nearDef && defDist < COVER_BREAKUP_YD) {
+    const breakup = (COVER_BREAKUP_MAX * (1 - defDist / COVER_BREAKUP_YD)
+      + (nearDef.def.ratings.awareness - 50) * 0.003) * flightScale;
+    if (w.rng.chance(clamp01(breakup))) {
+      w.bus.emit({ type: 'swat', tick: w.tick, by: nearDef.id });
+      killBall(w);
+      w.ball.x = b.x; w.ball.y = 0.3; w.ball.z = b.z;
+      return true;
+    }
+  }
+  const coverage = contested ? 0 : clamp01((COVER_TIGHT_YD - defDist) / COVER_TIGHT_YD) * flightScale;
+  const pressure = contested ? CONTEST_PENALTY : coverage * COVER_CATCH_PENALTY;
   const catchChance = clamp01(
     0.70
     + (winner.def.ratings.hands - 50) * 0.0075
@@ -170,6 +195,17 @@ export function resolveAirBall(w: World): boolean {
     }
     w.bus.emit({ type: 'catch', tick: w.tick, by: winner.id, contested, diving, yards });
     w.bus.emit({ type: 'crowd.swell', tick: w.tick, power: contested ? 0.9 : 0.5, side: winner.side });
+    // A completion BEHIND the line (a screen, a swing) has to be diagnosed before the defense
+    // converges — that beat of hesitation is the screen's entire payoff, and it never existed.
+    // The rush and the contain keep coming (their pursue gate ignores this queue), which is what
+    // keeps disciplined edge defense as the screen's honest counter.
+    const dir = winner.side === 0 ? 1 : -1;
+    if ((winner.z - w.losZ) * dir < -0.5) {
+      for (const d of w.athletes) {
+        if (d.side === winner.side || d.move === 'DOWN') continue;
+        d.reactionQueue = Math.max(d.reactionQueue, SCREEN_DIAGNOSE_TICKS);
+      }
+    }
     if (contested) {
       const defender = cands[1].a;
       if (w.rng.chance(0.45)) knockDown(defender, s(0.9));
@@ -269,7 +305,10 @@ function resolveTippedBall(w: World): boolean {
       // standing closest, which is why the first version of this handed the defence a tipped
       // interception on two thirds of them. He swung through the ball; his hands are past it and
       // his momentum is going the wrong way. Anyone else in the area is better placed than he is.
-      + (a.id === st.lastTouch ? -TIP_SELF_PENALTY : 0);
+      + (a.id === st.lastTouch ? -TIP_SELF_PENALTY : 0)
+      // The offense knows where this ball was supposed to be — they are tracking it, the defense
+      // is reacting to it. Keeps a bobble a chaotic highlight instead of a 62% takeaway.
+      + (a.side === w.possession ? TIP_OFFENSE_TRACK : 0);
     if (claim > bestClaim) { bestClaim = claim; best = a; }
   }
   if (!best) return false;

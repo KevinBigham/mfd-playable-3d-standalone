@@ -5,10 +5,12 @@ import {
 } from '../uiKit.ts';
 import { Action } from '../../input/actions.ts';
 import type { Game } from '../../app/Game.ts';
+import type { PauseToken } from '../../app/pauseController.ts';
 import type { Difficulty, TeamDef, TeamSide, WeatherKind } from '../../core/types.ts';
 import { TEAMS, getTeam, teamLogoSvg, STADIUMS, getStadium } from '../../data/index.ts';
 import { QUARTER_OPTIONS } from '../../core/constants.ts';
-import { getSave, writeSave, resetSave, defaultSettings } from '../../persistence/save.ts';
+import { getSave, writeSave, flushSave, resetSave, defaultSettings, storageKind } from '../../persistence/save.ts';
+import { flag } from '../../app/featureFlags.ts';
 import type { QualityTier } from '../../render/registry.ts';
 import { ACTION_LABELS, type ActionName } from '../../input/actions.ts';
 
@@ -67,7 +69,8 @@ export class TitleScreen implements Screen {
     if (this.tapped || i.menuPressed(Action.ACTION) || i.menuPressed(Action.PAUSE)) {
       this.tapped = false;
       this.ctx.sound('select');
-      this.ctx.go('mainMenu');
+      // The phone front door is one dominant action, not a mode directory.
+      this.ctx.go(coarsePointer() && flag('mobileHomeV2') ? 'mobileHome' : 'mainMenu');
     }
   }
   unmount(): void { this.node?.remove(); this.node = null; }
@@ -319,14 +322,27 @@ export class PauseScreen implements Screen {
   private node: HTMLElement | null = null;
   private ring = new FocusRing();
   private ctx!: ScreenContext;
+  /**
+   * The USER pause token. Held from the moment this screen first mounts until the player
+   * explicitly resumes or quits — and deliberately NOT released by `unmount()`, because
+   * navigating to Settings unmounts this screen while the match must stay frozen behind it.
+   * That unmount-unpauses write was the shipped bug: ten seconds in Settings meant ten seconds
+   * of hidden play.
+   */
+  private token: PauseToken | null = null;
   constructor(private game: Game) {}
+  private resume(): void {
+    this.game.pause.release(this.token);
+    this.token = null;
+    this.ctx.back();
+  }
   mount(ctx: ScreenContext): void {
     this.ctx = ctx;
-    this.game.paused = true;
+    if (!this.token) this.token = this.game.pause.acquire('USER');
     const s = screenShell();
     const p = panel('PAUSED');
     const items: FocusItem[] = [
-      button('RESUME', () => { this.game.paused = false; ctx.back(); }),
+      button('RESUME', () => this.resume()),
       button('SETTINGS', () => ctx.go('settings')),
       button('CONTROLS', () => ctx.go('controls')),
     ];
@@ -334,15 +350,15 @@ export class PauseScreen implements Screen {
     // is a result, not a game in progress, and offering to "continue" into a final whistle is
     // worse than not offering at all.
     if (this.game.match && !this.game.match.state.finished) {
-      items.push(button('SAVE & QUIT', () => {
-        this.game.paused = false;
+      items.push(button(storageKind() === 'MEMORY' ? 'SAVE & QUIT (SESSION ONLY)' : 'SAVE & QUIT', () => {
+        this.token = null; // endMatch clears every reason
         if (!this.game.suspendMatch()) this.game.endMatch();
         ctx.reset('mainMenu');
       }));
     }
     items.push(
       button('QUIT TO MENU', () => {
-        this.game.paused = false;
+        this.token = null; // endMatch clears every reason
         this.game.discardSuspendedMatch();
         this.game.endMatch();
         ctx.reset('mainMenu');
@@ -357,10 +373,10 @@ export class PauseScreen implements Screen {
   }
   update(): void {
     const i = this.ctx.input;
-    if (i.menuPressed(Action.PAUSE)) { this.game.paused = false; this.ctx.back(); return; }
+    if (i.menuPressed(Action.PAUSE)) { this.resume(); return; }
     driveFocus(this.ring, i, this.ctx);
   }
-  unmount(): void { this.node?.remove(); this.node = null; this.game.paused = false; }
+  unmount(): void { this.node?.remove(); this.node = null; }
 }
 
 // ── SETTINGS ─────────────────────────────────────────────────────────────
@@ -369,9 +385,12 @@ export class SettingsScreen implements Screen {
   private node: HTMLElement | null = null;
   private ring = new FocusRing();
   private ctx!: ScreenContext;
+  /** Holds MODAL while mounted so opening Settings over Pause can never resume the hidden match. */
+  private token: PauseToken | null = null;
   constructor(private game: Game) {}
   mount(ctx: ScreenContext): void {
     this.ctx = ctx;
+    this.token = this.game.pause.acquire('MODAL');
     const g = this.game;
     const st = g.settings;
     const apply = () => { g.applySettings(); };
@@ -386,6 +405,17 @@ export class SettingsScreen implements Screen {
       optionRow<boolean>({ label: 'HELP PROMPTS', values: [true, false], format: (v) => (v ? 'ON' : 'OFF'), get: () => st.helpPrompts, set: (v) => { st.helpPrompts = v; g.hud.showHelp = v; } }, apply),
       optionRow<boolean>({ label: 'COMEBACK ASSIST', values: [true, false], format: (v) => (v ? 'ON' : 'OFF'), get: () => st.catchUpBias, set: (v) => { st.catchUpBias = v; } }, apply),
       optionRow<boolean>({ label: 'POST-WHISTLE SHOVES', values: [false, true], format: (v) => (v ? 'ON' : 'OFF'), get: () => st.lateHits, set: (v) => { st.lateHits = v; } }, apply),
+      // ── touch controls — the thumb layout, all numeric/toggle so precision dragging is
+      // never required to configure accessibility ────────────────────────────────────────
+      optionRow<'RIGHT' | 'LEFT'>({ label: 'TOUCH · HANDEDNESS', values: ['RIGHT', 'LEFT'], get: () => st.touchProfile.handedness, set: (v) => { st.touchProfile.handedness = v; } }, apply),
+      optionRow<'FLOATING' | 'FIXED'>({ label: 'TOUCH · STICK', values: ['FLOATING', 'FIXED'], get: () => st.touchProfile.stickMode, set: (v) => { st.touchProfile.stickMode = v; } }, apply),
+      optionRow<number>({ label: 'TOUCH · STICK SIZE', values: [0.8, 0.9, 1, 1.15, 1.3], format: (v) => `${Math.round(v * 100)}%`, get: () => st.touchProfile.stickScale, set: (v) => { st.touchProfile.stickScale = v; } }, apply),
+      optionRow<number>({ label: 'TOUCH · BUTTON SIZE', values: [0.8, 0.9, 1, 1.15, 1.3], format: (v) => `${Math.round(v * 100)}%`, get: () => st.touchProfile.actionScale, set: (v) => { st.touchProfile.actionScale = v; } }, apply),
+      optionRow<number>({ label: 'TOUCH · OPACITY', values: [0.4, 0.6, 0.75, 0.9, 1], format: (v) => `${Math.round(v * 100)}%`, get: () => st.touchProfile.opacity, set: (v) => { st.touchProfile.opacity = v; } }, apply),
+      optionRow<'HOLD_EDGE' | 'EDGE_BOOST'>({ label: 'TOUCH · TURBO', values: ['HOLD_EDGE', 'EDGE_BOOST'], format: (v) => (v === 'HOLD_EDGE' ? 'HOLD AT EDGE' : 'PUSH PAST RING'), get: () => st.touchProfile.turboMode === 'EDGE_BOOST' ? 'EDGE_BOOST' : 'HOLD_EDGE', set: (v) => { st.touchProfile.turboMode = v; } }, apply),
+      optionRow<'RELAXED' | 'STANDARD' | 'PRECISE'>({ label: 'TOUCH · GESTURES', values: ['RELAXED', 'STANDARD', 'PRECISE'], get: () => st.touchProfile.gesturePreset, set: (v) => { st.touchProfile.gesturePreset = v; } }, apply),
+      optionRow<'DIRECT_FIELD' | 'THUMB_FAN'>({ label: 'TOUCH · PASS TARGETS', values: ['DIRECT_FIELD', 'THUMB_FAN'], format: (v) => (v === 'DIRECT_FIELD' ? 'ON THE FIELD' : 'THUMB FAN'), get: () => st.touchProfile.targetSurface, set: (v) => { st.touchProfile.targetSurface = v; } }, apply),
+      optionRow<boolean>({ label: 'TOUCH · LOB BUTTON', values: [false, true], format: (v) => (v ? 'ON (ADVANCED)' : 'OFF (ADAPTIVE)'), get: () => st.touchProfile.explicitLob, set: (v) => { st.touchProfile.explicitLob = v; } }, apply),
       sliderRow('CAMERA SHAKE', () => st.cameraShake, (v) => { st.cameraShake = v; }, 0.1, apply),
       sliderRow('SCREEN FLASH', () => st.screenFlash, (v) => { st.screenFlash = v; }, 0.1, apply),
       optionRow<boolean>({ label: 'REDUCED MOTION', values: [false, true], format: (v) => (v ? 'ON' : 'OFF'), get: () => st.reducedMotion, set: (v) => { st.reducedMotion = v; } }, apply),
@@ -422,6 +452,15 @@ export class SettingsScreen implements Screen {
     ];
     const scroll = el('div', 'scroll');
     for (const it of items) scroll.appendChild(it.el);
+    // Honesty about durability: when storage is unavailable (private browsing, sandboxed frame,
+    // full quota) the game keeps working from memory — but the player must not believe a season
+    // will survive a reload when it will not.
+    if (storageKind() === 'MEMORY') {
+      const warn = el('p', 'muted',
+        '⚠ STORAGE UNAVAILABLE — settings and saves last only for this session.');
+      warn.style.cssText = 'color:var(--bad,#ff7a5c);letter-spacing:.06em';
+      scroll.appendChild(warn);
+    }
     p.appendChild(scroll);
     s.appendChild(p);
     ctx.root.appendChild(s);
@@ -430,7 +469,13 @@ export class SettingsScreen implements Screen {
     this.ring.onNav = (e) => ctx.sound(e === 'select' ? 'select' : 'move');
   }
   update(): void { driveFocus(this.ring, this.ctx.input, this.ctx); }
-  unmount(): void { writeSave({ settings: this.game.settings }); this.node?.remove(); this.node = null; }
+  unmount(): void {
+    writeSave({ settings: this.game.settings });
+    flushSave();
+    this.game.pause.release(this.token);
+    this.token = null;
+    this.node?.remove(); this.node = null;
+  }
 }
 
 // ── CONTROLS ─────────────────────────────────────────────────────────────
@@ -441,10 +486,13 @@ export class ControlsScreen implements Screen {
   private ctx!: ScreenContext;
   private rebinding: ActionName | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  /** Holds MODAL while mounted — same contract as Settings. */
+  private token: PauseToken | null = null;
   constructor(private game: Game) {}
 
   mount(ctx: ScreenContext): void {
     this.ctx = ctx;
+    this.token = this.game.pause.acquire('MODAL');
     const s = screenShell();
     ctx.root.appendChild(s);
     this.node = s;
@@ -506,6 +554,8 @@ export class ControlsScreen implements Screen {
   update(): void { if (!this.rebinding) driveFocus(this.ring, this.ctx.input, this.ctx); }
   unmount(): void {
     if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler, true);
+    this.game.pause.release(this.token);
+    this.token = null;
     this.node?.remove(); this.node = null;
   }
 }

@@ -405,6 +405,14 @@ export interface MatchConfig {
   catchUpBias: boolean;
   lateHits: boolean;
   mode: 'QUICKPLAY' | 'TOURNAMENT' | 'SEASON' | 'PRACTICE';
+  /** Which football this match plays. Absent means CLASSIC — every pre-seam save reads correctly. */
+  ruleset?: 'CLASSIC' | 'DRIVE_RUSH';
+  /**
+   * Experiment (behind the overdriveSkillCharge flag): Overdrive charges by catch QUALITY —
+   * an open, earned reception counts more, a covered checkdown less, and hammering the same
+   * receiver is discounted. Absent = the classic three-catch streak.
+   */
+  overdriveSkillCharge?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────── events

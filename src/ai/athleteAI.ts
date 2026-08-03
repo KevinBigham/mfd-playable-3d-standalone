@@ -485,7 +485,7 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
     // A QB who is still in the pocket is the rushers' problem, not the coverage's.
     const scrambleRecognised = car.id === w.qbId && !w.passThrown
       && (brokeContainment || w.playTicks > s(2.6));
-    const pursueNow = carrierIsRunner || brokeContainment || w.passThrown || scrambleRecognised
+    const pursueNow = carrierIsRunner || brokeContainment || (w.passThrown && recognised) || scrambleRecognised
       || a.assign?.kind === 'RUSH' || a.assign?.kind === 'BLITZ_DELAY'
       || a.assign?.kind === 'CONTAIN' || a.assign?.kind === 'SPY';
     if (pursueNow) {

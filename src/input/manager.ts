@@ -100,6 +100,18 @@ export class InputManager {
   onGamepadChange: ((pads: number[]) => void) | null = null;
   /** Touch surface for seat 0, when one is mounted. See IntentSource. */
   touch: IntentSource | null = null;
+  /** Seats whose next poll must produce no edges — set after an interruption reset. */
+  private neutralized = [false, false, false, false];
+
+  /**
+   * After a hard input reset the merged edge history is a lie: comparing the next poll against
+   * the pre-reset `prevHeld` would manufacture a release edge for everything that was cleared —
+   * or a press edge for a key that was genuinely held right through the interruption. One
+   * edge-free poll re-baselines the history without inventing either.
+   */
+  neutralizeSeat(seat: number): void {
+    if (seat >= 0 && seat < this.neutralized.length) this.neutralized[seat] = true;
+  }
 
   attach(target: Window = window): void {
     const down = (e: KeyboardEvent) => {
@@ -253,10 +265,17 @@ export class InputManager {
       it.moveX = mx; it.moveZ = mz;
       it.aimX = ax; it.aimZ = az;
       it.held = held;
-      it.pressed = held & ~prev;
-      it.released = prev & ~held;
+      if (this.neutralized[seat]) {
+        it.pressed = 0;
+        it.released = 0;
+        this.menuEdges[seat] = 0;
+        this.neutralized[seat] = false;
+      } else {
+        it.pressed = held & ~prev;
+        it.released = prev & ~held;
+        this.menuEdges[seat] = menuHeld & ~this.prevMenuHeld[seat];
+      }
       this.prevHeld[seat] = held;
-      this.menuEdges[seat] = menuHeld & ~this.prevMenuHeld[seat];
       this.prevMenuHeld[seat] = menuHeld;
       if (held) this.anyActivity = true;
     }

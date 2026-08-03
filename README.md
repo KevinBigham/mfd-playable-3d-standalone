@@ -7,6 +7,14 @@
 No install, no download, no account. It is one HTML file that contains the whole game — engine, 3D
 renderer, audio, sixteen teams, every mode — and it makes no network requests once it loads.
 
+**New — the mobile transformation is live.** On a phone the game now opens on a one-tap home
+screen: **PLAY DRIVE** drops you into Drive Rush (start at the opponent's 40, one drive, instant
+"one more" retry), the **Daily Drive** gives everyone the same deterministic problem each day,
+**Mastery Drills** teach one read at a time, and **Beat My Drive** codes let a friend replay your
+exact drive and try to beat your score. Reworked pass coverage (rules v2) makes reading the field
+beat button-mashing — receipts for every claim live in
+[`MOBILE_TRANSFORMATION_STATUS.md`](MOBILE_TRANSFORMATION_STATUS.md).
+
 **It plays on a phone.** Open [the link above](https://kevinbigham.github.io/mfd-playable-3d-standalone/)
 on your handset and hold it sideways. Your left thumb is a floating stick that appears wherever you
 put it; push past the ring for turbo. Everything else is your right thumb: tap **SNAP** to hike, tap

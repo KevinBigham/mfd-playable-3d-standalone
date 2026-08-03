@@ -50,12 +50,14 @@ window.__TP = {
   step(n) {
     const g = window.GO;
     for (let i = 0; i < n; i++) {
+      // Same order as Game.frame: semantic context BEFORE the poll, projection after render.
+      g.touch.prepareContext(g.match, true);
       g.input.poll();
       if (g.match) {
         g.match.tick();
         g.renderer.sync(g.match.world, g.match.state, 1, 1 / 60, false);
       }
-      g.touch.sync(g.match, g.renderer, true);
+      g.touch.projectVisuals(g.match, g.renderer);
       g.input.clearEdges();
     }
   },
@@ -220,10 +222,14 @@ async function main(): Promise<void> {
       titleText.split('\n').map((s) => s.trim()).filter(Boolean).slice(-1)[0] ?? '');
 
     // ── a real browser-generated touch reaches the game ──────────────
-    await page.touchscreen.tap(422, 300);
-    await page.waitForTimeout(400);
-    const afterTap = await page.evaluate(() => (window as unknown as { GO: any }).GO.currentScreen);
-    check('a real touch gets past the title screen', afterTap === 'mainMenu', `screen=${afterTap}`);
+    let afterTap = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await page.touchscreen.tap(422, 300);
+      await page.waitForTimeout(400);
+      afterTap = await page.evaluate(() => (window as unknown as { GO: any }).GO.currentScreen) as string;
+      if (afterTap === 'mainMenu' || afterTap === 'mobileHome') break;
+    }
+    check('a real touch gets past the title screen', afterTap === 'mainMenu' || afterTap === 'mobileHome', `screen=${afterTap}`);
 
     // ── into a match, at the snap ────────────────────────────────────
     const arrive = await page.evaluate(TO_PRE_SNAP.replace('SEED', '90210')) as { ok: boolean; phase: string; play?: string };
@@ -239,6 +245,9 @@ async function main(): Promise<void> {
       `${snapBtn.w}x${snapBtn.h} px at ${snapBtn.x},${snapBtn.y}`);
     await shot(page, '10-touch-snap');
 
+    // The SNAP button ignores commits inside its 150 ms tap-through window after appearing —
+    // that is the fix for stray screen-transition taps, and the probe must respect it too.
+    await page.waitForTimeout(250);
     const snapped = await page.evaluate(`(() => {
       const g = window.GO;
       window.__TP.gesture(${snapBtn.x}, ${snapBtn.y}, 0, 0, 31);
@@ -323,6 +332,9 @@ async function main(): Promise<void> {
       // quarterback is actually holding the ball, and that is not true on the first frame of
       // PRE_SNAP. Reading the rect too early gets 0x0 at 0,0 and the tap lands on nothing.
       for (let i = 0; i < 30 && g.touch.mode !== 'SNAP'; i++) a.step(1);
+      // Wait out the SNAP tap-through lock (150 ms wall clock) — synchronous evaluate, so spin.
+      const tw0 = performance.now();
+      while (performance.now() - tw0 < 180) { /* spin */ }
       const sb = document.querySelector('.tc-snap').getBoundingClientRect();
       if (sb.width < 10) return { ok: false, why: 'no snap control, mode=' + g.touch.mode + ' phase=' + g.match.phase };
       a.gesture(Math.round(sb.left + sb.width / 2), Math.round(sb.top + sb.height / 2), 0, 0, 41);
@@ -367,6 +379,50 @@ async function main(): Promise<void> {
         `tap→left ${dl.toFixed(2)} yd · tap→right ${dr.toFixed(2)} yd`);
     }
 
+    // ── THUMB_FAN surface parity: same seed, same slot, same receiver ─
+    //
+    // The fan changes where the thumb lands, never what the throw means: tapping fan slot N and
+    // tapping badge slot N must select the same receiver through the same semantic intent.
+    const fanRun = await page.evaluate(`(() => {
+      const g = window.GO;
+      const a = window.__TP;
+      g.settings.touchProfile.targetSurface = 'THUMB_FAN';
+      g.applySettings();
+      const r = ${TO_PRE_SNAP.replace('SEED', '90210')};
+      if (!r.ok) return { ok: false, why: 'never reached the snap' };
+      for (let i = 0; i < 30 && g.touch.mode !== 'SNAP'; i++) a.step(1);
+      const tw0 = performance.now();
+      while (performance.now() - tw0 < 180) { /* tap-through lock */ }
+      const sb = document.querySelector('.tc-snap').getBoundingClientRect();
+      a.gesture(Math.round(sb.left + sb.width / 2), Math.round(sb.top + sb.height / 2), 0, 0, 71);
+      for (let i = 0; i < 60 && g.match.world.playPhase !== 'LIVE'; i++) a.step(1);
+      a.step(26);
+      const fans = [...document.querySelectorAll('.tc-fan')].filter((b) => b.style.display !== 'none');
+      if (fans.length !== 3) return { ok: false, why: 'fan not shown: ' + fans.length };
+      const geometry = fans.map((b) => { const q = b.getBoundingClientRect(); return { w: q.width, h: q.height, x: q.x, y: q.y }; });
+      const w = g.match.world;
+      const expected = w.athletes[w.passTargets[1]].def.number;
+      const fb = fans[1].getBoundingClientRect();
+      let thrownTo = -1;
+      g.match.bus.on('throw', (e) => { if (e.to !== null) thrownTo = w.athletes[e.to].def.number; });
+      a.gesture(Math.round(fb.left + fb.width / 2), Math.round(fb.top + fb.height / 2), 0, 0, 72);
+      for (let i = 0; i < 20; i++) a.step(1);
+      g.settings.touchProfile.targetSurface = 'DIRECT_FIELD';
+      g.applySettings();
+      return { ok: true, expected, thrownTo, geometry };
+    })()`) as { ok: boolean; why?: string; expected?: number; thrownTo?: number;
+      geometry?: Array<{ w: number; h: number; x: number; y: number }> };
+    if (!fanRun.ok) {
+      check('thumb-fan surface parity', false, fanRun.why ?? '');
+    } else {
+      check('fan targets are drawn, thumb-sized, and reachable',
+        (fanRun.geometry ?? []).every((q) => q.w >= 48 && q.h >= 48),
+        (fanRun.geometry ?? []).map((q) => `${Math.round(q.w)}px@${Math.round(q.x)},${Math.round(q.y)}`).join(' '));
+      check('tapping fan slot 1 throws to the same receiver as badge slot 1',
+        fanRun.thrownTo === fanRun.expected,
+        `fan → #${fanRun.thrownTo}, badge slot 1 = #${fanRun.expected}`);
+    }
+
     // ── carrier gestures produce the right verbs ─────────────────────
     const verbs = await page.evaluate(`(() => {
       const g = window.GO;
@@ -402,19 +458,29 @@ async function main(): Promise<void> {
       g.input.poll();
       const it = g.input.intentFor(0);
       const moving = { moveX: it.moveX, moveZ: it.moveZ };
-      a.ev('pointermove', 150, 90, 61);    // well past the ring
+      a.ev('pointermove', 150, 90, 61);    // full deflection, held at the edge
       g.input.poll();
-      const turbo = (g.input.intentFor(0).held & 1) !== 0;
+      const turboEarly = (g.input.intentFor(0).held & 1) !== 0;
+      // Hold-at-edge turbo: full deflection must be HELD for its dwell (~300 ms) before turbo
+      // engages, and it must not flicker at the boundary. Spin the wall clock, then poll.
+      const tw0 = performance.now();
+      while (performance.now() - tw0 < 380) { /* hold the edge */ }
+      g.input.poll();
+      const turboHeld = (g.input.intentFor(0).held & 1) !== 0;
       a.ev('pointerup', 150, 90, 61);
       g.input.poll();
       const after = g.input.intentFor(0);
-      return { moving, turbo, restX: after.moveX, restZ: after.moveZ };
-    })()`) as { moving: { moveX: number; moveZ: number }; turbo: boolean; restX: number; restZ: number };
+      const turboAfter = (after.held & 1) !== 0;
+      return { moving, turboEarly, turboHeld, turboAfter, restX: after.moveX, restZ: after.moveZ };
+    })()`) as { moving: { moveX: number; moveZ: number }; turboEarly: boolean; turboHeld: boolean;
+      turboAfter: boolean; restX: number; restZ: number };
 
     const mag = Math.hypot(stick.moving.moveX, stick.moving.moveZ);
     check('the stick produces a movement vector', mag > 0.6,
       `move=(${stick.moving.moveX.toFixed(2)}, ${stick.moving.moveZ.toFixed(2)}) |v|=${mag.toFixed(2)}`);
-    check('pushing past the ring is turbo', stick.turbo, `TURBO=${stick.turbo}`);
+    check('holding the edge engages turbo after the dwell, not instantly',
+      !stick.turboEarly && stick.turboHeld && !stick.turboAfter,
+      `instant=${stick.turboEarly} held=${stick.turboHeld} after-release=${stick.turboAfter}`);
     check('lifting the thumb stops the player', stick.restX === 0 && stick.restZ === 0,
       `move=(${stick.restX}, ${stick.restZ})`);
 
@@ -422,6 +488,10 @@ async function main(): Promise<void> {
     const cleaned = await page.evaluate(`(() => {
       const g = window.GO;
       const a = window.__TP;
+      // The wall-clock waits above let the real loop advance the match; the pad may be OFF at a
+      // play-call. Re-enter a state where the stick is live before measuring the blur reset.
+      const r = ${TO_PRE_SNAP.replace('SEED', '90210')};
+      if (!r.ok) return { during: 0, after: -1, held: -1 };
       a.ev('pointerdown', 150, 250, 71);
       a.ev('pointermove', 150, 100, 71);
       g.input.poll();
@@ -433,6 +503,24 @@ async function main(): Promise<void> {
     })()`) as { during: number; after: number; held: number };
     check('losing the page releases every finger', cleaned.during > 0.5 && cleaned.after === 0,
       `holding=${cleaned.during.toFixed(2)} → after blur=${cleaned.after}`);
+
+    // Since Wave 1, an interruption also pauses through a LIFECYCLE reason and returning lands
+    // on the pause card — the safe path, by design. Complete the round trip the way a player
+    // would: come back, then press RESUME.
+    const roundTrip = await page.evaluate(`(() => {
+      const g = window.GO;
+      window.dispatchEvent(new Event('focus'));
+      window.__TP.step(2);
+      const cardShown = g.currentScreen === 'pause';
+      const btns = [...document.querySelectorAll('.go-btn, button, [class*=btn]')];
+      const r = btns.find((b) => /RESUME/.test(b.textContent || ''));
+      if (r) r.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      window.__TP.step(2);
+      return { cardShown, paused: g.paused, screen: g.currentScreen };
+    })()`) as { cardShown: boolean; paused: boolean; screen: string };
+    check('an interruption returns through the pause card, and RESUME works',
+      roundTrip.cardShown && !roundTrip.paused,
+      `card=${roundTrip.cardShown} paused=${roundTrip.paused} screen=${roundTrip.screen}`);
 
     // ── upright is a gate, not a lost down ───────────────────────────
     await page.setViewportSize({ width: 390, height: 844 });

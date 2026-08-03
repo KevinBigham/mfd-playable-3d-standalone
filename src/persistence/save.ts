@@ -1,6 +1,7 @@
 import type { CustomPlay, Difficulty, WeatherKind } from '../core/types.ts';
 import type { QualityTier } from '../render/registry.ts';
 import { KEYBOARD_P1, KEYBOARD_P2, type KeyboardBinding } from '../input/bindings.ts';
+import { defaultTouchProfile, sanitizeTouchProfile, type TouchProfile } from '../input/touch/touchProfile.ts';
 
 export const SAVE_KEY = 'go.save.v1';
 export const SAVE_VERSION = 1 as const;
@@ -25,6 +26,8 @@ export interface Settings {
   catchUpBias: boolean;
   lateHits: boolean;
   passingMode: 'ICON' | 'DIRECTIONAL';
+  /** Versioned thumb layout — see input/touch/touchProfile.ts. */
+  touchProfile: TouchProfile;
 }
 
 export interface SeasonSave {
@@ -120,6 +123,7 @@ export function defaultSettings(): Settings {
     catchUpBias: true,
     lateHits: false,
     passingMode: 'ICON',
+    touchProfile: defaultTouchProfile(),
   };
 }
 
@@ -193,7 +197,12 @@ export function loadSave(): SaveFile {
     const base = defaultSave();
     return {
       version: SAVE_VERSION,
-      settings: { ...base.settings, ...(parsed.settings ?? {}), volumes: { ...base.settings.volumes, ...(parsed.settings?.volumes ?? {}) }, bindings: parsed.settings?.bindings ?? base.settings.bindings },
+      settings: {
+        ...base.settings, ...(parsed.settings ?? {}),
+        volumes: { ...base.settings.volumes, ...(parsed.settings?.volumes ?? {}) },
+        bindings: parsed.settings?.bindings ?? base.settings.bindings,
+        touchProfile: sanitizeTouchProfile(parsed.settings?.touchProfile),
+      },
       season: parsed.season ?? null,
       tournament: parsed.tournament ?? null,
       suspendedMatch: parsed.suspendedMatch ?? null,
@@ -218,6 +227,16 @@ function migrate(parsed: unknown): SaveFile {
 
 let cache: SaveFile | null = null;
 
+/**
+ * Optional v2 write-through, attached at boot when the persistenceV2 flag is on. Every settled
+ * write also lands as a checksummed IndexedDB revision; reads still come from the fast local
+ * cache, with v2 recovery handled during boot before the first getSave().
+ */
+let v2Sink: ((payload: SaveFile) => void) | null = null;
+export function attachV2Sink(sink: (payload: SaveFile) => void): void { v2Sink = sink; }
+/** Boot-time restore: replace the cache with a recovered/migrated payload before first use. */
+export function primeCache(payload: SaveFile): void { cache = payload; }
+
 export function getSave(): SaveFile {
   if (!cache) cache = loadSave();
   return cache;
@@ -227,6 +246,30 @@ export function writeSave(next?: Partial<SaveFile>): void {
   const s = getSave();
   if (next) Object.assign(s, next);
   writeItem(SAVE_KEY, JSON.stringify(s));
+  v2Sink?.(s);
+}
+
+/**
+ * Settings write discipline: apply to memory immediately, hit storage once after the dial stops
+ * moving. A volume slider fires per step, and serialising the whole save file per step is layout
+ * and I/O churn a phone notices. Anything that must survive a sudden death — a suspended match,
+ * a lifecycle interruption — uses `writeSave` or `flushSave` directly.
+ */
+let writeTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function writeSaveDebounced(next?: Partial<SaveFile>, delayMs = 350): void {
+  const s = getSave();
+  if (next) Object.assign(s, next);
+  if (writeTimer !== null) clearTimeout(writeTimer);
+  writeTimer = setTimeout(() => { writeTimer = null; writeItem(SAVE_KEY, JSON.stringify(getSave())); }, delayMs);
+}
+
+/** Force any pending debounced write to storage now. Safe to call when nothing is pending. */
+export function flushSave(): void {
+  if (writeTimer === null) return;
+  clearTimeout(writeTimer);
+  writeTimer = null;
+  writeItem(SAVE_KEY, JSON.stringify(getSave()));
 }
 
 export function resetSave(): void {

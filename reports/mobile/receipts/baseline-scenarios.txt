@@ -1,0 +1,35 @@
+
+> gridiron-overdrive@1.0.0 scenarios
+> tsx tools/scenarios.ts
+
+
+GRIDIRON OVERDRIVE — scenario harness
+────────────────────────────────────────────────────────
+  PASS  kickoff and return                             phase=PLAY_CALL kickoffs=1
+  PASS  the deep man fields every kickoff, at a sprint 10/10 fielded, 0 caught below jogging pace, 10/10 lined up in the end zone
+  PASS  play reaches a snap and a dead ball            snapped=true ends=2
+  PASS  30 yards is a first down                       down=1 los=51.5 target=50.0
+  PASS  failing to gain 30 advances the down           down=2 poss=0 los=24.0
+  PASS  touchdown scores 6 and goes to a conversion    delta=6 tds=+1 phase=CONVERSION_CALL
+  PASS  safety scores 2 for the defence                delta=2 safeties=+1
+  PASS  interception flips possession                  poss=1 down=1 los=40.9
+  PASS  fumble becomes a live ball that resolves       phase=PLAY_CALL ball=dead
+  PASS  turnover on downs                              poss=1 down=1
+  PASS  field goal attempt resolves                    attempts=+1 results=+1
+  PASS  punt changes possession                        punts=+1 poss=1 reason=TACKLE away=0
+  PASS  quarter expiry advances the quarter            q=2 clock=7200
+  PASS  halftime kicks off to the other team           q=3 recv=1
+  PASS  tie at the end of regulation goes to overtime  q=5 finished=false scores=21-21
+  PASS  match ends with a valid winner                 finished=true winner=0
+  PASS  overdrive activates after three catches to one receiver after2=false started=true overdrive=true
+  PASS  a different receiver resets the same-receiver chain personal=1 team=2 overdrive=false
+  PASS  an incompletion wipes both overdrive chains    personal=1 team=1
+  PASS  ball never has two owners                      ok
+  PASS  no athlete leaves the world bounds             ok
+  PASS  onside kick resolves to a valid possession     poss=0 los=24.0
+  PASS  conversion after a touchdown always resolves   phase=KICKOFF_SETUP
+  PASS  dead ball never scores                         before=0 after=0 over 1 ticks, 0 snaps
+  PASS  a controller vanishing mid-play does not stall the match q=2 watchdogs=1
+────────────────────────────────────────────────────────
+25/25 scenarios passed
+

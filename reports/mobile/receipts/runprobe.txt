@@ -1,0 +1,16 @@
+
+RUN AUTOPSY — 58 designed runs over 10 games
+──────────────────────────────────────────────────────────────────
+  yards gained        mean 5.91   median 4
+  first contact       mean 4.85 yd past the line   median 2.0
+  unblocked          mean 3.10 of 7 defenders near the line, 0.4 s in
+  time with the ball  mean 2.04 s
+──────────────────────────────────────────────────────────────────
+  gain distribution
+     0   ██████████████████████████████████████████     47%
+     5   ███████████████████████                        26%
+    10   ████████████████████                           22%
+    15   ███                                            3%
+    25+  ██                                             2%
+──────────────────────────────────────────────────────────────────
+
