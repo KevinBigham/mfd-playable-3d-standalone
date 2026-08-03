@@ -282,7 +282,7 @@ export class Game {
     this.endMatch();
     // Every match starts at full resolution and earns its way down, so a single bad session
     // does not quietly leave the game blurry for the next one.
-    this.dynScale = 1; this.dynOver = 0; this.dynUnder = 0;
+    this.dynScale = 1; this.dynOver = 0; this.dynUnder = 0; this.dynPromote = 0;
     this.renderer.setResolutionScale(this.settings.resolutionScale);
     this.accumulator = 0;
     this.pacer.reset();
@@ -466,6 +466,11 @@ export class Game {
   private dynScale = 1;
   private dynOver = 0;
   private dynUnder = 0;
+  /** Consecutive-ish frames of full-resolution headroom, banked toward a tier promotion. */
+  private dynPromote = 0;
+  /** A demote after a promotion means the measurement was wrong; no more promotions this session. */
+  private promoteFuse = false;
+  private promotedThisSession = false;
   private dynBaseline = 16.7;   // ms; the fastest frame this session, forgotten slowly
 
   private governResolution(intervalMs: number): void {
@@ -477,7 +482,7 @@ export class Game {
       this.dynBaseline = clamp(this.dynBaseline, 4, 40);
     }
     if (!this.settings.dynamicResolution || !this.inMatch || this.paused) {
-      this.dynOver = 0; this.dynUnder = 0;
+      this.dynOver = 0; this.dynUnder = 0; this.dynPromote = 0;
       return;
     }
     const late = this.dynBaseline * 1.30;
@@ -486,10 +491,15 @@ export class Game {
     // Decayed rather than zeroed: a single long frame is normal, and resetting on one meant
     // the recovery path could never complete in the presence of ordinary jitter.
     if (intervalMs < onTime) this.dynUnder++; else this.dynUnder = Math.max(0, this.dynUnder - 3);
+    // Promotion headroom only counts while there is nothing cheaper left to give back: at any
+    // reduced resolution the right response to headroom is restoring resolution, not adding load.
+    if (this.dynScale >= 1 && intervalMs < onTime) this.dynPromote++;
+    else this.dynPromote = Math.max(0, this.dynPromote - 5);
 
     if (this.dynOver >= 45 && this.dynScale > 0.6) {
       this.dynScale = Math.max(0.6, this.dynScale - 0.1);
-      this.dynOver = 0; this.dynUnder = 0;
+      this.dynOver = 0; this.dynUnder = 0; this.dynPromote = 0;
+      if (this.promotedThisSession) this.promoteFuse = true;
       this.renderer.setResolutionScale(this.settings.resolutionScale * this.dynScale);
     } else if (this.dynUnder >= 240 && this.dynScale < 1) {
       this.dynScale = Math.min(1, this.dynScale + 0.05);
@@ -498,17 +508,41 @@ export class Game {
     } else if (flag('performanceGovernorV2') && this.dynScale <= 0.6 && this.dynOver >= 40) {
       // Multi-axis ladder (v2): resolution has hit its floor and frames are STILL late — the
       // remaining cost is fixed-function (shadows, post, crowd density), which only a tier drop
-      // can shed. One axis at a time, long hysteresis, and never upward mid-match: quality that
-      // oscillates is worse to look at than quality that is simply a bit lower. Essential cues
-      // (ball, badges, possession, down/distance) live in the HUD/DOM and survive every tier.
+      // can shed. One axis at a time, long hysteresis, never upward from THIS branch: quality
+      // that oscillates is worse to look at than quality that is simply a bit lower. Essential
+      // cues (ball, badges, possession, down/distance) live in the HUD/DOM and survive every tier.
       const tiers = ['LOW', 'MEDIUM', 'HIGH'] as const;
-      const cur = tiers.indexOf(this.settings.quality);
+      const cur = tiers.indexOf(this.renderer.quality.tier);
       if (cur > 0 && this.inMatch) {
         const next = tiers[cur - 1];
-        this.dynOver = 0; this.dynUnder = 0;
+        this.dynOver = 0; this.dynUnder = 0; this.dynPromote = 0;
+        if (this.promotedThisSession) this.promoteFuse = true;
         this.renderer.setQuality(next, this.settings.resolutionScale * this.dynScale);
-        // Session-only: the SETTING the player chose is untouched; the drop lasts until the
-        // renderer is next reconfigured (new match applies the saved setting again).
+        if (this.settings.autoQuality) {
+          // Auto mode: the tier is a measurement, so the measurement is what gets saved. A
+          // pinned tier keeps the old behavior — session-only, the SETTING is untouched.
+          this.settings.quality = next;
+          writeSaveDebounced({ settings: this.settings });
+        }
+      }
+    } else if (flag('performanceGovernorV2') && this.settings.autoQuality && !this.promoteFuse
+        && this.dynScale >= 1 && this.dynPromote >= 600
+        && this.match?.world.playPhase !== 'LIVE') {
+      // The ladder's other direction, auto mode only: ~10 s of sustained full-resolution
+      // headroom is the phone proving it can afford the next tier — the default is LOW because
+      // install-time code cannot tell an A18 from a five-year-old Android, and this is the
+      // measurement that can. Applied between plays so the shader-compile hitch of enabling
+      // shadows/post never lands mid-play; one demote afterwards burns the fuse for the session.
+      const tiers = ['LOW', 'MEDIUM', 'HIGH'] as const;
+      const cur = tiers.indexOf(this.renderer.quality.tier);
+      this.dynPromote = 0;
+      if (cur < tiers.length - 1) {
+        const next = tiers[cur + 1];
+        this.dynOver = 0; this.dynUnder = 0;
+        this.promotedThisSession = true;
+        this.renderer.setQuality(next, this.settings.resolutionScale * this.dynScale);
+        this.settings.quality = next;
+        writeSaveDebounced({ settings: this.settings });
       }
     }
   }

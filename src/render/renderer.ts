@@ -3,7 +3,7 @@ import type {
   AnimState, Conditions, GameEvent, MatchState, StadiumDef, TeamDef, TeamSide,
 } from '../core/types.ts';
 import { carryArm } from '../sim/ball.ts';
-import { SceneRegistry, QUALITY_PRESETS, type QualitySettings, type QualityTier } from './registry.ts';
+import { SceneRegistry, coarseDisplay, devicePreset, type QualitySettings, type QualityTier } from './registry.ts';
 import { buildAthleteRig, rimUniforms, type AthleteRig } from './athleteRig.ts';
 import {
   poseAthlete, capturePose, blendPose, fadeTimeFor, samePoseFamily, POSE_FLOATS,
@@ -98,12 +98,15 @@ export class GameRenderer {
 
   constructor(canvas: HTMLCanvasElement, opts: RendererOptions) {
     this.opts = opts;
-    this.quality = { ...QUALITY_PRESETS[opts.quality] };
+    this.quality = devicePreset(opts.quality);
+    // MSAA is resolved per tile on every mobile GPU, where it is close to free; the machines
+    // it genuinely costs on are weak desktop GPUs, which keep the LOW exemption.
     this.renderer = new THREE.WebGLRenderer({
-      canvas, antialias: this.quality.tier !== 'LOW', powerPreference: 'high-performance',
+      canvas, antialias: this.quality.tier !== 'LOW' || coarseDisplay(),
+      powerPreference: 'high-performance',
       alpha: false, stencil: false,
     });
-    this.renderer.setPixelRatio(Math.min(this.quality.pixelRatio * opts.resolutionScale, 2));
+    this.renderer.setPixelRatio(this.pixelRatioFor(opts.resolutionScale));
     this.renderer.shadowMap.enabled = this.quality.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -118,11 +121,27 @@ export class GameRenderer {
     this.resize();
   }
 
+  /**
+   * The preset ratios are tuned against desktop monitors, where a CSS pixel is close to a
+   * device pixel. A phone packs two or three device pixels into every CSS pixel of a viewport
+   * a third the size, so the ratio that reads "budget" on a desktop reads "smeared" there —
+   * LOW's 1.0 was an 844×390 buffer stretched across the entire display, and it is most of why
+   * the phone build looked rough. Floor at near-native density on coarse-pointer devices: even
+   * the floored buffer is well under half the pixels of desktop LOW at 1080p, and the adaptive
+   * governor's 0.6 multiplier lands almost exactly back on the old fill cost, so the worst
+   * case on a weak phone is the look every phone used to get.
+   */
+  private pixelRatioFor(scale: number): number {
+    const dpr = typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? devicePixelRatio : 1;
+    const floor = coarseDisplay() ? Math.min(dpr, 1.75) : 0;
+    return Math.min(Math.max(this.quality.pixelRatio, floor) * scale, 2);
+  }
+
   setQuality(tier: QualityTier, resolutionScale = 1): void {
-    this.quality = { ...QUALITY_PRESETS[tier] };
+    this.quality = devicePreset(tier);
     this.opts.quality = tier;
     this.opts.resolutionScale = resolutionScale;
-    this.renderer.setPixelRatio(Math.min(this.quality.pixelRatio * resolutionScale, 2));
+    this.renderer.setPixelRatio(this.pixelRatioFor(resolutionScale));
     this.renderer.shadowMap.enabled = this.quality.shadows;
     if (this.quality.postProcessing) {
       if (!this.post) this.post = new PostFX(this.renderer, this.quality);
@@ -154,7 +173,7 @@ export class GameRenderer {
   setResolutionScale(scale: number): void {
     if (Math.abs(scale - this.opts.resolutionScale) < 0.001) return;
     this.opts.resolutionScale = scale;
-    this.renderer.setPixelRatio(Math.min(this.quality.pixelRatio * scale, 2));
+    this.renderer.setPixelRatio(this.pixelRatioFor(scale));
   }
 
   get resolutionScale(): number { return this.opts.resolutionScale; }

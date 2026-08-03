@@ -2,7 +2,7 @@
   "fingerprint": {
     "tool": "policyprobe",
     "buildVersion": "1.0.0",
-    "gitCommit": "8663b4a",
+    "gitCommit": "dc05b17",
     "rulesVersion": 2,
     "firstDownYards": 30,
     "seeds": "7700..7709",
@@ -11,7 +11,7 @@
     "quarterSeconds": 120,
     "assistProfile": "NONE",
     "policy": "matrix",
-    "generatedAt": "2026-08-03T21:03:38.469Z",
+    "generatedAt": "2026-08-03T22:08:37.921Z",
     "node": "v24.14.1"
   },
   "policies": [

@@ -18,6 +18,12 @@ export interface Settings {
   colorBlindMarkers: boolean;
   volumes: { master: number; sfx: number; crowd: number; music: number; ui: number };
   quality: QualityTier;
+  /**
+   * While true, `quality` is a measurement, not a choice: the performance governor may promote
+   * or demote the tier from what it observes and persist the result. Touching GRAPHICS in
+   * Settings pins the tier and clears this. Missing on old saves → default true via the merge.
+   */
+  autoQuality: boolean;
   resolutionScale: number;  // 0.5..1
   /** Let the game lower the render resolution when frames run long, and raise it back. */
   dynamicResolution: boolean;
@@ -116,6 +122,7 @@ export function defaultSettings(): Settings {
     colorBlindMarkers: false,
     volumes: { master: 0.85, sfx: 0.9, crowd: 0.7, music: 0.6, ui: 0.8 },
     quality: defaultQuality(),
+    autoQuality: true,
     resolutionScale: 1,
     dynamicResolution: true,
     fullscreen: false,

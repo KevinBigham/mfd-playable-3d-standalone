@@ -1,6 +1,6 @@
 
 SIMULATION TICK COST (Node v24.14.1, 24000 ticks, 11423 of them live)
-  p50 0.004 ms   p95 0.010 ms   p99 0.017 ms   max 0.019 ms
+  p50 0.004 ms   p95 0.007 ms   p99 0.011 ms   max 0.013 ms
   budget: p50 <= 1.100 ms, hard fail > 3.000 ms  →  PASS
-  real-time headroom: 1718x at 60 Hz
+  real-time headroom: 2284x at 60 Hz
 

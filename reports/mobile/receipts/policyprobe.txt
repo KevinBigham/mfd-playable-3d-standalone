@@ -1,7 +1,7 @@
 
 POLICY MATRIX — 10 matched-seed games per policy, human seat 0
 ────────────────────────────────────────────────────────────────────────────────────────────────
-  fingerprint  policyprobe · build 1.0.0@8663b4a · rules v2 · chain 30 yd
+  fingerprint  policyprobe · build 1.0.0@dc05b17 · rules v2 · chain 30 yd
                seeds 7700..7709 · teams iron-harbor-anvils vs quarry-point-monoliths · PRO · 120s quarters · assist NONE · policy matrix
 ────────────────────────────────────────────────────────────────────────────────────────────────
   policy                  pts/gm  EP/drive  TO-drives      comp            defPoss     20+/gm  sack/gm

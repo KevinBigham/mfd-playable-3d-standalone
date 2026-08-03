@@ -1,7 +1,7 @@
 
 PASS CENSUS — 8 full CPU games
 ──────────────────────────────────────────────────────────────────────
-  fingerprint  passprobe · build 1.0.0@8663b4a · rules v2 · chain 30 yd
+  fingerprint  passprobe · build 1.0.0@dc05b17 · rules v2 · chain 30 yd
                seeds 9100..9107 · teams rotating home/away over TEAM_IDS · PRO · 300s quarters · assist NONE
 ──────────────────────────────────────────────────────────────────────
   actual throws              64.88 /game
