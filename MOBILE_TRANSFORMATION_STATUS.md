@@ -10,8 +10,12 @@ environment's `why-is-node-running` registry 404 did not reproduce here).
 
 ## Current wave
 
-**Wave 0 — Evidence integrity: COMPLETE (pending receipt archive on every later wave).**
-**Wave 1 — Mobile correctness: in progress.**
+**Wave 0 — Evidence integrity: COMPLETE.**
+**Wave 1 — Mobile correctness: COMPLETE** (see `reports/mobile/WAVE_1_RECEIPT.md` — pause tokens,
+complete touch reset, SNAP ownership, pre-sim context split, touch-complete Classic incl. new
+human onside-kick path, MobileLifecycle, context-loss recovery, debounced saves. 30/30 touch,
+20/20 lifecycle, 18/18 classic browser checks).
+**Wave 2 — Control ergonomics: in progress.**
 
 ## Wave 0 results
 

@@ -44,7 +44,7 @@ const PLACE_FULL = 96;
 
 interface Touch {
   id: number;
-  role: 'STICK' | 'SURFACE' | 'BADGE';
+  role: 'STICK' | 'SURFACE' | 'BADGE' | 'SNAP';
   x0: number; y0: number;
   x: number; y: number;
   t0: number;
@@ -54,6 +54,11 @@ interface Touch {
   spent: boolean;
   moved: number;
 }
+
+/** A SNAP press that wanders this far has slid off the button — cancel, do not snap. */
+const SNAP_SLIDE_CANCEL = 34;
+/** Ignore SNAP commits this soon after the button appeared: it was a tap-through. */
+const SNAP_TAPTHROUGH_MS = 150;
 
 interface Badge {
   root: HTMLElement;
@@ -108,6 +113,10 @@ export class TouchControls implements IntentSource {
 
   private disposers: Array<() => void> = [];
   onPause: (() => void) | null = null;
+  /** Fired after every hard reset so the input manager can neutralize its edge history. */
+  onReset: ((reason: string) => void) | null = null;
+  /** When the SNAP button last became visible — commits inside the tap-through window are dropped. */
+  private snapShownAt = 0;
 
   /**
    * Whether this machine should have a touch pad at all.
@@ -169,10 +178,11 @@ export class TouchControls implements IntentSource {
     const down = (e: PointerEvent) => this.onDown(e);
     const move = (e: PointerEvent) => this.onMove(e);
     const up = (e: PointerEvent) => this.onUp(e);
-    // Losing the page mid-play must not leave turbo welded on. `pointercancel` covers the browser
-    // stealing the gesture (a scroll, a system edge swipe); `visibilitychange` covers a phone
-    // call arriving while a thumb is down.
-    const blur = () => this.releaseAll();
+    // A cancelled pointer is not a released one: the browser stole the gesture (a scroll, a
+    // system edge swipe), so nothing may fire — a badge cancel that threw the ball would be a
+    // pass nobody asked for. `visibilitychange` covers a phone call arriving mid-thumb.
+    const cancel = (e: PointerEvent) => this.onCancel(e);
+    const blur = () => this.resetAll('window-blur');
     // Listened for on the window, in capture, because until the pad is available it is
     // display:none and can never see a pointer of its own.
     const sniff = (e: PointerEvent) => {
@@ -186,16 +196,16 @@ export class TouchControls implements IntentSource {
     this.root.addEventListener('pointerdown', down);
     this.root.addEventListener('pointermove', move);
     this.root.addEventListener('pointerup', up);
-    this.root.addEventListener('pointercancel', up);
-    this.root.addEventListener('lostpointercapture', up);
+    this.root.addEventListener('pointercancel', cancel);
+    this.root.addEventListener('lostpointercapture', cancel);
     window.addEventListener('blur', blur);
     document.addEventListener('visibilitychange', blur);
     this.disposers.push(() => {
       this.root.removeEventListener('pointerdown', down);
       this.root.removeEventListener('pointermove', move);
       this.root.removeEventListener('pointerup', up);
-      this.root.removeEventListener('pointercancel', up);
-      this.root.removeEventListener('lostpointercapture', up);
+      this.root.removeEventListener('pointercancel', cancel);
+      this.root.removeEventListener('lostpointercapture', cancel);
       window.removeEventListener('blur', blur);
       document.removeEventListener('visibilitychange', blur);
     });
@@ -204,18 +214,35 @@ export class TouchControls implements IntentSource {
   dispose(): void {
     for (const d of this.disposers) d();
     this.disposers.length = 0;
-    this.releaseAll();
+    this.resetAll('dispose');
     this.root.remove();
     this.gate.remove();
   }
 
-  private releaseAll(): void {
+  /**
+   * The one hard reset. Every interruption — blur, visibility loss, orientation gate, screen
+   * transition, pause, pointer cancellation, context loss — must leave zero touch-derived state:
+   * no movement, no turbo, no latched action, no aim, no armed modifier, no pressed visual, no
+   * pointer capture. Idempotent, and it tells the input manager to neutralize its edge history so
+   * the reset itself cannot manufacture a press or release next poll.
+   */
+  resetAll(reason = 'unspecified'): void {
+    for (const id of this.touches.keys()) {
+      try { this.root.releasePointerCapture(id); } catch { /* already gone */ }
+    }
     this.touches.clear();
     this.moveX = 0; this.moveZ = 0;
-    this.stick.classList.remove('on');
+    this.latch = 0;
+    this.aimX = null; this.aimZ = null;
+    this.forceMove = null;
+    this.lobArmed = false;
+    this.lobBtn.classList.remove('armed');
+    this.snapBtn.classList.remove('press');
+    this.stick.classList.remove('on', 'turbo');
     this.knob.style.transform = 'translate(-50%,-50%)';
     for (const b of this.badges) b.root.classList.remove('press');
     this.hideArrows();
+    this.onReset?.(reason);
   }
 
   private onDown(e: PointerEvent): void {
@@ -228,16 +255,13 @@ export class TouchControls implements IntentSource {
       buzz(8);
       return;
     }
-    if (target === this.snapBtn) {
-      this.latch |= Action.ACTION;
-      this.snapBtn.classList.add('press');
-      buzz(12);
-      return;
-    }
-
     const badgeRoot = target.closest?.('.tc-badge') as HTMLElement | null;
     const slot = badgeRoot ? Number(badgeRoot.dataset.slot) : -1;
-    const role: Touch['role'] = slot >= 0 ? 'BADGE'
+    // SNAP is a tracked pointer like everything else: press visual on down, commit only on a
+    // release that stayed on the button. The old path latched on down with no record, so the
+    // matching up had nothing to find and the pressed class could stay welded on.
+    const role: Touch['role'] = target === this.snapBtn ? 'SNAP'
+      : slot >= 0 ? 'BADGE'
       : e.clientX < window.innerWidth * 0.46 ? 'STICK' : 'SURFACE';
 
     // A second finger in the stick zone while the first is already steering is a mis-grab, not a
@@ -263,6 +287,9 @@ export class TouchControls implements IntentSource {
     } else if (role === 'BADGE') {
       this.badges[slot].root.classList.add('press');
       buzz(6);
+    } else if (role === 'SNAP') {
+      this.snapBtn.classList.add('press');
+      buzz(12);
     }
     e.preventDefault();
   }
@@ -290,6 +317,16 @@ export class TouchControls implements IntentSource {
 
     if (t.role === 'BADGE') {
       this.paintAim(t);
+      return;
+    }
+
+    if (t.role === 'SNAP') {
+      // Sliding off the button is a change of mind, not a snap. Marking it spent keeps the
+      // release from committing while the press visual clears immediately.
+      if (!t.spent && t.moved > SNAP_SLIDE_CANCEL) {
+        t.spent = true;
+        this.snapBtn.classList.remove('press');
+      }
       return;
     }
 
@@ -322,8 +359,39 @@ export class TouchControls implements IntentSource {
       return;
     }
 
-    this.snapBtn.classList.remove('press');
+    if (t.role === 'SNAP') {
+      this.snapBtn.classList.remove('press');
+      // Commit only when the press stayed on the button, and only when the button was not
+      // freshly shown under an already-falling finger (tap-through from a screen transition).
+      const r = this.snapBtn.getBoundingClientRect();
+      const inside = t.x >= r.left && t.x <= r.right && t.y >= r.top && t.y <= r.bottom;
+      const tapThrough = t.t0 - this.snapShownAt < SNAP_TAPTHROUGH_MS;
+      if (!t.spent && inside && !tapThrough) {
+        this.latch |= Action.ACTION;
+        buzz(12);
+      }
+      return;
+    }
+
     if (!t.spent && held < TAP_MAX_MS && t.moved < SWIPE_MIN) this.fireTap();
+  }
+
+  /** The browser took the pointer back. Clear its state; commit nothing. */
+  private onCancel(e: PointerEvent): void {
+    const t = this.touches.get(e.pointerId);
+    if (!t) return;
+    this.touches.delete(e.pointerId);
+    try { this.root.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
+    if (t.role === 'STICK') {
+      this.moveX = 0; this.moveZ = 0;
+      this.stick.classList.remove('on', 'turbo');
+      this.knob.style.transform = 'translate(-50%,-50%)';
+    } else if (t.role === 'BADGE') {
+      this.badges[t.slot].root.classList.remove('press');
+      this.hideArrows();
+    } else if (t.role === 'SNAP') {
+      this.snapBtn.classList.remove('press');
+    }
   }
 
   // ── gesture meaning ───────────────────────────────────────────────────
@@ -397,9 +465,17 @@ export class TouchControls implements IntentSource {
   }
 
   // ── per-frame ─────────────────────────────────────────────────────────
+  //
+  // The old single `sync()` ran after render, which meant input was polled and the simulation
+  // advanced under LAST frame's mode and legality — a one-frame stale window at every snap,
+  // catch, dead ball, and overlay transition. The split puts the semantic half before the poll
+  // and keeps only the camera-dependent projection after render.
 
-  /** Called once a frame with the live match, or null when there is nothing to control. */
-  sync(match: Match | null, renderer: GameRenderer, active: boolean): void {
+  /**
+   * Update gate, mode, and gesture legality from the authoritative state. Must run BEFORE
+   * `InputManager.poll()` so this frame's gestures are interpreted under this frame's rules.
+   */
+  prepareContext(match: Match | null, active: boolean): void {
     // A down should not be lost to the two seconds it takes to rotate a phone, so the gate both
     // covers the screen and tells the caller to stop the clock.
     // Deliberately not gated on `active`: `active` is false *because* this gate paused the game,
@@ -408,13 +484,21 @@ export class TouchControls implements IntentSource {
     if (blocked !== this.gated) {
       this.gated = blocked;
       this.gate.classList.toggle('show', blocked);
-      if (blocked) this.releaseAll();
+      if (blocked) this.resetAll('orientation-gate');
       this.onGate?.(blocked);
     }
 
     const mode = this.available && active && match && !blocked ? this.modeFor(match) : 'OFF';
     if (mode !== this.mode) this.setMode(mode);
     this.enabled = mode !== 'OFF';
+  }
+
+  /**
+   * Camera-dependent visuals: the screen-to-world basis and the receiver badges. Must run AFTER
+   * render so badges are projected through the camera that was actually drawn. The simulation
+   * never reads anything computed here.
+   */
+  projectVisuals(match: Match | null, renderer: GameRenderer): void {
     if (!this.enabled || !match) return;
 
     const w = match.world;
@@ -458,11 +542,13 @@ export class TouchControls implements IntentSource {
   }
 
   private setMode(mode: Mode): void {
+    const prev = this.mode;
     this.mode = mode;
     this.root.style.display = mode === 'OFF' ? 'none' : 'block';
     this.snapBtn.style.display = mode === 'SNAP' ? 'flex' : 'none';
+    if (mode === 'SNAP' && prev !== 'SNAP') this.snapShownAt = now();
     this.lobBtn.style.display = mode === 'QB' ? 'flex' : 'none';
-    if (mode === 'OFF') this.releaseAll();
+    if (mode === 'OFF') this.resetAll('mode-off');
     if (mode !== 'QB') {
       this.lobArmed = false;
       this.lobBtn.classList.remove('armed');

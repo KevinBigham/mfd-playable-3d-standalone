@@ -229,6 +229,29 @@ export function writeSave(next?: Partial<SaveFile>): void {
   writeItem(SAVE_KEY, JSON.stringify(s));
 }
 
+/**
+ * Settings write discipline: apply to memory immediately, hit storage once after the dial stops
+ * moving. A volume slider fires per step, and serialising the whole save file per step is layout
+ * and I/O churn a phone notices. Anything that must survive a sudden death — a suspended match,
+ * a lifecycle interruption — uses `writeSave` or `flushSave` directly.
+ */
+let writeTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function writeSaveDebounced(next?: Partial<SaveFile>, delayMs = 350): void {
+  const s = getSave();
+  if (next) Object.assign(s, next);
+  if (writeTimer !== null) clearTimeout(writeTimer);
+  writeTimer = setTimeout(() => { writeTimer = null; writeItem(SAVE_KEY, JSON.stringify(getSave())); }, delayMs);
+}
+
+/** Force any pending debounced write to storage now. Safe to call when nothing is pending. */
+export function flushSave(): void {
+  if (writeTimer === null) return;
+  clearTimeout(writeTimer);
+  writeTimer = null;
+  writeItem(SAVE_KEY, JSON.stringify(getSave()));
+}
+
 export function resetSave(): void {
   cache = defaultSave();
   removeItem(SAVE_KEY);

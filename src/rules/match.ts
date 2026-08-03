@@ -95,6 +95,13 @@ export class Match {
   kickPlan: KickPlan = { kind: 'FIELD_GOAL', aim: 0, power: 0.75, quality: 0.5 };
   private kickLaunched = false;
   private onsideRequested = false;
+  /** A human kicker has committed a kickoff choice (deep or onside) for this kick. */
+  private kickoffChoiceMade = false;
+  /**
+   * The choice window is open — set only AFTER kickoff-setup initialization, because a choice
+   * submitted before the init tick would be silently reset by it.
+   */
+  private kickoffChoiceOpen = false;
 
   private lastOffenseId = '';
   private violations: Violation[] = [];
@@ -442,10 +449,12 @@ export class Match {
       ret.z = goalOf(kicking) + dirOf(kicking) * RETURNER_DEPTH;
       ret.homeX = ret.x; ret.homeZ = ret.z;
     }
-    // Onside decision.
+    // Onside decision. A human kicker decides through submitKickoff; deep is the default.
+    this.kickoffChoiceMade = false;
     this.onsideRequested = this.isHuman(kicking)
       ? false
       : shouldOnsideKick(m, kicking, this.rng);
+    this.kickoffChoiceOpen = this.isHuman(kicking);
     w.playPhase = 'LIVE';
     this.bus.emit({ type: 'kickoff', tick: w.tick, side: kicking, onside: this.onsideRequested });
   }
@@ -493,6 +502,28 @@ export class Match {
   }
   submitDefense(play: DefensePlay): void { this.pendingDefense = play; this.defenseLocked = true; }
   submitConversion(c: 'KICK' | 'TWO'): void { this.pendingConversion = c; }
+
+  /**
+   * UI entry point: the kicking human's kickoff choice. Before this existed a human kicker could
+   * NEVER kick onside — `onsideRequested` was hard-coded false on the human branch while the HUD
+   * advertised a key combo that read nothing. Legal from kickoff setup until the ball is struck;
+   * the launch waits for a human's choice (or a short timeout) in `tickLive`.
+   */
+  /** Whether the UI should be showing the human kicker the deep/onside choice right now. */
+  get kickoffAwaitingChoice(): boolean {
+    const m = this.state;
+    return (m.phase === 'KICKOFF_SETUP' || m.phase === 'KICKOFF_LIVE')
+      && this.kickoffChoiceOpen && !this.kickLaunched && !this.kickoffChoiceMade;
+  }
+
+  submitKickoff(kind: 'DEEP' | 'ONSIDE'): void {
+    const m = this.state;
+    if (m.phase !== 'KICKOFF_SETUP' && m.phase !== 'KICKOFF_LIVE') return;
+    if (!this.kickoffChoiceOpen || this.kickLaunched) return;
+    if (!this.isHuman(m.possession)) return;
+    this.onsideRequested = kind === 'ONSIDE';
+    this.kickoffChoiceMade = true;
+  }
 
   private beginPlay(): void {
     const m = this.state; const w = this.world;
@@ -848,11 +879,17 @@ export class Match {
 
     // Kick launches.
     if (this.kickMeterActive && !this.kickLaunched) this.tickKickMeter();
-    if (kickoff && !this.kickLaunched && m.phaseTicks > s(0.55)) {
-      const kicker = w.athletes[OFF_START];
-      launchKickoff(w, kicker, this.onsideRequested);
-      w.special = this.onsideRequested ? 'ONSIDE' : 'KICKOFF';
-      this.kickLaunched = true;
+    if (kickoff && !this.kickLaunched) {
+      // A CPU kicker strikes on the usual beat. A human kicker gets a moment to choose deep or
+      // onside; an undecided human is defaulted deep after a short window so the game never
+      // stalls. Device-neutral: the choice arrives through submitKickoff, same as play calls.
+      const awaitingHuman = this.isHuman(m.possession) && !this.kickoffChoiceMade;
+      if ((!awaitingHuman && m.phaseTicks > s(0.55)) || m.phaseTicks > s(4)) {
+        const kicker = w.athletes[OFF_START];
+        launchKickoff(w, kicker, this.onsideRequested);
+        w.special = this.onsideRequested ? 'ONSIDE' : 'KICKOFF';
+        this.kickLaunched = true;
+      }
     }
 
     const dead = stepPlay(w, this.controllers);

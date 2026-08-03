@@ -5,10 +5,11 @@ import {
 } from '../uiKit.ts';
 import { Action } from '../../input/actions.ts';
 import type { Game } from '../../app/Game.ts';
+import type { PauseToken } from '../../app/pauseController.ts';
 import type { Difficulty, TeamDef, TeamSide, WeatherKind } from '../../core/types.ts';
 import { TEAMS, getTeam, teamLogoSvg, STADIUMS, getStadium } from '../../data/index.ts';
 import { QUARTER_OPTIONS } from '../../core/constants.ts';
-import { getSave, writeSave, resetSave, defaultSettings } from '../../persistence/save.ts';
+import { getSave, writeSave, flushSave, resetSave, defaultSettings, storageKind } from '../../persistence/save.ts';
 import type { QualityTier } from '../../render/registry.ts';
 import { ACTION_LABELS, type ActionName } from '../../input/actions.ts';
 
@@ -319,14 +320,27 @@ export class PauseScreen implements Screen {
   private node: HTMLElement | null = null;
   private ring = new FocusRing();
   private ctx!: ScreenContext;
+  /**
+   * The USER pause token. Held from the moment this screen first mounts until the player
+   * explicitly resumes or quits — and deliberately NOT released by `unmount()`, because
+   * navigating to Settings unmounts this screen while the match must stay frozen behind it.
+   * That unmount-unpauses write was the shipped bug: ten seconds in Settings meant ten seconds
+   * of hidden play.
+   */
+  private token: PauseToken | null = null;
   constructor(private game: Game) {}
+  private resume(): void {
+    this.game.pause.release(this.token);
+    this.token = null;
+    this.ctx.back();
+  }
   mount(ctx: ScreenContext): void {
     this.ctx = ctx;
-    this.game.paused = true;
+    if (!this.token) this.token = this.game.pause.acquire('USER');
     const s = screenShell();
     const p = panel('PAUSED');
     const items: FocusItem[] = [
-      button('RESUME', () => { this.game.paused = false; ctx.back(); }),
+      button('RESUME', () => this.resume()),
       button('SETTINGS', () => ctx.go('settings')),
       button('CONTROLS', () => ctx.go('controls')),
     ];
@@ -334,15 +348,15 @@ export class PauseScreen implements Screen {
     // is a result, not a game in progress, and offering to "continue" into a final whistle is
     // worse than not offering at all.
     if (this.game.match && !this.game.match.state.finished) {
-      items.push(button('SAVE & QUIT', () => {
-        this.game.paused = false;
+      items.push(button(storageKind() === 'MEMORY' ? 'SAVE & QUIT (SESSION ONLY)' : 'SAVE & QUIT', () => {
+        this.token = null; // endMatch clears every reason
         if (!this.game.suspendMatch()) this.game.endMatch();
         ctx.reset('mainMenu');
       }));
     }
     items.push(
       button('QUIT TO MENU', () => {
-        this.game.paused = false;
+        this.token = null; // endMatch clears every reason
         this.game.discardSuspendedMatch();
         this.game.endMatch();
         ctx.reset('mainMenu');
@@ -357,10 +371,10 @@ export class PauseScreen implements Screen {
   }
   update(): void {
     const i = this.ctx.input;
-    if (i.menuPressed(Action.PAUSE)) { this.game.paused = false; this.ctx.back(); return; }
+    if (i.menuPressed(Action.PAUSE)) { this.resume(); return; }
     driveFocus(this.ring, i, this.ctx);
   }
-  unmount(): void { this.node?.remove(); this.node = null; this.game.paused = false; }
+  unmount(): void { this.node?.remove(); this.node = null; }
 }
 
 // ── SETTINGS ─────────────────────────────────────────────────────────────
@@ -369,9 +383,12 @@ export class SettingsScreen implements Screen {
   private node: HTMLElement | null = null;
   private ring = new FocusRing();
   private ctx!: ScreenContext;
+  /** Holds MODAL while mounted so opening Settings over Pause can never resume the hidden match. */
+  private token: PauseToken | null = null;
   constructor(private game: Game) {}
   mount(ctx: ScreenContext): void {
     this.ctx = ctx;
+    this.token = this.game.pause.acquire('MODAL');
     const g = this.game;
     const st = g.settings;
     const apply = () => { g.applySettings(); };
@@ -422,6 +439,15 @@ export class SettingsScreen implements Screen {
     ];
     const scroll = el('div', 'scroll');
     for (const it of items) scroll.appendChild(it.el);
+    // Honesty about durability: when storage is unavailable (private browsing, sandboxed frame,
+    // full quota) the game keeps working from memory — but the player must not believe a season
+    // will survive a reload when it will not.
+    if (storageKind() === 'MEMORY') {
+      const warn = el('p', 'muted',
+        '⚠ STORAGE UNAVAILABLE — settings and saves last only for this session.');
+      warn.style.cssText = 'color:var(--bad,#ff7a5c);letter-spacing:.06em';
+      scroll.appendChild(warn);
+    }
     p.appendChild(scroll);
     s.appendChild(p);
     ctx.root.appendChild(s);
@@ -430,7 +456,13 @@ export class SettingsScreen implements Screen {
     this.ring.onNav = (e) => ctx.sound(e === 'select' ? 'select' : 'move');
   }
   update(): void { driveFocus(this.ring, this.ctx.input, this.ctx); }
-  unmount(): void { writeSave({ settings: this.game.settings }); this.node?.remove(); this.node = null; }
+  unmount(): void {
+    writeSave({ settings: this.game.settings });
+    flushSave();
+    this.game.pause.release(this.token);
+    this.token = null;
+    this.node?.remove(); this.node = null;
+  }
 }
 
 // ── CONTROLS ─────────────────────────────────────────────────────────────
@@ -441,10 +473,13 @@ export class ControlsScreen implements Screen {
   private ctx!: ScreenContext;
   private rebinding: ActionName | null = null;
   private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+  /** Holds MODAL while mounted — same contract as Settings. */
+  private token: PauseToken | null = null;
   constructor(private game: Game) {}
 
   mount(ctx: ScreenContext): void {
     this.ctx = ctx;
+    this.token = this.game.pause.acquire('MODAL');
     const s = screenShell();
     ctx.root.appendChild(s);
     this.node = s;
@@ -506,6 +541,8 @@ export class ControlsScreen implements Screen {
   update(): void { if (!this.rebinding) driveFocus(this.ring, this.ctx.input, this.ctx); }
   unmount(): void {
     if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler, true);
+    this.game.pause.release(this.token);
+    this.token = null;
     this.node?.remove(); this.node = null;
   }
 }

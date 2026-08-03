@@ -1,0 +1,28 @@
+
+> gridiron-overdrive@1.0.0 classic
+> tsx tools/classicprobe.ts
+
+
+GRIDIRON OVERDRIVE — touch-only Classic completeness probe
+──────────────────────────────────────────────────────────────────────
+  PASS  title falls to a touch                                   screen=mainMenu
+  PASS  kickoff prompt: tapping ONSIDE launches an onside kick   {"clicked":true,"launched":"ONSIDE"}
+  PASS  kickoff prompt: tapping KICK DEEP launches a deep kick   {"clicked":true,"launched":"KICKOFF"}
+  PASS  a full Classic match finishes touch-only                 phase=FINAL score=6-82
+  PASS  offensive plays called by tapping cells                  37 calls
+  PASS  defensive plays called by tapping cells                  14 calls
+  PASS  playbook pages cycled by button                          2
+  PASS  formation mirrored by button                             1
+  PASS  hidden-pick toggled by button                            1
+  PASS  snap by tapping SNAP                                     56 snaps
+  PASS  throws by tapping badges                                 28 throws
+  PASS  carrier steered with the stick, human offense moved      human TDs=1 score=6
+  PASS  punt chosen from the special bar                         1
+  PASS  field goal chosen from the special bar                   1
+  PASS  went for it on fourth by picking a normal play           4
+  PASS  later kickoffs answered through the prompt               2 (requires a human score first)
+  PASS  conversion prompt offered both choices and a tap committed one seen=1 both=true clicked kick=0 two=1
+  PASS  no page errors                                           
+──────────────────────────────────────────────────────────────────────
+18/18 Classic touch checks passed
+

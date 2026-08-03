@@ -5,7 +5,9 @@ import { configFromSnapshot, snapshotMatches, type MatchSnapshot } from '../rule
 import { GameRenderer } from '../render/renderer.ts';
 import { PHONE_DOLLY } from '../render/camera.ts';
 import { InputManager } from '../input/manager.ts';
-import { getSave, writeSave, type Settings } from '../persistence/save.ts';
+import { getSave, writeSave, writeSaveDebounced, flushSave, type Settings } from '../persistence/save.ts';
+import { PauseController, type PauseToken } from './pauseController.ts';
+import { MobileLifecycle } from './mobileLifecycle.ts';
 import { getTeam, getStadium, TEAMS } from '../data/index.ts';
 import { createAudio, type AudioSuite } from '../audio/index.ts';
 import type { Screen, ScreenContext } from '../ui/uiKit.ts';
@@ -41,8 +43,20 @@ export class Game {
   private rafId = 0;
   /** Set while a match is being played (as opposed to menu background). */
   inMatch = false;
-  paused = false;
-  private rotatePaused = false;
+  /**
+   * Pause is owned by reason tokens, never by a writable boolean. Screens acquire and release
+   * their own reasons; the frame loop only reads the derived state. See pauseController.ts for
+   * the bug this replaces.
+   */
+  readonly pause = new PauseController();
+  get paused(): boolean { return this.pause.paused; }
+  readonly lifecycle: MobileLifecycle;
+  private orientationToken: PauseToken | null = null;
+  private recoveryToken: PauseToken | null = null;
+  /** Compact snapshot rebuilt at every dead-ball boundary, flushed on lifecycle interruptions. */
+  private preparedCheckpoint: MatchSnapshot | null = null;
+  private lastCheckpointPhase = '';
+  private recoveryOverlay: HTMLDivElement;
   onMatchEnd: ((m: Match) => void) | null = null;
   matchTeams: [TeamDef, TeamDef] | null = null;
   matchStadium: StadiumDef | null = null;
@@ -84,20 +98,50 @@ export class Game {
 
     this.touch = new TouchControls(uiRoot);
     this.input.touch = this.touch;
+    // A touch reset must also neutralize the merged edge history, or the reset itself would
+    // manufacture a press or release edge on the next poll.
+    this.touch.onReset = () => this.input.neutralizeSeat(0);
     this.touch.onPause = () => {
-      if (!this.inMatch || this.paused) return;
-      this.paused = true;
+      if (!this.inMatch || this.pause.has('USER')) return;
       this.go('pause', { returnScreen: 'match' });
     };
-    // Holding the phone upright stops the clock rather than costing a down. Tracked separately
-    // from `paused` so that rotating back does not resume a game the player paused on purpose.
+    // Holding the phone upright stops the clock rather than costing a down. Its own reason token,
+    // so rotating back releases only the rotation — never a pause the player asked for.
     this.touch.onGate = (blocked) => {
-      if (blocked && this.inMatch && !this.paused) { this.paused = true; this.rotatePaused = true; }
-      else if (!blocked && this.rotatePaused) { this.paused = false; this.rotatePaused = false; }
+      if (blocked && this.inMatch && !this.orientationToken) {
+        this.orientationToken = this.pause.acquire('ORIENTATION');
+      } else if (!blocked && this.orientationToken) {
+        this.pause.release(this.orientationToken);
+        this.orientationToken = null;
+      }
     };
+
+    this.lifecycle = new MobileLifecycle({
+      pause: this.pause,
+      input: { resetAll: (reason) => this.touch.resetAll(reason) },
+      audio: {
+        suspend: () => { try { void this.audio.engine.suspend(); } catch { /* no context yet */ } },
+        resume: () => { try { void this.audio.engine.resume(); } catch { /* needs gesture */ } },
+      },
+      checkpoint: { flushPrepared: () => this.flushCheckpoint() },
+      shouldGuard: () => this.inMatch && !!this.match && !this.match.state.finished,
+      // Return through the explicit pause card, never straight into live play.
+      onReturned: () => {
+        if (this.inMatch && this.currentScreen === 'match') this.go('pause', { returnScreen: 'match' });
+      },
+    });
+    this.lifecycle.attach();
+
+    this.recoveryOverlay = el('div');
+    this.recoveryOverlay.style.cssText = 'position:absolute;inset:0;display:none;z-index:40;'
+      + 'background:rgba(4,8,14,.92);color:#fff;align-items:center;justify-content:center;'
+      + 'flex-direction:column;gap:14px;font:600 16px system-ui,sans-serif;text-align:center';
+    uiRoot.appendChild(this.recoveryOverlay);
+    this.attachContextLossRecovery(canvas);
 
     this.audio = createAudio();
     this.applySettings();
+    flushSave();
     this.input.attach(window);
     this.input.autoAssign();
     window.addEventListener('resize', () => this.renderer.resize());
@@ -163,6 +207,47 @@ export class Game {
 
   get currentScreen(): string { return this.stack[this.stack.length - 1]?.name ?? ''; }
 
+  // ── recovery ──────────────────────────────────────────────────────────
+
+  /**
+   * A lost WebGL context must never mean a black screen or silent progress loss. The loss is
+   * intercepted (preventDefault keeps the context restorable), play pauses under its own reason,
+   * the latest checkpoint is flushed, and the player sees an honest overlay. three.js re-uploads
+   * GPU state on restore; if restore never comes, the overlay offers a reload that resumes from
+   * the flushed checkpoint.
+   */
+  private attachContextLossRecovery(canvas: HTMLCanvasElement): void {
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      if (!this.recoveryToken) this.recoveryToken = this.pause.acquire('RECOVERY');
+      this.touch.resetAll('webgl-context-lost');
+      this.flushCheckpoint();
+      this.recoveryOverlay.textContent = '';
+      const msg = el('div', '', 'DISPLAY CONTEXT LOST — WAITING FOR THE BROWSER TO RESTORE IT');
+      const btn = el('div', 'go-btn', 'RELOAD (PROGRESS IS CHECKPOINTED)');
+      btn.style.cssText = 'pointer-events:auto;cursor:pointer;padding:12px 20px;border:1px solid #fff';
+      btn.addEventListener('click', () => { try { location.reload(); } catch { /* headless */ } });
+      this.recoveryOverlay.append(msg, btn);
+      this.recoveryOverlay.style.display = 'flex';
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.recoveryOverlay.style.display = 'none';
+      this.recoveryOverlay.textContent = '';
+      this.pause.release(this.recoveryToken);
+      this.recoveryToken = null;
+      // Land on the pause card, not straight back into live play.
+      if (this.inMatch && this.currentScreen === 'match') this.go('pause', { returnScreen: 'match' });
+    });
+  }
+
+  /** Write the latest dead-ball checkpoint to storage, synchronously. Cheap when nothing changed. */
+  private flushCheckpoint(): void {
+    if (this.preparedCheckpoint && this.match && !this.match.state.finished) {
+      try { writeSave({ suspendedMatch: this.preparedCheckpoint as unknown }); } catch { /* quota */ }
+    }
+    flushSave();
+  }
+
   // ── settings ──────────────────────────────────────────────────────────
   applySettings(): void {
     const s = this.settings;
@@ -177,7 +262,9 @@ export class Game {
     this.input.setBinding(0, s.bindings[0]);
     this.input.setBinding(1, s.bindings[1]);
     document.documentElement.style.setProperty('--hud-scale', s.largeHud ? '1.34' : '1');
-    writeSave({ settings: s });
+    // Memory now, storage soon: a slider drag applies every step but writes once after settling.
+    // Lifecycle interruptions call flushSave() so nothing is lost to a backgrounding.
+    writeSaveDebounced({ settings: s });
   }
 
   // ── match lifecycle ───────────────────────────────────────────────────
@@ -217,7 +304,9 @@ export class Game {
     this.audio.director.attach(m.bus);
     this.audio.music.stop();
     this.inMatch = true;
-    this.paused = false;
+    this.pause.clearAll();
+    this.preparedCheckpoint = null;
+    this.lastCheckpointPhase = '';
     m.bus.on('*', (e: GameEvent) => this.onGameEvent(e));
     return m;
   }
@@ -237,8 +326,8 @@ export class Game {
     if (this.match.state.finished) return false;
     try {
       writeSave({ suspendedMatch: this.match.captureSnapshot() as unknown });
+      flushSave();
     } catch { return false; }
-    this.paused = false;
     this.endMatch();
     return true;
   }
@@ -292,6 +381,12 @@ export class Game {
     this.replayBuf.clear();
     this.replayBanner.style.display = 'none';
     this.replayPending = null;
+    // Nothing left to pause for; screens holding tokens have either acted or are being torn down.
+    this.pause.clearAll();
+    this.orientationToken = null;
+    this.recoveryToken = null;
+    this.preparedCheckpoint = null;
+    this.touch.resetAll('end-match');
     if (!this.match) return;
     this.audio.director.detach();
     this.match.dispose();
@@ -308,7 +403,12 @@ export class Game {
     if (e.type === 'touchdown') this.replayPending = 'TOUCHDOWN';
     else if (e.type === 'interception') this.replayPending = 'INTERCEPTION';
     else if (e.type === 'fumble') this.replayPending = 'FUMBLE';
-    if (e.type === 'match.end' && this.match) this.onMatchEnd?.(this.match);
+    if (e.type === 'match.end') {
+      // A finished match is a result: the lifecycle checkpoint must never resurrect it.
+      this.preparedCheckpoint = null;
+      writeSave({ suspendedMatch: null });
+      if (this.match) this.onMatchEnd?.(this.match);
+    }
   }
 
   // ── loop ──────────────────────────────────────────────────────────────
@@ -391,9 +491,23 @@ export class Game {
   stop(): void { this.running = false; cancelAnimationFrame(this.rafId); }
 
   private frame(dt: number): void {
-    this.input.poll();
-
     const m = this.match;
+
+    // While the WebGL context is lost, drawing is the one thing that must not happen — three.js
+    // throws from deep inside program compilation on a dead context. Screens and input still run
+    // so the recovery overlay stays interactive.
+    if (this.pause.has('RECOVERY') || this.renderer.contextLost) {
+      this.input.poll();
+      this.current?.update?.(dt);
+      this.input.clearEdges();
+      return;
+    }
+
+    // Semantic touch context BEFORE polling, so this frame's gestures are interpreted under this
+    // frame's mode and legality — never last frame's. Projection runs after render, below.
+    // A replay is a cutscene: the pad drops (active=false) so a thumb cannot throw into it.
+    this.touch.prepareContext(m, this.inMatch && !this.paused && !this.replayPlayer.active);
+    this.input.poll();
 
     // Replay playback owns the frame while it runs; the simulation is paused, not touched.
     if (this.replayPlayer.active && m) {
@@ -401,8 +515,7 @@ export class Game {
       if (idx >= 0 && this.replayBuf.read(idx, this.replayView)) {
         this.renderer.syncReplay(this.replayView, dt);
         this.renderer.render();
-        // A replay is a cutscene. Leaving the pad up would let a thumb throw into it.
-        this.touch.sync(m, this.renderer, false);
+        this.touch.projectVisuals(m, this.renderer);
         this.current?.update?.(dt);
         this.input.clearEdges();
         return;
@@ -436,6 +549,12 @@ export class Game {
       }
       this.hud.update(dt);
       this.renderer.render();
+      // Rebuild the compact lifecycle checkpoint at every dead-ball boundary — never from
+      // scratch inside a pagehide handler, where there is no time budget.
+      if (m.phase === 'PLAY_CALL' && this.lastCheckpointPhase !== 'PLAY_CALL' && !m.state.finished) {
+        try { this.preparedCheckpoint = m.captureSnapshot() as MatchSnapshot; } catch { /* keep previous */ }
+      }
+      this.lastCheckpointPhase = m.phase;
     } else if (m && this.inMatch && this.paused) {
       this.renderer.sync(m.world, m.state, 1, 0, false);
       this.renderer.render();
@@ -446,7 +565,7 @@ export class Game {
 
     // After renderer.sync, so the badges are projected through the same camera that was just
     // drawn rather than the one from last frame.
-    this.touch.sync(m, this.renderer, this.inMatch && !this.paused);
+    this.touch.projectVisuals(m, this.renderer);
 
     this.current?.update?.(dt);
     this.input.clearEdges();
@@ -509,6 +628,8 @@ export class Game {
   dispose(): void {
     this.stop();
     this.endMatch();
+    this.lifecycle.dispose();
+    flushSave();
     this.renderer.dispose();
     this.input.dispose();
     this.touch.dispose();

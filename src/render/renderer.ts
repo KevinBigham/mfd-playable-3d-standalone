@@ -73,6 +73,10 @@ const LEAN_PER_ACCEL = 0.0040;
 
 export class GameRenderer {
   readonly renderer: THREE.WebGLRenderer;
+  /** True while the GL context is lost — the one moment drawing is forbidden. */
+  get contextLost(): boolean {
+    try { return this.renderer.getContext().isContextLost(); } catch { return false; }
+  }
   readonly scene: THREE.Scene;
   readonly registry: SceneRegistry;
   readonly gameCamera: GameCamera;

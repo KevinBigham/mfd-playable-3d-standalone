@@ -32,6 +32,8 @@
     "artifact:check": "tsx tools/artifactcheck.ts",
     "human": "tsx tools/humanprobe.ts",
     "touch": "tsx tools/touchprobe.ts",
+    "lifecycle": "tsx tools/lifecycleprobe.ts",
+    "classic": "tsx tools/classicprobe.ts",
     "gait": "tsx tools/gait.ts",
     "poses": "tsx tools/poses.ts",
     "footslip": "tsx tools/footslip.ts",

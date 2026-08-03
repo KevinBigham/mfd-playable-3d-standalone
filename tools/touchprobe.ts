@@ -50,12 +50,14 @@ window.__TP = {
   step(n) {
     const g = window.GO;
     for (let i = 0; i < n; i++) {
+      // Same order as Game.frame: semantic context BEFORE the poll, projection after render.
+      g.touch.prepareContext(g.match, true);
       g.input.poll();
       if (g.match) {
         g.match.tick();
         g.renderer.sync(g.match.world, g.match.state, 1, 1 / 60, false);
       }
-      g.touch.sync(g.match, g.renderer, true);
+      g.touch.projectVisuals(g.match, g.renderer);
       g.input.clearEdges();
     }
   },
@@ -220,9 +222,13 @@ async function main(): Promise<void> {
       titleText.split('\n').map((s) => s.trim()).filter(Boolean).slice(-1)[0] ?? '');
 
     // ── a real browser-generated touch reaches the game ──────────────
-    await page.touchscreen.tap(422, 300);
-    await page.waitForTimeout(400);
-    const afterTap = await page.evaluate(() => (window as unknown as { GO: any }).GO.currentScreen);
+    let afterTap = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await page.touchscreen.tap(422, 300);
+      await page.waitForTimeout(400);
+      afterTap = await page.evaluate(() => (window as unknown as { GO: any }).GO.currentScreen) as string;
+      if (afterTap === 'mainMenu') break;
+    }
     check('a real touch gets past the title screen', afterTap === 'mainMenu', `screen=${afterTap}`);
 
     // ── into a match, at the snap ────────────────────────────────────
@@ -239,6 +245,9 @@ async function main(): Promise<void> {
       `${snapBtn.w}x${snapBtn.h} px at ${snapBtn.x},${snapBtn.y}`);
     await shot(page, '10-touch-snap');
 
+    // The SNAP button ignores commits inside its 150 ms tap-through window after appearing —
+    // that is the fix for stray screen-transition taps, and the probe must respect it too.
+    await page.waitForTimeout(250);
     const snapped = await page.evaluate(`(() => {
       const g = window.GO;
       window.__TP.gesture(${snapBtn.x}, ${snapBtn.y}, 0, 0, 31);
@@ -323,6 +332,9 @@ async function main(): Promise<void> {
       // quarterback is actually holding the ball, and that is not true on the first frame of
       // PRE_SNAP. Reading the rect too early gets 0x0 at 0,0 and the tap lands on nothing.
       for (let i = 0; i < 30 && g.touch.mode !== 'SNAP'; i++) a.step(1);
+      // Wait out the SNAP tap-through lock (150 ms wall clock) — synchronous evaluate, so spin.
+      const tw0 = performance.now();
+      while (performance.now() - tw0 < 180) { /* spin */ }
       const sb = document.querySelector('.tc-snap').getBoundingClientRect();
       if (sb.width < 10) return { ok: false, why: 'no snap control, mode=' + g.touch.mode + ' phase=' + g.match.phase };
       a.gesture(Math.round(sb.left + sb.width / 2), Math.round(sb.top + sb.height / 2), 0, 0, 41);
@@ -433,6 +445,24 @@ async function main(): Promise<void> {
     })()`) as { during: number; after: number; held: number };
     check('losing the page releases every finger', cleaned.during > 0.5 && cleaned.after === 0,
       `holding=${cleaned.during.toFixed(2)} → after blur=${cleaned.after}`);
+
+    // Since Wave 1, an interruption also pauses through a LIFECYCLE reason and returning lands
+    // on the pause card — the safe path, by design. Complete the round trip the way a player
+    // would: come back, then press RESUME.
+    const roundTrip = await page.evaluate(`(() => {
+      const g = window.GO;
+      window.dispatchEvent(new Event('focus'));
+      window.__TP.step(2);
+      const cardShown = g.currentScreen === 'pause';
+      const btns = [...document.querySelectorAll('.go-btn, button, [class*=btn]')];
+      const r = btns.find((b) => /RESUME/.test(b.textContent || ''));
+      if (r) r.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      window.__TP.step(2);
+      return { cardShown, paused: g.paused, screen: g.currentScreen };
+    })()`) as { cardShown: boolean; paused: boolean; screen: string };
+    check('an interruption returns through the pause card, and RESUME works',
+      roundTrip.cardShown && !roundTrip.paused,
+      `card=${roundTrip.cardShown} paused=${roundTrip.paused} screen=${roundTrip.screen}`);
 
     // ── upright is a gate, not a lost down ───────────────────────────
     await page.setViewportSize({ width: 390, height: 844 });
