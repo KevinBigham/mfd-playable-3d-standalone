@@ -10,6 +10,7 @@ import { createAudio, type AudioSuite } from '../audio/index.ts';
 import type { Screen, ScreenContext } from '../ui/uiKit.ts';
 import { el } from '../ui/uiKit.ts';
 import { Hud } from '../ui/hud.ts';
+import { TouchControls } from '../ui/touchControls.ts';
 import { clamp, clamp01 } from '../core/math.ts';
 import { ReplayBuffer, ReplayPlayer, makeReplayView } from '../render/replay.ts';
 import { FramePacer } from './framePacer.ts';
@@ -21,6 +22,7 @@ export class Game {
   readonly renderer: GameRenderer;
   audio: AudioSuite;
   hud: Hud;
+  touch: TouchControls;
   match: Match | null = null;
   settings: Settings;
 
@@ -39,6 +41,7 @@ export class Game {
   /** Set while a match is being played (as opposed to menu background). */
   inMatch = false;
   paused = false;
+  private rotatePaused = false;
   onMatchEnd: ((m: Match) => void) | null = null;
   matchTeams: [TeamDef, TeamDef] | null = null;
   matchStadium: StadiumDef | null = null;
@@ -73,6 +76,20 @@ export class Game {
       + 'font:700 34px Impact,sans-serif;letter-spacing:.2em;color:#ffd23f;text-shadow:0 4px 0 #000;'
       + 'display:none;pointer-events:none;z-index:5';
     uiRoot.appendChild(this.replayBanner);
+
+    this.touch = new TouchControls(uiRoot);
+    this.input.touch = this.touch;
+    this.touch.onPause = () => {
+      if (!this.inMatch || this.paused) return;
+      this.paused = true;
+      this.go('pause', { returnScreen: 'match' });
+    };
+    // Holding the phone upright stops the clock rather than costing a down. Tracked separately
+    // from `paused` so that rotating back does not resume a game the player paused on purpose.
+    this.touch.onGate = (blocked) => {
+      if (blocked && this.inMatch && !this.paused) { this.paused = true; this.rotatePaused = true; }
+      else if (!blocked && this.rotatePaused) { this.paused = false; this.rotatePaused = false; }
+    };
 
     this.audio = createAudio();
     this.applySettings();
@@ -379,6 +396,8 @@ export class Game {
       if (idx >= 0 && this.replayBuf.read(idx, this.replayView)) {
         this.renderer.syncReplay(this.replayView, dt);
         this.renderer.render();
+        // A replay is a cutscene. Leaving the pad up would let a thumb throw into it.
+        this.touch.sync(m, this.renderer, false);
         this.current?.update?.(dt);
         this.input.clearEdges();
         return;
@@ -419,6 +438,10 @@ export class Game {
       this.menuT += dt;
       this.renderer.renderMenu(this.menuT);
     }
+
+    // After renderer.sync, so the badges are projected through the same camera that was just
+    // drawn rather than the one from last frame.
+    this.touch.sync(m, this.renderer, this.inMatch && !this.paused);
 
     this.current?.update?.(dt);
     this.input.clearEdges();
@@ -483,6 +506,7 @@ export class Game {
     this.endMatch();
     this.renderer.dispose();
     this.input.dispose();
+    this.touch.dispose();
     this.audio.engine.dispose();
   }
 }

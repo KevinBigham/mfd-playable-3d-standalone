@@ -8,6 +8,34 @@ import {
 
 export type DeviceKind = 'KEYBOARD_1' | 'KEYBOARD_2' | 'GAMEPAD';
 
+/**
+ * A device the manager cannot poll for itself.
+ *
+ * A keyboard and a gamepad are both "read the hardware once per frame" devices, which is why
+ * `poll()` handles them inline. A touch surface is not: it is event-driven, it owns DOM elements,
+ * and it has to know what the player is currently allowed to do to decide what a gesture means.
+ * It therefore lives in the UI layer and pushes here, rather than being a fourth arm of
+ * `DeviceKind` that `poll()` would have to reach into the document to service.
+ *
+ * The contribution is merged into seat 0 rather than replacing it, so a phone with a keyboard
+ * attached keeps both, and so a source that is present but idle costs nothing. With no source
+ * attached this file behaves exactly as it did before, which is what keeps desktop replays
+ * byte-identical.
+ */
+export interface IntentSource {
+  /** Null when nothing is being touched, so an idle surface never overrides a real device. */
+  read(): TouchContribution | null;
+}
+
+export interface TouchContribution {
+  moveX: number;
+  moveZ: number;
+  /** Placement, already separated from movement. Null means "no opinion, follow movement". */
+  aimX: number | null;
+  aimZ: number | null;
+  held: number;
+}
+
 export interface SeatDevice {
   kind: DeviceKind;
   /** Gamepad index when kind === 'GAMEPAD'. */
@@ -70,6 +98,8 @@ export class InputManager {
   /** Keys that saw a keydown since the last poll, whether or not they are still down. */
   private tapped = new Set<string>();
   onGamepadChange: ((pads: number[]) => void) | null = null;
+  /** Touch surface for seat 0, when one is mounted. See IntentSource. */
+  touch: IntentSource | null = null;
 
   attach(target: Window = window): void {
     const down = (e: KeyboardEvent) => {
@@ -200,12 +230,28 @@ export class InputManager {
 
       const mag = Math.hypot(mx, mz);
       if (mag > 1) { mx /= mag; mz /= mag; }
-      it.moveX = mx; it.moveZ = mz;
       // A keyboard and a gamepad have one stick between them and the throw, so aim is movement —
       // which is precisely what `throwTo` used to read directly. Copying it here instead of
       // reading movement there moves the coupling into the device, where a touch source can
       // simply not have it, and leaves desktop replays bit-for-bit identical.
-      it.aimX = mx; it.aimZ = mz;
+      let ax = mx, az = mz;
+
+      if (seat === 0 && this.touch) {
+        const t = this.touch.read();
+        if (t) {
+          held |= t.held;
+          // A thumb on the stick wins over an idle keyboard, but a thumb that is only tapping a
+          // badge must not stop the player moving under a key that is genuinely down.
+          if (t.moveX !== 0 || t.moveZ !== 0) { mx = t.moveX; mz = t.moveZ; }
+          // This is the whole point of the aim channel: the throw is placed by the hand that
+          // dragged it, not by wherever the other thumb happened to be steering.
+          ax = t.aimX ?? mx; az = t.aimZ ?? mz;
+          this.anyActivity = true;
+        }
+      }
+
+      it.moveX = mx; it.moveZ = mz;
+      it.aimX = ax; it.aimZ = az;
       it.held = held;
       it.pressed = held & ~prev;
       it.released = prev & ~held;

@@ -182,7 +182,12 @@ html, body {
 #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; mix-blend-mode: screen; }
 
 /* ── play select ──────────────────────────────────────────────────── */
-.ps-wrap { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3vh; }
+/* The match screen's overlay is pointer-events:none so the field stays clickable underneath.
+   The play grid is the one thing in it that has to be tappable, and it already had a click
+   handler on every cell — the handler simply never fired, because a finger could not reach it.
+   That made play calling keyboard-only on a device with no keyboard. */
+.ps-wrap { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3vh; pointer-events: none; }
+.ps-side { pointer-events: auto; }
 .ps-side { background: linear-gradient(180deg, rgba(10,15,26,.94), rgba(5,8,14,.98)); border: 3px solid var(--edge); padding: 12px; margin: 0 10px; box-shadow: var(--shadow); }
 .ps-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 18px; letter-spacing: .1em; }
 .ps-head .pg { color: var(--hot-2); }
@@ -233,4 +238,140 @@ html, body {
 @media (max-width: 760px) {
   .ps-grid { grid-template-columns: repeat(3, 108px); grid-auto-rows: 84px; }
   .go-btn { font-size: 19px; }
+}
+
+/* ── touch controls ───────────────────────────────────────────────────
+   Everything here sits above the field and below nothing. `touch-action:none` on the root is
+   load-bearing: without it the browser claims a vertical drag as a page scroll and the stick
+   dies halfway through a scramble. */
+.tc-root {
+  position: absolute; inset: 0; z-index: 6;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: system-ui, sans-serif;
+}
+
+/* Floating stick: it has no home. It appears under the thumb, wherever that lands. */
+.tc-stick {
+  position: absolute; width: 108px; height: 108px; margin: -54px 0 0 -54px;
+  border-radius: 50%; border: 2px solid rgba(255,255,255,.22);
+  background: radial-gradient(circle, rgba(255,255,255,.10), rgba(0,0,0,.20));
+  opacity: 0; transition: opacity .12s ease, border-color .12s ease;
+  pointer-events: none;
+}
+.tc-stick.on { opacity: 1; }
+.tc-stick.turbo { border-color: var(--hot); box-shadow: 0 0 20px rgba(255,77,31,.55); }
+.tc-knob {
+  position: absolute; left: 50%; top: 50%; width: 52px; height: 52px;
+  margin: 0; border-radius: 50%; transform: translate(-50%,-50%);
+  background: rgba(255,255,255,.80); box-shadow: 0 2px 10px rgba(0,0,0,.5);
+}
+.tc-stick.turbo .tc-knob { background: var(--hot-2); }
+
+/* Receiver badges — drawn on the receiver, not in a row. */
+.tc-badge {
+  position: absolute; left: 0; top: 0; width: 60px; height: 60px;
+  display: none; align-items: center; justify-content: center;
+  pointer-events: auto; cursor: pointer;
+}
+.tc-badge.on { display: flex; }
+.tc-badge-ring {
+  position: absolute; inset: 6px; border-radius: 50%;
+  border: 3px solid var(--hot-2); background: rgba(10,13,20,.72);
+  box-shadow: 0 0 0 2px rgba(0,0,0,.55), 0 0 16px rgba(255,176,46,.4);
+  transition: transform .1s ease, background .1s ease;
+}
+.tc-badge.press .tc-badge-ring { transform: scale(1.22); background: rgba(255,77,31,.85); }
+.tc-badge-num {
+  position: relative; font: 700 22px/1 Impact, system-ui, sans-serif;
+  color: #fff; text-shadow: 0 2px 0 #000; pointer-events: none;
+}
+/* The placement readout. Grows out of the badge along the drag. */
+.tc-badge-arrow {
+  position: absolute; left: 30px; top: 50%; height: 6px; width: 0;
+  transform-origin: 0 50%; opacity: 0; pointer-events: none;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(255,176,46,.25), var(--hot-2));
+  box-shadow: 0 0 10px rgba(255,176,46,.6);
+}
+
+.tc-snap, .tc-lob {
+  position: absolute; display: none; align-items: center; justify-content: center;
+  pointer-events: auto; cursor: pointer; font-weight: 800; letter-spacing: .1em;
+  color: #180600; text-shadow: none;
+}
+.tc-snap {
+  right: calc(20px + env(safe-area-inset-right)); bottom: calc(24px + env(safe-area-inset-bottom));
+  width: 116px; height: 116px; border-radius: 50%; font-size: 25px;
+  background: radial-gradient(circle at 38% 32%, #ffd98a, var(--hot));
+  border: 3px solid #ffe6b8; box-shadow: 0 6px 0 rgba(0,0,0,.5), 0 0 30px rgba(255,77,31,.45);
+}
+.tc-snap.press { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0,0,0,.5); }
+.tc-lob {
+  right: calc(20px + env(safe-area-inset-right)); bottom: calc(26px + env(safe-area-inset-bottom));
+  width: 78px; height: 78px; border-radius: 50%; font-size: 17px;
+  background: rgba(10,13,20,.72); border: 3px solid rgba(255,255,255,.34); color: var(--ink);
+}
+.tc-lob.armed {
+  background: radial-gradient(circle at 38% 32%, #9fe6ff, var(--cool));
+  border-color: #d6f6ff; color: #001820; box-shadow: 0 0 24px rgba(47,212,255,.6);
+}
+
+.tc-pause {
+  position: absolute; left: calc(10px + env(safe-area-inset-left)); top: calc(10px + env(safe-area-inset-top));
+  width: 42px; height: 42px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10,13,20,.6); border: 2px solid rgba(255,255,255,.24);
+  color: var(--ink); font-size: 13px; letter-spacing: .08em;
+  pointer-events: auto; cursor: pointer;
+}
+
+.tc-coach {
+  position: absolute; left: 50%; bottom: calc(15% + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  padding: 7px 15px; border-radius: 999px; max-width: 88vw; text-align: center;
+  background: rgba(10,13,20,.80); border: 1px solid rgba(255,210,63,.34);
+  color: #ffd23f; font: 700 12px/1.35 system-ui, sans-serif; letter-spacing: .07em;
+  opacity: 0; pointer-events: none;
+}
+.tc-coach.show { animation: tc-coach 4.2s ease forwards; }
+@keyframes tc-coach {
+  0% { opacity: 0; } 8% { opacity: 1; } 72% { opacity: 1; } 100% { opacity: 0; }
+}
+
+/* ── short viewports ──────────────────────────────────────────────────
+   A phone held sideways is wide and SHORT — 844x390 is typical. The existing breakpoint keys
+   off width, so a landscape phone misses it entirely and gets the desktop play grid: a 550x450
+   panel inside a 390px-tall screen, with the top of it off the top of the display. Height is
+   the axis that actually constrains this layout. */
+@media (max-height: 500px) {
+  .ps-wrap { align-items: center; padding-bottom: 0; }
+  .ps-side { padding: 8px; margin: 0 6px; }
+  .ps-head { font-size: 13px; margin-bottom: 5px; }
+  .ps-grid { grid-template-columns: repeat(3, 132px); grid-auto-rows: 84px; gap: 6px; }
+  .ps-cell .nm { font-size: 11px; padding: 2px 4px; }
+  /* The keyboard legend is wrong on a phone and the coach banner already says the right thing. */
+  .ps-hint { display: none; }
+  .ps-timer { margin-top: 5px; }
+  .hud-help { font-size: 12px; }
+}
+
+/* ── hold it sideways ─────────────────────────────────────────────────
+   The field is 53 yards across and the camera looks down its length. In portrait there is
+   nowhere to put that picture, and nowhere to put two thumbs that is not on top of it. Menus
+   are fine either way; live play is not. */
+#rotate-gate {
+  position: fixed; inset: 0; z-index: 60; display: none;
+  flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  background: var(--bg-0); text-align: center; padding: 8vw;
+}
+#rotate-gate.show { display: flex; }
+#rotate-gate .phone {
+  width: 74px; height: 122px; border: 4px solid var(--hot-2); border-radius: 12px;
+  animation: rotate-hint 2.4s ease-in-out infinite;
+}
+#rotate-gate .cap { font-size: 26px; letter-spacing: .12em; color: var(--ink); }
+#rotate-gate .sub { font-family: system-ui, sans-serif; font-size: 13px; color: var(--ink-dim); letter-spacing: .04em; }
+@keyframes rotate-hint {
+  0%, 30% { transform: rotate(0deg); } 60%, 100% { transform: rotate(-90deg); }
 }

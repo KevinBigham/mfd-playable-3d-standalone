@@ -52,6 +52,9 @@ function makeMotion(): RigMotion {
 }
 
 /** Body yaw chases the simulation heading; 26 is roughly a 40 ms tail. */
+/** Scratch for projectToScreen. Called a few times per frame; allocating a Vector3 each time isn't. */
+const PROJ = new THREE.Vector3();
+
 const YAW_LAMBDA = 26;
 /** Beyond this the heading changed because the athlete was moved, not because he turned. */
 const YAW_SNAP = 1.2;
@@ -154,6 +157,26 @@ export class GameRenderer {
     this.renderer.setSize(w, h, false);
     this.gameCamera.resize(w / Math.max(1, h));
     this.post?.resize();
+  }
+
+  /**
+   * Where a world point currently sits on the canvas, in CSS pixels.
+   *
+   * Touch play needs receiver badges drawn on the receivers rather than in a fixed row of
+   * buttons, and "where is this athlete on screen" is a camera question, not a UI one — the UI
+   * has no business reaching into a projection matrix. `behind` is true when the point is
+   * outside the frustum in depth, which the caller wants for hiding a badge rather than
+   * pinning it to an edge at a mirrored position.
+   */
+  projectToScreen(x: number, y: number, z: number, out = { x: 0, y: 0, behind: false }): typeof out {
+    PROJ.set(x, y, z).project(this.gameCamera.camera);
+    const el = this.renderer.domElement;
+    const w = el.clientWidth || 1;
+    const h = el.clientHeight || 1;
+    out.x = (PROJ.x * 0.5 + 0.5) * w;
+    out.y = (-PROJ.y * 0.5 + 0.5) * h;
+    out.behind = PROJ.z > 1;
+    return out;
   }
 
   /** Build (or rebuild) the world for a match. */

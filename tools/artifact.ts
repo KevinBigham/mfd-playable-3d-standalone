@@ -61,14 +61,13 @@ const PRELUDE = `
   window.addEventListener('DOMContentLoaded', function () {
     var hint = document.getElementById('artifact-hint');
     if (!hint) return;
-    // A finger cannot press W. Telling a phone to use WASD is worse than telling it nothing,
-    // and pretending the game is playable by touch would be worse still — the title takes a tap
-    // now, but there is no touch input source behind it yet. Say so.
+    // A finger cannot press W, so a phone gets the grammar it actually has. The game teaches the
+    // rest itself once a drive is running; this only has to get somebody to the first snap.
     var coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
     if (coarse) {
       var line = hint.querySelector('span');
-      if (line) line.innerHTML = 'tap to browse the menus · <b>gameplay needs a keyboard '
-        + 'or controller</b> — touch controls are not in yet';
+      if (line) line.innerHTML = 'hold it sideways · <b>left thumb</b> runs · '
+        + '<b>tap a receiver badge</b> to throw · <b>drag off it</b> to place the ball';
     }
     if (!persists) {
       var note = document.createElement('span');

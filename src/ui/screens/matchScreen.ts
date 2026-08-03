@@ -1,5 +1,5 @@
 import type { Screen, ScreenContext } from '../uiKit.ts';
-import { el, clear } from '../uiKit.ts';
+import { el, clear, coarsePointer } from '../uiKit.ts';
 import { PlaySelect } from '../playSelect.ts';
 import { Action } from '../../input/actions.ts';
 import type { Game } from '../../app/Game.ts';
@@ -56,7 +56,12 @@ export class MatchScreen implements Screen {
       }, 2200);
     };
     this.game.hud.showHelp = this.game.settings.helpPrompts;
-    this.game.hud.help('MOVE: stick/WASD · TURBO: RB/Shift · PASS: A/Space · TARGETS: D-pad or U I O', 7);
+    // Silent on a phone. Naming keys to a device with none is worse than saying nothing, and the
+    // touch pad's own banner already teaches each verb set at the moment it becomes available —
+    // two instruction bars stacked at the bottom of a 390px-tall screen is one too many.
+    if (!coarsePointer()) {
+      this.game.hud.help('MOVE: stick/WASD · TURBO: RB/Shift · PASS: A/Space · TARGETS: D-pad or U I O', 7);
+    }
     void m;
   }
 
@@ -107,7 +112,7 @@ export class MatchScreen implements Screen {
     } else if (this.ps.isActive) {
       this.ps.close();
     }
-    if (phase === 'PRE_SNAP' && m.isHuman(m.state.possession)) {
+    if (phase === 'PRE_SNAP' && m.isHuman(m.state.possession) && !coarsePointer()) {
       g.hud.help('PASS/A to snap · MOTION to shift a receiver · AUDIBLE to change the call', 2.4);
     }
     if (phase === 'KICKOFF_SETUP') g.hud.help('Hold UP + TURBO + JUMP before the kick for an onside attempt', 3);
