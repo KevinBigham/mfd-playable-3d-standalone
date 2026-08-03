@@ -26,7 +26,7 @@ const DEFAULTS = {
   /** Wave 4 */
   mobileHomeV2: true,
   mobilePlayCardsV2: true,
-  persistenceV2: false,
+  persistenceV2: true,
   performanceGovernorV2: false,
 };
 

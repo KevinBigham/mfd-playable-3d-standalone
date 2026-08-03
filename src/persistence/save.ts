@@ -227,6 +227,16 @@ function migrate(parsed: unknown): SaveFile {
 
 let cache: SaveFile | null = null;
 
+/**
+ * Optional v2 write-through, attached at boot when the persistenceV2 flag is on. Every settled
+ * write also lands as a checksummed IndexedDB revision; reads still come from the fast local
+ * cache, with v2 recovery handled during boot before the first getSave().
+ */
+let v2Sink: ((payload: SaveFile) => void) | null = null;
+export function attachV2Sink(sink: (payload: SaveFile) => void): void { v2Sink = sink; }
+/** Boot-time restore: replace the cache with a recovered/migrated payload before first use. */
+export function primeCache(payload: SaveFile): void { cache = payload; }
+
 export function getSave(): SaveFile {
   if (!cache) cache = loadSave();
   return cache;
@@ -236,6 +246,7 @@ export function writeSave(next?: Partial<SaveFile>): void {
   const s = getSave();
   if (next) Object.assign(s, next);
   writeItem(SAVE_KEY, JSON.stringify(s));
+  v2Sink?.(s);
 }
 
 /**

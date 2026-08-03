@@ -12,6 +12,22 @@ import { SeasonScreen } from './ui/screens/season.ts';
 import { PracticeScreen } from './ui/screens/practice.ts';
 import { PlayEditorScreen } from './ui/screens/playEditor.ts';
 import { TEAMS, getStadium } from './data/index.ts';
+import { flag } from './app/featureFlags.ts';
+import { PersistenceV2 } from './persistence/persistenceV2.ts';
+import { attachV2Sink, primeCache } from './persistence/save.ts';
+
+async function bootPersistence(): Promise<void> {
+  if (!flag('persistenceV2')) return;
+  try {
+    const p2 = new PersistenceV2();
+    await p2.init();
+    const r = await p2.load();
+    if (r.payload) primeCache(r.payload);
+    if (r.recovered) console.warn('[save] newest revision was corrupt; restored last known good');
+    // Settled writes flow through as checksummed revisions; fire-and-forget by design.
+    attachV2Sink((payload) => { void p2.write(payload); });
+  } catch { /* v2 is an upgrade, never a boot blocker */ }
+}
 
 function boot(): void {
   const canvas = document.getElementById('gl') as HTMLCanvasElement;
@@ -68,5 +84,6 @@ function boot(): void {
   window.addEventListener('error', (e) => console.error('[GO]', e.message));
 }
 
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-else boot();
+const start = (): void => { void bootPersistence().then(boot); };
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+else start();
