@@ -10,6 +10,7 @@ import { el, FocusRing, driveFocus, button, panel } from '../uiKit.ts';
 import type { Game } from '../../app/Game.ts';
 import { getSave } from '../../persistence/save.ts';
 import { TEAM_IDS } from '../../data/index.ts';
+import { dailySeed, todayString, dailyDoneToday } from '../../progression/progression.ts';
 
 export class MobileHomeScreen implements Screen {
   name = 'mobileHome';
@@ -50,6 +51,23 @@ export class MobileHomeScreen implements Screen {
     const play = button('▶ PLAY DRIVE', () => this.startDrive());
     play.el.style.fontSize = '32px';
     items.push(play);
+    // The Daily Drive: the same deterministic problem for everyone today. No streak to lose —
+    // the chip just says whether today's is done.
+    const today = todayString();
+    items.push(button(dailyDoneToday(today) ? `DAILY DRIVE ✓ ${today}` : `DAILY DRIVE · ${today}`, () => {
+      const save = getSave();
+      this.ctx.go('match', {
+        config: {
+          seed: dailySeed(today),
+          home: save.lastTeams.home || TEAM_IDS[0], away: save.lastTeams.away || TEAM_IDS[1],
+          ruleset: 'DRIVE_RUSH', quarterSeconds: 120, difficulty: 'PRO',
+          seats: [{ side: 0, active: true }, { side: 1, active: false }],
+          mode: 'QUICKPLAY',
+        },
+        returnScreen: 'mobileHome',
+        daily: today,
+      });
+    }));
     items.push(
       button('CLASSIC MATCH', () => ctx.go('quickPlay'), 'ghost'),
       button('MORE · SEASON, PRACTICE, EDITOR…', () => ctx.go('mainMenu'), 'ghost'),

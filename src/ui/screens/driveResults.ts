@@ -14,6 +14,10 @@ export interface DriveResultsParams {
   yards: number;
   points: number;
   facts: PlayGradeFacts[];
+  /** Personal-best outcome from recordDrive, when progression is live. */
+  pb?: { previous: { points: number; yards: number } | null; isNewBest: boolean };
+  /** Beat-my-drive challenge code for this attempt. */
+  share?: string;
   /** Restart with the same matchup. */
   retry: () => void;
 }
@@ -35,11 +39,26 @@ export class DriveResultsScreen implements Screen {
     const p = panel(p0.outcome, `${p0.points} points · ${Math.max(0, Math.round(p0.yards))} yards`);
     // One cause line from the last high-confidence graded throw — what to do differently,
     // not a stat dump.
+    if (p0.pb) {
+      const line = p0.pb.isNewBest
+        ? (p0.pb.previous ? `★ NEW BEST — previous ${p0.pb.previous.points} pts / ${Math.round(p0.pb.previous.yards)} yd` : '★ FIRST RECORDED DRIVE')
+        : (p0.pb.previous ? `best: ${p0.pb.previous.points} pts / ${Math.round(p0.pb.previous.yards)} yd` : '');
+      if (line) {
+        const pbEl = el('p', '', line);
+        pbEl.style.cssText = p0.pb.isNewBest ? 'color:var(--hot-2);letter-spacing:.1em' : 'color:var(--ink-dim);letter-spacing:.08em';
+        p.appendChild(pbEl);
+      }
+    }
     const last = [...p0.facts].reverse().find((f) => chipFor(f) !== null);
     if (last) {
       const chip = el('p', 'muted', `LAST READ: ${chipFor(last)} → ${last.result.replace(/_/g, ' ')}`);
       chip.style.cssText = 'letter-spacing:.08em';
       p.appendChild(chip);
+    }
+    if (p0.share) {
+      const sh = el('p', 'muted', `CHALLENGE CODE · ${p0.share}`);
+      sh.style.cssText = 'font-family:monospace;font-size:11px;letter-spacing:.04em;user-select:text;-webkit-user-select:text';
+      p.appendChild(sh);
     }
     const items: FocusItem[] = [
       button('⟳ ONE MORE DRIVE', () => p0.retry()),

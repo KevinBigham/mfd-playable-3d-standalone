@@ -5,6 +5,8 @@ import { Action } from '../../input/actions.ts';
 import type { Game } from '../../app/Game.ts';
 import type { MatchConfig } from '../../core/types.ts';
 import { PlayGradeTracker } from '../../gameplay/playGrade.ts';
+import { recordDrive, markDailyDone, todayString, encodeChallenge } from '../../progression/progression.ts';
+import { RULES_VERSION } from '../../core/constants.ts';
 
 export interface MatchParams {
   config: Partial<MatchConfig>;
@@ -17,6 +19,8 @@ export interface MatchParams {
    * screen immediately start another one over the top of it.
    */
   resume?: boolean;
+  /** Set when this attempt is the Daily Drive for the given date string. */
+  daily?: string;
 }
 
 /**
@@ -65,9 +69,16 @@ export class MatchScreen implements Screen {
         const outcome = scored ? 'TOUCHDOWN DRIVE' : st.teams[1].score > 0 ? 'SAFETY — DRIVE OVER' : 'DRIVE OVER';
         const yards = st.teams[0].stats.totalYds;
         const points = st.teams[0].score;
+        const pb = recordDrive(m.ruleset.id, m.config.difficulty, m.config.home, points, yards);
+        if (this.params?.daily) markDailyDone(this.params.daily === 'today' ? todayString() : this.params.daily);
+        const share = encodeChallenge({
+          rulesVersion: RULES_VERSION,
+          seed: m.config.seed, home: m.config.home, away: m.config.away,
+          difficulty: m.config.difficulty, points, yards,
+        });
         setTimeout(() => {
           this.ctx.go('driveResults', {
-            outcome, yards, points, facts,
+            outcome, yards, points, facts, pb, share,
             retry: () => this.ctx.reset('match', {
               config: { ...cfg, seed: ((cfg.seed ?? 0) + 1) >>> 0 },
               returnScreen: this.params?.returnScreen ?? 'mobileHome',
