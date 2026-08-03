@@ -20,17 +20,16 @@ safe-area ControlLayout with clamped stick + handedness mirroring, hold-at-edge 
 hysteresis, GestureRecognizer with reversal-cancel, THUMB_FAN + DIRECT_FIELD surfaces with proven
 semantic parity, adaptive pass default, compact HUD, 9 customization rows. W2-011 physical A/B:
 WAITING_FOR_PHYSICAL_EVIDENCE — protocol + telemetry shipped, both surfaces retained).
+**Wave 4 — Mobile product: COMPLETE** (see `reports/mobile/WAVE_4_RECEIPT.md` — Mobile Home, three-card
+play call, Drive Results + instant retry with full renderer reuse, persistence v2 live, staged
+mobile startup, governor v2, hosted PWA path; W4-004 FTUE human gates WAITING_FOR_PHYSICAL_EVIDENCE).
+**Wave 5 — Replayability: in progress.**
 **Wave 3 — Core fun: COMPLETE** (see `reports/mobile/WAVE_3_RECEIPT.md` — Ruleset seam + Drive Rush,
 RULES_VERSION 2 balance package: coverage-aware catches with flight scaling, pass breakups,
 placement authority, screen diagnose window, wider block pickup. Fun gate: informed +92.6% EP/drive
 over blind with fewer turnovers; the read now outscores the blind arm in the human probe too.
 PlayGrade facts, three-card recommendations, flag-gated skill Overdrive. Open: third-down curve not
 strictly monotone; QUICK human validation pending).
-**Wave 4 — Mobile product: PHONE LOOP COMPLETE, reliability/performance tasks remaining.**
-Done: W4-001 Mobile Home (PLAY DRIVE/RESUME front door), W4-003 three-card selector with More
-(`.ps-card` via recommendCards), W4-005 Drive Results with instant ONE MORE DRIVE, Drive Rush wired
-end-to-end (7/7 `npm run driverush` browser checks; 18/18 classic, 32/32 touch, 20/20 lifecycle
-still green). Persistence v2 CORE landed (src/persistence/persistenceV2.ts — envelopes/checksums/revisions/LKG/v1 migration; Game integration LIVE behind persistenceV2 flag: async boot restore incl. corruption fallback + write-through revisions). W4-002 manifest landscape lock removed. Remaining:  W4-004 FTUE, W4-006 renderer reuse,
 W4-007 staged startup, W4-008 multi-axis governor, W4-009 persistence v2, W4-010 hosted PWA.
 
 ## Wave 0 results
