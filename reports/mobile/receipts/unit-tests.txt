@@ -2,34 +2,35 @@
  RUN  v2.1.9 /Users/tkevinbigham/Projects/mfd-playable-3d-standalone-main
 
  ✓ tests/rules.test.ts (16 tests) 4ms
- ✓ tests/controlLayout.test.ts (8 tests) 30ms
- ✓ src/audio/audio.test.ts (14 tests) 17ms
- ✓ src/modes/playEditor.test.ts (38 tests) 24ms
- ✓ src/data/league.test.ts (36 tests) 99ms
- ✓ src/plays/plays.test.ts (52 tests) 66ms
+ ✓ tests/controlLayout.test.ts (8 tests) 26ms
+ ✓ src/audio/audio.test.ts (14 tests) 12ms
+ ✓ src/plays/plays.test.ts (52 tests) 49ms
+ ✓ src/modes/playEditor.test.ts (38 tests) 31ms
+ ✓ src/data/league.test.ts (36 tests) 92ms
  ✓ tests/throwLedger.test.ts (3 tests) 3ms
- ✓ tests/pauseController.test.ts (7 tests) 3ms
- ✓ tests/feedback.test.ts (9 tests) 3ms
- ✓ tests/framePacer.test.ts (8 tests) 61ms
- ✓ tests/purity.test.ts (7 tests) 9ms
- ✓ tests/saveDebounce.test.ts (2 tests) 4ms
- ✓ tests/progression.test.ts (4 tests) 4ms
- ✓ tests/persistenceV2.test.ts (3 tests) 4ms
- ✓ tests/playGrade.test.ts (3 tests) 1088ms
-   ✓ play grade facts > produces one fact per resolved throw, with evidence, deterministically 1078ms
- ✓ tests/kickoffChoice.test.ts (4 tests) 1185ms
-   ✓ human kickoff choice > CPU-vs-CPU games are byte-identical to the pre-change behavior window 1094ms
- ✓ tests/snapshot.test.ts (8 tests) 1387ms
-   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 1500 and continues identically 474ms
- ✓ src/modes/tournament.test.ts (21 tests) 1565ms
-   ✓ CPU games come from the real engine > plays a whole four-team ladder headlessly and crowns a champion 1230ms
- ✓ tests/driveRush.test.ts (3 tests) 1374ms
-   ✓ Drive Rush ruleset > every attempt over 60 seeds ends in a declared way, and all end kinds occur 1174ms
- ✓ src/modes/season.test.ts (22 tests) 12849ms
-   ✓ playoffs > crowns exactly one champion through the real match simulator 12539ms
+ ✓ tests/pauseController.test.ts (7 tests) 5ms
+ ✓ tests/framePacer.test.ts (8 tests) 39ms
+ ✓ tests/feedback.test.ts (9 tests) 1ms
+ ✓ tests/progression.test.ts (4 tests) 5ms
+ ✓ tests/purity.test.ts (7 tests) 49ms
+ ✓ tests/saveDebounce.test.ts (2 tests) 16ms
+ ✓ tests/persistenceV2.test.ts (3 tests) 5ms
+ ✓ tests/kickoffChoice.test.ts (4 tests) 1120ms
+   ✓ human kickoff choice > CPU-vs-CPU games are byte-identical to the pre-change behavior window 987ms
+ ✓ tests/playGrade.test.ts (3 tests) 929ms
+   ✓ play grade facts > produces one fact per resolved throw, with evidence, deterministically 911ms
+ ✓ tests/snapshot.test.ts (8 tests) 1234ms
+   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 1500 and continues identically 365ms
+ ✓ src/modes/tournament.test.ts (21 tests) 1560ms
+   ✓ CPU games come from the real engine > plays a whole four-team ladder headlessly and crowns a champion 1125ms
+   ✓ CPU games come from the real engine > is deterministic for a given seed and resolves byes without simulating 369ms
+ ✓ tests/driveRush.test.ts (3 tests) 1371ms
+   ✓ Drive Rush ruleset > every attempt over 60 seeds ends in a declared way, and all end kinds occur 1212ms
+ ✓ src/modes/season.test.ts (22 tests) 12533ms
+   ✓ playoffs > crowns exactly one champion through the real match simulator 12178ms
 
  Test Files  20 passed (20)
       Tests  268 passed (268)
-   Start at  16:03:04
-   Duration  13.46s (transform 988ms, setup 0ms, collect 2.73s, tests 19.78s, environment 3ms, prepare 1.36s)
+   Start at  17:08:06
+   Duration  13.12s (transform 925ms, setup 0ms, collect 2.77s, tests 19.09s, environment 2ms, prepare 1.16s)
 

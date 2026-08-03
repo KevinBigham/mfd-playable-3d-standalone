@@ -112,6 +112,36 @@ export interface QualitySettings {
   athleteDetail: number;    // 0..1 → segment counts
 }
 
+/**
+ * True on phones and tablets. Read inline rather than through `uiKit.coarsePointer` for the
+ * same reason save.ts reads it inline: the render layer has no other reason to depend on the
+ * interface layer, and this would be the only line creating the edge.
+ */
+export function coarseDisplay(): boolean {
+  try {
+    return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  } catch { return false; }
+}
+
+/**
+ * The preset, adjusted for the display it will actually draw on.
+ *
+ * The presets are tuned against desktop monitors. A phone looks at the field from a much lower
+ * camera (`PHONE_DOLLY`), which puts every yard line at a grazing angle — exactly where
+ * anisotropy 1 collapses the lines into smear — and its whole framebuffer is small enough that
+ * texture filtering and a 384px turf tile cost close to nothing. So the floor for those two is
+ * raised on phones; the genuinely expensive axes (shadows, post, crowd, athlete detail) stay
+ * with the tier.
+ */
+export function devicePreset(tier: QualityTier): QualitySettings {
+  const q = { ...QUALITY_PRESETS[tier] };
+  if (coarseDisplay()) {
+    q.anisotropy = Math.max(4, q.anisotropy);
+    q.turfDetail = Math.max(0.5, q.turfDetail);
+  }
+  return q;
+}
+
 export const QUALITY_PRESETS: Record<QualityTier, QualitySettings> = {
   LOW: {
     tier: 'LOW', pixelRatio: 1.0, shadows: false, shadowMapSize: 512, crowdDensity: 0.22,

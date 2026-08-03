@@ -36,6 +36,7 @@
     "classic": "tsx tools/classicprobe.ts",
     "driverush": "tsx tools/driverushprobe.ts",
     "a11y": "tsx tools/a11yprobe.ts",
+    "gfx": "tsx tools/gfxprobe.ts",
     "gait": "tsx tools/gait.ts",
     "poses": "tsx tools/poses.ts",
     "footslip": "tsx tools/footslip.ts",

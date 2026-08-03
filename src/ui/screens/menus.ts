@@ -426,7 +426,13 @@ export class SettingsScreen implements Screen {
       sliderRow('CROWD', () => st.volumes.crowd, (v) => { st.volumes.crowd = v; }, 0.05, apply),
       sliderRow('STINGERS', () => st.volumes.music, (v) => { st.volumes.music = v; }, 0.05, apply),
       sliderRow('INTERFACE', () => st.volumes.ui, (v) => { st.volumes.ui = v; }, 0.05, apply),
-      optionRow<QualityTier>({ label: 'GRAPHICS', values: QUALITIES, get: () => st.quality, set: (v) => { st.quality = v; } }, apply),
+      // Setting the tier by hand pins it: the governor stops promoting/demoting on this save.
+      optionRow<QualityTier>({
+        label: 'GRAPHICS', values: QUALITIES,
+        format: (v) => (st.autoQuality ? `${v} · AUTO` : v),
+        get: () => st.quality,
+        set: (v) => { st.quality = v; st.autoQuality = false; },
+      }, apply),
       optionRow<number>({ label: 'RESOLUTION SCALE', values: [0.5, 0.65, 0.8, 1], format: (v) => `${Math.round(v * 100)}%`, get: () => st.resolutionScale, set: (v) => { st.resolutionScale = v; } }, apply),
       optionRow<boolean>({ label: 'ADAPTIVE RESOLUTION', values: [false, true], format: (v) => (v ? 'ON' : 'OFF'), get: () => st.dynamicResolution, set: (v) => { st.dynamicResolution = v; } }, apply),
       optionRow<boolean>({

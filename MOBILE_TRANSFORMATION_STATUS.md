@@ -46,6 +46,22 @@ play-menu gap (no intermediate concept between ~6 yd tools and 16.8 yd DEEP), de
 versioned AI/balance change; QUICK held at 42% completion over 80 games, flight-scaling fix stands).
 W4-007 staged startup, W4-008 multi-axis governor, W4-009 persistence v2, W4-010 hosted PWA.
 
+**Phone graphics pass (2026-08-03, post-publish):** first real-device feedback — "plays a little
+rougher on the phone than expected, especially the graphics." Root cause: every phone starts on
+LOW, whose `pixelRatio 1.0` drew an ~844×390 buffer stretched across a ~3×-density display, with
+no MSAA and anisotropy 1, and the governor could only ever move quality DOWN. Fixes (presentation
+layer only — no sim change, RULES_VERSION untouched): (1) pixel-ratio floor at near-native density
+(≤1.75) on coarse-pointer displays — the adaptive governor's 0.6 floor lands back on the old fill
+cost, so the worst case on a weak phone is the look every phone used to get; (2) MSAA on at LOW on
+phones (per-tile resolve, near-free on mobile GPUs) plus anisotropy ≥4 and turf detail ≥0.5 floors
+(`devicePreset` in `src/render/registry.ts`); (3) the governor ladder now runs UP as well: ~10 s of
+sustained full-resolution headroom promotes the tier (applied between plays, never mid-play), the
+result persists via the new `autoQuality` setting, one post-promotion demote burns the fuse for the
+session, and touching GRAPHICS in Settings pins the tier and ends auto-management (`GRAPHICS · AUTO`
+label). Verified: `npm run gfx` (new phone-context probe, 17/17 — floored buffer 1477px/844css,
+MSAA+aniso floors, LOW→MEDIUM→HIGH synthetic ladder with persistence, fuse, pinning, desktop
+untouched) plus the full regression battery re-run green.
+
 ## Wave 0 results
 
 | Task | Status | Evidence |
