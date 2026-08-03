@@ -131,10 +131,23 @@ function main(): void {
   // `</script>` anywhere inside the payload would close the tag early.
   const safeJs = js.replace(/<\/script/gi, '<\\/script');
 
+  // The replacements are FUNCTIONS, and that is not a style choice.
+  //
+  // `String.replace` with a string replacement expands `$&`, `` $` ``, `$'` and `$$` inside it.
+  // A minified bundle contains `$&` all the time — three.js emits `$&&$.mapping` from a variable
+  // it happened to name `$` — and every one of those expanded to the matched text. The artifact
+  // shipped with `pt=</body>&$.mapping` spliced into the middle of the renderer: a syntax error
+  // 800 kB into a single line, which shows up only as a blank page and `Unexpected token '<'`.
+  // Nothing about the payload is a pattern, so nothing in it should be interpreted as one.
   html = html
     .replace(scriptRef, '')
-    .replace('</head>', `  <style>${css}\n${HINT_CSS}</style>\n  <script>${PRELUDE}</script>\n</head>`)
-    .replace('</body>', `${HINT_HTML}\n    <script>${safeJs}</script>\n  </body>`);
+    .replace('</head>', () => `  <style>${css}\n${HINT_CSS}</style>\n  <script>${PRELUDE}</script>\n</head>`)
+    .replace('</body>', () => `${HINT_HTML}\n    <script>${safeJs}</script>\n  </body>`);
+
+  // The payload has to come out the other side byte for byte. Cheaper and stricter than a
+  // syntax check: it catches silent mangling of any kind, not just the kind that fails to parse.
+  if (!html.includes(safeJs)) throw new Error('the javascript was altered on its way into the html');
+  if (css && !html.includes(css)) throw new Error('the css was altered on its way into the html');
 
   mkdirSync(OUT_DIR, { recursive: true });
   writeFileSync(OUT_FILE, html, 'utf8');

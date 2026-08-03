@@ -44,9 +44,13 @@ function serve(html: string): Server {
     var err = function(){ var e = new Error('Access to the feature "gamepad" is disallowed by permissions policy.'); e.name = 'SecurityError'; throw e; };
     try { Object.defineProperty(navigator, 'getGamepads', { value: err, configurable: true }); } catch (e) {}
   })();<\/script>`;
-  const hostile = html.replace('<head>', `<head>${deny}`);
+  // Function replacements throughout: a string replacement expands `$&` and friends, and the
+  // artifact is a minified bundle full of them. Splicing it in as a plain string rewrote three.js
+  // from the inside and the frame died on a syntax error before the game ever ran — which read
+  // exactly like "the artifact is broken" rather than "the harness broke it".
+  const hostile = html.replace('<head>', () => `<head>${deny}`);
   const doc = hostile.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  const page = shell.replace('__DOC__', doc);
+  const page = shell.replace('__DOC__', () => doc);
   const server = createServer((req, res) => {
     if (req.url === '/' || req.url === '/index.html') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
