@@ -403,6 +403,17 @@ export class SettingsScreen implements Screen {
       optionRow<boolean>({ label: 'HELP PROMPTS', values: [true, false], format: (v) => (v ? 'ON' : 'OFF'), get: () => st.helpPrompts, set: (v) => { st.helpPrompts = v; g.hud.showHelp = v; } }, apply),
       optionRow<boolean>({ label: 'COMEBACK ASSIST', values: [true, false], format: (v) => (v ? 'ON' : 'OFF'), get: () => st.catchUpBias, set: (v) => { st.catchUpBias = v; } }, apply),
       optionRow<boolean>({ label: 'POST-WHISTLE SHOVES', values: [false, true], format: (v) => (v ? 'ON' : 'OFF'), get: () => st.lateHits, set: (v) => { st.lateHits = v; } }, apply),
+      // ── touch controls — the thumb layout, all numeric/toggle so precision dragging is
+      // never required to configure accessibility ────────────────────────────────────────
+      optionRow<'RIGHT' | 'LEFT'>({ label: 'TOUCH · HANDEDNESS', values: ['RIGHT', 'LEFT'], get: () => st.touchProfile.handedness, set: (v) => { st.touchProfile.handedness = v; } }, apply),
+      optionRow<'FLOATING' | 'FIXED'>({ label: 'TOUCH · STICK', values: ['FLOATING', 'FIXED'], get: () => st.touchProfile.stickMode, set: (v) => { st.touchProfile.stickMode = v; } }, apply),
+      optionRow<number>({ label: 'TOUCH · STICK SIZE', values: [0.8, 0.9, 1, 1.15, 1.3], format: (v) => `${Math.round(v * 100)}%`, get: () => st.touchProfile.stickScale, set: (v) => { st.touchProfile.stickScale = v; } }, apply),
+      optionRow<number>({ label: 'TOUCH · BUTTON SIZE', values: [0.8, 0.9, 1, 1.15, 1.3], format: (v) => `${Math.round(v * 100)}%`, get: () => st.touchProfile.actionScale, set: (v) => { st.touchProfile.actionScale = v; } }, apply),
+      optionRow<number>({ label: 'TOUCH · OPACITY', values: [0.4, 0.6, 0.75, 0.9, 1], format: (v) => `${Math.round(v * 100)}%`, get: () => st.touchProfile.opacity, set: (v) => { st.touchProfile.opacity = v; } }, apply),
+      optionRow<'HOLD_EDGE' | 'EDGE_BOOST'>({ label: 'TOUCH · TURBO', values: ['HOLD_EDGE', 'EDGE_BOOST'], format: (v) => (v === 'HOLD_EDGE' ? 'HOLD AT EDGE' : 'PUSH PAST RING'), get: () => st.touchProfile.turboMode === 'EDGE_BOOST' ? 'EDGE_BOOST' : 'HOLD_EDGE', set: (v) => { st.touchProfile.turboMode = v; } }, apply),
+      optionRow<'RELAXED' | 'STANDARD' | 'PRECISE'>({ label: 'TOUCH · GESTURES', values: ['RELAXED', 'STANDARD', 'PRECISE'], get: () => st.touchProfile.gesturePreset, set: (v) => { st.touchProfile.gesturePreset = v; } }, apply),
+      optionRow<'DIRECT_FIELD' | 'THUMB_FAN'>({ label: 'TOUCH · PASS TARGETS', values: ['DIRECT_FIELD', 'THUMB_FAN'], format: (v) => (v === 'DIRECT_FIELD' ? 'ON THE FIELD' : 'THUMB FAN'), get: () => st.touchProfile.targetSurface, set: (v) => { st.touchProfile.targetSurface = v; } }, apply),
+      optionRow<boolean>({ label: 'TOUCH · LOB BUTTON', values: [false, true], format: (v) => (v ? 'ON (ADVANCED)' : 'OFF (ADAPTIVE)'), get: () => st.touchProfile.explicitLob, set: (v) => { st.touchProfile.explicitLob = v; } }, apply),
       sliderRow('CAMERA SHAKE', () => st.cameraShake, (v) => { st.cameraShake = v; }, 0.1, apply),
       sliderRow('SCREEN FLASH', () => st.screenFlash, (v) => { st.screenFlash = v; }, 0.1, apply),
       optionRow<boolean>({ label: 'REDUCED MOTION', values: [false, true], format: (v) => (v ? 'ON' : 'OFF'), get: () => st.reducedMotion, set: (v) => { st.reducedMotion = v; } }, apply),

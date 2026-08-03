@@ -17,7 +17,7 @@ const DEFAULTS = {
   /** Wave 2 */
   targetFan: false,
   directFieldTargets: true,
-  compactHudV2: false,
+  compactHudV2: true,
   /** Wave 3 */
   rulesetsV2: false,
   driveRush: false,

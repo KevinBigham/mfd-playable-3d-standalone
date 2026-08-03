@@ -15,7 +15,12 @@ environment's `why-is-node-running` registry 404 did not reproduce here).
 complete touch reset, SNAP ownership, pre-sim context split, touch-complete Classic incl. new
 human onside-kick path, MobileLifecycle, context-loss recovery, debounced saves. 30/30 touch,
 20/20 lifecycle, 18/18 classic browser checks).
-**Wave 2 — Control ergonomics: in progress.**
+**Wave 2 — Control ergonomics: COMPLETE** (see `reports/mobile/WAVE_2_RECEIPT.md` — TouchProfile v1,
+safe-area ControlLayout with clamped stick + handedness mirroring, hold-at-edge turbo with
+hysteresis, GestureRecognizer with reversal-cancel, THUMB_FAN + DIRECT_FIELD surfaces with proven
+semantic parity, adaptive pass default, compact HUD, 9 customization rows. W2-011 physical A/B:
+WAITING_FOR_PHYSICAL_EVIDENCE — protocol + telemetry shipped, both surfaces retained).
+**Wave 3 — Core fun: in progress.**
 
 ## Wave 0 results
 

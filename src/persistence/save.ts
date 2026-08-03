@@ -1,6 +1,7 @@
 import type { CustomPlay, Difficulty, WeatherKind } from '../core/types.ts';
 import type { QualityTier } from '../render/registry.ts';
 import { KEYBOARD_P1, KEYBOARD_P2, type KeyboardBinding } from '../input/bindings.ts';
+import { defaultTouchProfile, sanitizeTouchProfile, type TouchProfile } from '../input/touch/touchProfile.ts';
 
 export const SAVE_KEY = 'go.save.v1';
 export const SAVE_VERSION = 1 as const;
@@ -25,6 +26,8 @@ export interface Settings {
   catchUpBias: boolean;
   lateHits: boolean;
   passingMode: 'ICON' | 'DIRECTIONAL';
+  /** Versioned thumb layout — see input/touch/touchProfile.ts. */
+  touchProfile: TouchProfile;
 }
 
 export interface SeasonSave {
@@ -120,6 +123,7 @@ export function defaultSettings(): Settings {
     catchUpBias: true,
     lateHits: false,
     passingMode: 'ICON',
+    touchProfile: defaultTouchProfile(),
   };
 }
 
@@ -193,7 +197,12 @@ export function loadSave(): SaveFile {
     const base = defaultSave();
     return {
       version: SAVE_VERSION,
-      settings: { ...base.settings, ...(parsed.settings ?? {}), volumes: { ...base.settings.volumes, ...(parsed.settings?.volumes ?? {}) }, bindings: parsed.settings?.bindings ?? base.settings.bindings },
+      settings: {
+        ...base.settings, ...(parsed.settings ?? {}),
+        volumes: { ...base.settings.volumes, ...(parsed.settings?.volumes ?? {}) },
+        bindings: parsed.settings?.bindings ?? base.settings.bindings,
+        touchProfile: sanitizeTouchProfile(parsed.settings?.touchProfile),
+      },
       season: parsed.season ?? null,
       tournament: parsed.tournament ?? null,
       suspendedMatch: parsed.suspendedMatch ?? null,

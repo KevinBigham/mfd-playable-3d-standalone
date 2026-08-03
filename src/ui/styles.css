@@ -284,7 +284,7 @@ body.ps-open .hud-help { display: none; }
   opacity: 0; transition: opacity .12s ease, border-color .12s ease;
   pointer-events: none;
 }
-.tc-stick.on { opacity: 1; }
+.tc-stick.on { opacity: var(--tc-opacity, 1); }
 .tc-stick.turbo { border-color: var(--hot); box-shadow: 0 0 20px rgba(255,77,31,.55); }
 .tc-knob {
   position: absolute; left: 50%; top: 50%; width: 52px; height: 52px;
@@ -329,6 +329,7 @@ body.ps-open .hud-help { display: none; }
 
 .tc-snap, .tc-lob {
   position: absolute; display: none; align-items: center; justify-content: center;
+  opacity: var(--tc-opacity, 1);
   pointer-events: auto; cursor: pointer; font-weight: 800; letter-spacing: .1em;
   color: #180600; text-shadow: none;
 }
@@ -348,6 +349,43 @@ body.ps-open .hud-help { display: none; }
   background: radial-gradient(circle at 38% 32%, #9fe6ff, var(--cool));
   border-color: #d6f6ff; color: #001820; box-shadow: 0 0 24px rgba(47,212,255,.6);
 }
+
+/* The thumb-fan receiver surface: three stable targets in the natural action-thumb arc. Same
+   jersey number and per-slot shape as the on-field badge — the fan changes where the thumb
+   lands, never which receiver is meant. */
+.tc-fan {
+  position: absolute; display: none; align-items: center; justify-content: center;
+  pointer-events: auto; cursor: pointer;
+  border: 3px solid var(--hot-2); background: rgba(10,13,20,.78);
+  box-shadow: 0 0 0 2px rgba(0,0,0,.55), 0 0 14px rgba(255,176,46,.35);
+  opacity: var(--tc-opacity, .9);
+  transition: transform .1s ease, background .1s ease;
+}
+.tc-fan.shape-circle { border-radius: 50%; }
+.tc-fan.shape-diamond { border-radius: 16%; transform: rotate(45deg); }
+.tc-fan.shape-diamond .tc-fan-num { transform: rotate(-45deg); }
+.tc-fan.shape-square { border-radius: 16%; }
+.tc-fan.press { background: rgba(255,77,31,.85); }
+.tc-fan.shape-diamond.press { transform: rotate(45deg) scale(1.15); }
+.tc-fan.press:not(.shape-diamond) { transform: scale(1.15); }
+.tc-fan-num {
+  font: 700 24px/1 Impact, system-ui, sans-serif;
+  color: #fff; text-shadow: 0 2px 0 #000; pointer-events: none;
+}
+/* Shape echo on the on-field badges (identity without color). */
+.tc-badge.shape-diamond .tc-badge-ring { border-radius: 22%; transform: rotate(45deg); }
+.tc-badge.shape-diamond.press .tc-badge-ring { transform: rotate(45deg) scale(1.22); }
+.tc-badge.shape-square .tc-badge-ring { border-radius: 22%; }
+/* Fan-to-receiver connector: press a fan target and a thin line ties it to the man himself. */
+.tc-fan-link {
+  position: absolute; height: 3px; width: 0; transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--hot-2), rgba(255,176,46,.15));
+  box-shadow: 0 0 8px rgba(255,176,46,.5);
+  pointer-events: none; opacity: 0; transition: opacity .08s ease;
+}
+/* Compact phone HUD: the wide bottom turbo bars are redundant with the stick ring's turbo
+   state, and they sit exactly where thumbs live. */
+#hud.compact .hud-turbo { display: none; }
 
 .tc-pause {
   position: absolute; left: calc(10px + env(safe-area-inset-left)); top: calc(10px + env(safe-area-inset-top));

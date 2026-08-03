@@ -4,6 +4,9 @@ import type { IntentSource, TouchContribution } from '../input/manager.ts';
 import { Action } from '../input/actions.ts';
 import { el, coarsePointer } from './uiKit.ts';
 import { clamp } from '../core/math.ts';
+import { defaultTouchProfile, type TouchProfile } from '../input/touch/touchProfile.ts';
+import { computeLayout, clampStickOrigin, inStickZone, readSafeInsets, type ControlLayout } from '../input/touch/controlLayout.ts';
+import { GestureRecognizer, GESTURE_PRESETS, type SwipeDirection } from '../input/touch/gestureRecognizer.ts';
 
 /**
  * Playing this game with two thumbs.
@@ -53,6 +56,12 @@ interface Touch {
   /** A swipe already fired for this pointer; ignore the rest of the drag. */
   spent: boolean;
   moved: number;
+  /** True when this BADGE contact began on a fan target rather than an on-field badge. */
+  fromFan: boolean;
+  /** Sustained-full-deflection start time for hold-at-edge turbo, or 0. */
+  edgeSince: number;
+  /** Latest stick deflection magnitude 0..1, for the per-frame turbo evaluation. */
+  mag: number;
 }
 
 /** A SNAP press that wanders this far has slid off the button — cancel, do not snap. */
@@ -88,6 +97,28 @@ export class TouchControls implements IntentSource {
   private coach: HTMLElement;
   private gate: HTMLElement;
   private gated = false;
+  /** Versioned thumb layout. Set through setProfile; geometry recomputes on every change. */
+  profile: TouchProfile = defaultTouchProfile();
+  private layout: ControlLayout;
+  private recognizer = new GestureRecognizer(GESTURE_PRESETS.STANDARD);
+  /** The reachable right-thumb receiver fan (THUMB_FAN surface). */
+  private fanBtns: HTMLElement[] = [];
+  private fanConnector: HTMLElement;
+  /** Hold-at-edge turbo state, with hysteresis. */
+  private turboOn = false;
+  /**
+   * Local-only ergonomics counters for the physical A/B protocol. Never uploaded anywhere;
+   * read by probes and (eventually) the device-test capture sheet.
+   */
+  readonly telemetry = {
+    surface: 'DIRECT_FIELD' as string,
+    targetSelections: 0,
+    fanSelections: 0,
+    badgeSelections: 0,
+    selectMsSamples: [] as number[],
+    qbModeSince: 0,
+    actionZoneWhiffs: 0,
+  };
   /** Raised while live play is impossible because the phone is upright. */
   onGate: ((blocked: boolean) => void) | null = null;
 
@@ -137,8 +168,11 @@ export class TouchControls implements IntentSource {
     this.knob = el('div', 'tc-knob');
     this.stick.appendChild(this.knob);
 
+    // Slot shapes (circle/diamond/square) are shared between the on-field badge and the fan
+    // target for the same receiver, so identity never rests on color alone.
+    const SLOT_SHAPES = ['shape-circle', 'shape-diamond', 'shape-square'];
     for (let i = 0; i < 3; i++) {
-      const root = el('div', 'tc-badge');
+      const root = el('div', `tc-badge ${SLOT_SHAPES[i]}`);
       const ring = el('div', 'tc-badge-ring');
       const num = el('div', 'tc-badge-num', '');
       const arrow = el('div', 'tc-badge-arrow');
@@ -153,8 +187,25 @@ export class TouchControls implements IntentSource {
     this.pauseBtn = el('div', 'tc-pause', '❚❚');
     this.coach = el('div', 'tc-coach', '');
 
+    // The thumb-fan receiver surface: three stable targets in the action-thumb arc, wearing the
+    // same per-slot shapes as the on-field badges.
+    for (let i = 0; i < 3; i++) {
+      const b = el('div', `tc-fan ${SLOT_SHAPES[i]}`);
+      b.appendChild(el('div', 'tc-fan-num', ''));
+      b.dataset.slot = String(i);
+      b.style.display = 'none';
+      this.fanBtns.push(b);
+      this.root.appendChild(b);
+    }
+    this.fanConnector = el('div', 'tc-fan-link');
+    this.fanConnector.style.opacity = '0';
+    this.root.appendChild(this.fanConnector);
+
     this.root.append(this.stick, this.snapBtn, this.lobBtn, this.pauseBtn, this.coach);
     parent.appendChild(this.root);
+    this.layout = computeLayout(window.innerWidth, window.innerHeight, readSafeInsets(), this.profile);
+    window.addEventListener('resize', this.onResize);
+    this.disposers.push(() => window.removeEventListener('resize', this.onResize));
 
     // Sits outside the pad's own root: it has to be visible precisely when the pad is not.
     this.gate = el('div');
@@ -211,6 +262,58 @@ export class TouchControls implements IntentSource {
     });
   }
 
+  private onResize = (): void => {
+    this.layout = computeLayout(window.innerWidth, window.innerHeight, readSafeInsets(), this.profile);
+    this.placeFan();
+  };
+
+  /** Apply a new thumb layout. Called at boot and whenever settings change it. */
+  setProfile(p: TouchProfile): void {
+    this.profile = p;
+    this.recognizer = new GestureRecognizer(GESTURE_PRESETS[p.gesturePreset]);
+    this.layout = computeLayout(window.innerWidth, window.innerHeight, readSafeInsets(), p);
+    this.telemetry.surface = p.targetSurface;
+    this.root.style.setProperty('--tc-opacity', String(p.opacity));
+    // Scale the physical controls; the math uses layout.stickRadius so visuals and vectors agree.
+    const d = this.layout.stickRadius * 2;
+    this.stick.style.width = `${d}px`;
+    this.stick.style.height = `${d}px`;
+    this.stick.style.margin = `-${d / 2}px 0 0 -${d / 2}px`;
+    const snapD = Math.max(88, Math.round(116 * p.actionScale));
+    this.snapBtn.style.width = `${snapD}px`;
+    this.snapBtn.style.height = `${snapD}px`;
+    const lobD = Math.max(64, Math.round(78 * p.actionScale));
+    this.lobBtn.style.width = `${lobD}px`;
+    this.lobBtn.style.height = `${lobD}px`;
+    // Mirror the fixed controls for a left-handed grip: SNAP/LOB move to the left flank.
+    const mirror = p.handedness === 'LEFT';
+    const off = 'calc(20px + env(safe-area-inset-left))';
+    const offR = 'calc(20px + env(safe-area-inset-right))';
+    this.snapBtn.style.left = mirror ? off : '';
+    this.snapBtn.style.right = mirror ? 'auto' : offR;
+    this.lobBtn.style.left = mirror ? off : '';
+    this.lobBtn.style.right = mirror ? 'auto' : offR;
+    this.placeFan();
+    // Refresh surface visibility in place: a settings change mid-play must not wait for the
+    // next mode transition to take effect.
+    const fanOn = this.mode === 'QB' && p.targetSurface === 'THUMB_FAN';
+    for (const f of this.fanBtns) f.style.display = fanOn ? 'flex' : 'none';
+    this.lobBtn.style.display = this.mode === 'QB' && p.explicitLob ? 'flex' : 'none';
+    this.resetAll('profile-change');
+  }
+
+  private placeFan(): void {
+    const l = this.layout;
+    for (let i = 0; i < 3; i++) {
+      const b = this.fanBtns[i];
+      const c = l.fanCenters[i];
+      b.style.width = `${l.fanTargetSize}px`;
+      b.style.height = `${l.fanTargetSize}px`;
+      b.style.left = `${c.x - l.fanTargetSize / 2}px`;
+      b.style.top = `${c.y - l.fanTargetSize / 2}px`;
+    }
+  }
+
   dispose(): void {
     for (const d of this.disposers) d();
     this.disposers.length = 0;
@@ -231,7 +334,9 @@ export class TouchControls implements IntentSource {
       try { this.root.releasePointerCapture(id); } catch { /* already gone */ }
     }
     this.touches.clear();
+    this.recognizer.reset();
     this.moveX = 0; this.moveZ = 0;
+    this.turboOn = false;
     this.latch = 0;
     this.aimX = null; this.aimZ = null;
     this.forceMove = null;
@@ -241,6 +346,8 @@ export class TouchControls implements IntentSource {
     this.stick.classList.remove('on', 'turbo');
     this.knob.style.transform = 'translate(-50%,-50%)';
     for (const b of this.badges) b.root.classList.remove('press');
+    for (const f of this.fanBtns) f.classList.remove('press');
+    this.fanConnector.style.opacity = '0';
     this.hideArrows();
     this.onReset?.(reason);
   }
@@ -256,13 +363,18 @@ export class TouchControls implements IntentSource {
       return;
     }
     const badgeRoot = target.closest?.('.tc-badge') as HTMLElement | null;
-    const slot = badgeRoot ? Number(badgeRoot.dataset.slot) : -1;
+    const fanRoot = target.closest?.('.tc-fan') as HTMLElement | null;
+    const fromFan = !!fanRoot;
+    const slot = badgeRoot ? Number(badgeRoot.dataset.slot)
+      : fanRoot ? Number(fanRoot.dataset.slot) : -1;
     // SNAP is a tracked pointer like everything else: press visual on down, commit only on a
     // release that stayed on the button. The old path latched on down with no record, so the
     // matching up had nothing to find and the pressed class could stay welded on.
+    // Both target surfaces produce the same BADGE role and therefore identical semantic intent —
+    // the fan changes where the thumb lands, never what the throw means.
     const role: Touch['role'] = target === this.snapBtn ? 'SNAP'
       : slot >= 0 ? 'BADGE'
-      : e.clientX < window.innerWidth * 0.46 ? 'STICK' : 'SURFACE';
+      : inStickZone(this.layout, e.clientX, e.clientY) ? 'STICK' : 'SURFACE';
 
     // A second finger in the stick zone while the first is already steering is a mis-grab, not a
     // second stick. Ignore it rather than letting it fight the one that is working.
@@ -270,9 +382,20 @@ export class TouchControls implements IntentSource {
       for (const t of this.touches.values()) if (t.role === 'STICK') return;
     }
 
+    // Stick origin: clamped so the FULL ring and its travel stay reachable inside the safe area
+    // (a floating stick born at the screen edge used to put turbo physically off the glass).
+    // Fixed mode ignores the touch point entirely.
+    let ox = e.clientX, oy = e.clientY;
+    if (role === 'STICK') {
+      const origin = this.profile.stickMode === 'FIXED'
+        ? this.layout.fixedStickCenter
+        : clampStickOrigin(this.layout, e.clientX, e.clientY);
+      ox = origin.x; oy = origin.y;
+    }
+
     const t: Touch = {
-      id: e.pointerId, role, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY,
-      t0: now(), slot, spent: false, moved: 0,
+      id: e.pointerId, role, x0: ox, y0: oy, x: e.clientX, y: e.clientY,
+      t0: now(), slot, spent: false, moved: 0, fromFan, edgeSince: 0, mag: 0,
     };
     this.touches.set(e.pointerId, t);
     // Capture keeps a thumb that slides off the stick zone still steering, instead of the
@@ -281,15 +404,29 @@ export class TouchControls implements IntentSource {
     try { this.root.setPointerCapture(e.pointerId); } catch { /* nothing to capture */ }
 
     if (role === 'STICK') {
-      this.stick.style.left = `${e.clientX}px`;
-      this.stick.style.top = `${e.clientY}px`;
+      this.stick.style.left = `${ox}px`;
+      this.stick.style.top = `${oy}px`;
       this.stick.classList.add('on');
     } else if (role === 'BADGE') {
+      if (fromFan) {
+        this.fanBtns[slot].classList.add('press');
+        this.telemetry.fanSelections++;
+      } else {
+        this.telemetry.badgeSelections++;
+      }
       this.badges[slot].root.classList.add('press');
+      this.telemetry.targetSelections++;
+      if (this.telemetry.qbModeSince > 0) {
+        this.telemetry.selectMsSamples.push(now() - this.telemetry.qbModeSince);
+        this.telemetry.qbModeSince = 0;
+      }
       buzz(6);
     } else if (role === 'SNAP') {
       this.snapBtn.classList.add('press');
       buzz(12);
+    } else if (role === 'SURFACE') {
+      if (this.mode === 'QB') this.telemetry.actionZoneWhiffs++;
+      this.recognizer.begin(e.pointerId, e.clientX, e.clientY, now());
     }
     e.preventDefault();
   }
@@ -302,12 +439,25 @@ export class TouchControls implements IntentSource {
     t.moved = Math.max(t.moved, Math.hypot(dx, dy));
 
     if (t.role === 'STICK') {
+      const R = this.layout.stickRadius;
       const d = Math.hypot(dx, dy);
-      const k = d > STICK_R ? STICK_R / d : 1;
+      const k = d > R ? R / d : 1;
       this.knob.style.transform = `translate(calc(-50% + ${dx * k}px), calc(-50% + ${dy * k}px))`;
-      this.stick.classList.toggle('turbo', d > TURBO_R);
-      const mag = Math.min(d / STICK_R, 1);
-      if (d < 6) { this.moveX = 0; this.moveZ = 0; }
+      const mag = Math.min(d / R, 1);
+      // Turbo. HOLD_EDGE (the default): full speed lives AT the ring, and holding 88%+
+      // deflection for a beat engages turbo, releasing below 70% disengages — hysteresis, no
+      // flicker, no thumb-stretch past the visible ring. EDGE_BOOST keeps the old advanced
+      // beyond-the-ring behavior. AUTO is HOLD_EDGE with a shorter dwell.
+      t.mag = mag;
+      if (this.profile.turboMode === 'EDGE_BOOST') {
+        this.turboOn = d > R * 1.34;
+      } else if (mag >= 0.88) {
+        if (t.edgeSince === 0) t.edgeSince = now();
+      } else if (mag < 0.88) {
+        t.edgeSince = 0;   // dropped out of the arm zone; hysteresis handled in updateTurbo
+      }
+      this.updateTurbo();
+      if (d < this.profile.deadzonePx) { this.moveX = 0; this.moveZ = 0; }
       else {
         const w = this.screenToWorld(dx / d, dy / d);
         this.moveX = w.x * mag; this.moveZ = w.z * mag;
@@ -330,11 +480,18 @@ export class TouchControls implements IntentSource {
       return;
     }
 
-    // SURFACE: fire the swipe the instant it is unambiguous. Waiting for the finger to lift
-    // makes a hurdle land after the defender does.
-    if (!t.spent && t.moved > SWIPE_MIN) {
-      this.fireSwipe(dx, dy);
-      t.spent = true;
+    // SURFACE: gestures go through the recognizer — direction is confirmed over a short window
+    // (a reversal cancels instead of firing the wrong verb), except that a tackle lunge in a
+    // legal defensive context may commit early. One committed action per contact.
+    if (!t.spent) {
+      const urgentOk = this.mode === 'FREE';
+      const g = this.recognizer.move(e.pointerId, e.clientX, e.clientY, now(), urgentOk);
+      if (g?.type === 'SWIPE') {
+        this.fireSwipe(g.direction);
+        t.spent = true;
+      } else if (g?.type === 'CANCELLED') {
+        t.spent = true;   // changed their mind — nothing fires for this contact
+      }
     }
   }
 
@@ -347,6 +504,7 @@ export class TouchControls implements IntentSource {
 
     if (t.role === 'STICK') {
       this.moveX = 0; this.moveZ = 0;
+      this.turboOn = false;
       this.stick.classList.remove('on', 'turbo');
       this.knob.style.transform = 'translate(-50%,-50%)';
       return;
@@ -354,6 +512,8 @@ export class TouchControls implements IntentSource {
 
     if (t.role === 'BADGE') {
       this.badges[t.slot].root.classList.remove('press');
+      if (t.fromFan) this.fanBtns[t.slot].classList.remove('press');
+      this.fanConnector.style.opacity = '0';
       this.hideArrows();
       this.throwTo(t);
       return;
@@ -373,21 +533,30 @@ export class TouchControls implements IntentSource {
       return;
     }
 
-    if (!t.spent && held < TAP_MAX_MS && t.moved < SWIPE_MIN) this.fireTap();
+    if (!t.spent) {
+      const g = this.recognizer.end(e.pointerId, now(), e.clientX, e.clientY);
+      if (g?.type === 'TAP') this.fireTap();
+      else if (g?.type === 'SWIPE') this.fireSwipe(g.direction);
+    }
+    void held;
   }
 
   /** The browser took the pointer back. Clear its state; commit nothing. */
   private onCancel(e: PointerEvent): void {
     const t = this.touches.get(e.pointerId);
+    this.recognizer.cancel(e.pointerId);
     if (!t) return;
     this.touches.delete(e.pointerId);
     try { this.root.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
     if (t.role === 'STICK') {
       this.moveX = 0; this.moveZ = 0;
+      this.turboOn = false;
       this.stick.classList.remove('on', 'turbo');
       this.knob.style.transform = 'translate(-50%,-50%)';
     } else if (t.role === 'BADGE') {
       this.badges[t.slot].root.classList.remove('press');
+      if (t.fromFan) this.fanBtns[t.slot].classList.remove('press');
+      this.fanConnector.style.opacity = '0';
       this.hideArrows();
     } else if (t.role === 'SNAP') {
       this.snapBtn.classList.remove('press');
@@ -417,20 +586,20 @@ export class TouchControls implements IntentSource {
     buzz(14);
   }
 
-  private fireSwipe(dx: number, dy: number): void {
-    const horizontal = Math.abs(dx) > Math.abs(dy);
+  private fireSwipe(direction: SwipeDirection): void {
+    const horizontal = direction === 'LEFT' || direction === 'RIGHT';
     if (this.mode === 'CARRY') {
       if (horizontal) {
         // The sim measures a juke as lateral motion relative to facing, so the gesture has to
         // supply a move vector as well as the bit — the stick may be pushed straight ahead.
-        const w = this.screenToWorld(Math.sign(dx), 0);
+        const w = this.screenToWorld(direction === 'RIGHT' ? 1 : -1, 0);
         this.forceMove = { x: w.x, z: w.z };
         this.latch |= Action.JUKE;
-      } else if (dy < 0) this.latch |= Action.JUMP;
+      } else if (direction === 'UP') this.latch |= Action.JUMP;
       else this.latch |= Action.DIVE;
     } else if (this.mode === 'FREE') {
       if (horizontal) this.latch |= Action.SPECIAL;
-      else if (dy < 0) this.latch |= Action.JUMP;
+      else if (direction === 'UP') this.latch |= Action.JUMP;
       else this.latch |= Action.DIVE;
     } else if (this.mode === 'QB') {
       // Nothing: a stray swipe must not throw the ball away.
@@ -547,12 +716,19 @@ export class TouchControls implements IntentSource {
     this.root.style.display = mode === 'OFF' ? 'none' : 'block';
     this.snapBtn.style.display = mode === 'SNAP' ? 'flex' : 'none';
     if (mode === 'SNAP' && prev !== 'SNAP') this.snapShownAt = now();
-    this.lobBtn.style.display = mode === 'QB' ? 'flex' : 'none';
+    // The LOB button is an advanced opt-in: the beginner default is the adaptive throw (tap =
+    // competent contextual pass, drag = placement), with no modifier to learn or mis-tap.
+    this.lobBtn.style.display = mode === 'QB' && this.profile.explicitLob ? 'flex' : 'none';
+    const fanOn = mode === 'QB' && this.profile.targetSurface === 'THUMB_FAN';
+    for (const f of this.fanBtns) f.style.display = fanOn ? 'flex' : 'none';
+    if (mode === 'QB' && prev !== 'QB') this.telemetry.qbModeSince = now();
+    if (mode !== 'QB') this.telemetry.qbModeSince = 0;
     if (mode === 'OFF') this.resetAll('mode-off');
     if (mode !== 'QB') {
       this.lobArmed = false;
       this.lobBtn.classList.remove('armed');
       this.hideBadges();
+      this.fanConnector.style.opacity = '0';
     }
     // Restart the fade rather than toggling a class: the grammar changes at the snap and again
     // at the catch, and a player who has just been handed a new verb set should be told once,
@@ -594,8 +770,35 @@ export class TouchControls implements IntentSource {
       }
       b.root.style.transform = `translate(${x}px, ${y}px) translate(-50%,-50%)`;
       b.num.textContent = String(a.def.number);
+      this.badgePos[i] = { x, y };
       this.setBadgeVisible(b, true);
+      // The fan target for this slot carries the same jersey number — target identity is the
+      // receiver, wherever the thumb happens to press.
+      const fn = this.fanBtns[i].firstChild as HTMLElement | null;
+      if (fn && fn.textContent !== b.num.textContent) fn.textContent = b.num.textContent;
     }
+    this.paintConnector();
+  }
+
+  private badgePos: Array<{ x: number; y: number }> = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }];
+
+  /** While a fan target is held, a thin line ties it to the actual receiver on the field. */
+  private paintConnector(): void {
+    let active: Touch | null = null;
+    for (const t of this.touches.values()) if (t.role === 'BADGE' && t.fromFan) { active = t; break; }
+    if (!active || this.profile.targetSurface !== 'THUMB_FAN') {
+      this.fanConnector.style.opacity = '0';
+      return;
+    }
+    const from = this.layout.fanCenters[active.slot];
+    const to = this.badgePos[active.slot];
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const len = Math.hypot(dx, dy);
+    this.fanConnector.style.opacity = '0.85';
+    this.fanConnector.style.width = `${len}px`;
+    this.fanConnector.style.left = `${from.x}px`;
+    this.fanConnector.style.top = `${from.y}px`;
+    this.fanConnector.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
   }
 
   private setBadgeVisible(b: Badge, v: boolean): void {
@@ -643,16 +846,40 @@ export class TouchControls implements IntentSource {
     return c;
   }
 
+  /**
+   * Hold-at-edge turbo, evaluated every poll so a perfectly still thumb still arms it. Engages
+   * after sustained >=88% deflection, releases below 70% — hysteresis, no boundary flicker.
+   */
+  private updateTurbo(): void {
+    if (this.profile.turboMode === 'EDGE_BOOST') return;   // handled directly in onMove
+    let stick: Touch | null = null;
+    for (const t of this.touches.values()) if (t.role === 'STICK') { stick = t; break; }
+    if (!stick) {
+      if (this.turboOn) { this.turboOn = false; this.stick.classList.remove('turbo'); }
+      return;
+    }
+    const dwellMs = this.profile.turboMode === 'AUTO' ? 140 : 300;
+    if (stick.mag >= 0.88 && stick.edgeSince > 0 && now() - stick.edgeSince >= dwellMs) {
+      if (!this.turboOn) buzz(8);
+      this.turboOn = true;
+    } else if (stick.mag < 0.70) {
+      this.turboOn = false;
+    }
+    this.stick.classList.toggle('turbo', this.turboOn);
+  }
+
   /** Actions that are true for as long as a finger is where it is. */
   private sustained(): number {
     let m = 0;
-    if (this.stick.classList.contains('turbo')) m |= Action.TURBO;
+    this.updateTurbo();
+    if (this.turboOn) m |= Action.TURBO;
     // A finger parked on the surface without swiping is two hands on the football. It is the one
     // carrier verb that is a state rather than an event, so it is the one bound to a hold.
     if (this.mode === 'CARRY') {
+      const th = this.recognizer.thresholds;
       const t = now();
       for (const p of this.touches.values()) {
-        if (p.role === 'SURFACE' && !p.spent && p.moved < SWIPE_MIN && t - p.t0 > TAP_MAX_MS) {
+        if (p.role === 'SURFACE' && !p.spent && p.moved < th.holdMaxTravelPx && t - p.t0 > th.holdDurationMs) {
           m |= Action.PROTECT;
           break;
         }

@@ -7,6 +7,7 @@ import { PHONE_DOLLY } from '../render/camera.ts';
 import { InputManager } from '../input/manager.ts';
 import { getSave, writeSave, writeSaveDebounced, flushSave, type Settings } from '../persistence/save.ts';
 import { PauseController, type PauseToken } from './pauseController.ts';
+import { flag } from './featureFlags.ts';
 import { MobileLifecycle } from './mobileLifecycle.ts';
 import { getTeam, getStadium, TEAMS } from '../data/index.ts';
 import { createAudio, type AudioSuite } from '../audio/index.ts';
@@ -262,6 +263,15 @@ export class Game {
     this.input.setBinding(0, s.bindings[0]);
     this.input.setBinding(1, s.bindings[1]);
     document.documentElement.style.setProperty('--hud-scale', s.largeHud ? '1.34' : '1');
+    // Thumb layout: settings own it; the targetFan feature flag can force the candidate surface
+    // for testing without touching the saved profile.
+    const prof = flag('targetFan') && s.touchProfile.targetSurface !== 'THUMB_FAN'
+      ? { ...s.touchProfile, targetSurface: 'THUMB_FAN' as const }
+      : s.touchProfile;
+    this.touch.setProfile(prof);
+    // Compact phone HUD: the stick ring already carries turbo state; the wide bottom bars sat
+    // exactly where thumbs live.
+    this.hudRoot.classList.toggle('compact', coarsePointer() && flag('compactHudV2'));
     // Memory now, storage soon: a slider drag applies every step but writes once after settling.
     // Lifecycle interruptions call flushSave() so nothing is lost to a backgrounding.
     writeSaveDebounced({ settings: s });
