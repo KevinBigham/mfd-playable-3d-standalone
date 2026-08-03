@@ -67,7 +67,12 @@ export class PlaySelect {
     build(offSide, true);
     build(defSide, false);
 
-    if (this.panels.length === 0) { this.active = false; this.wrap.style.display = 'none'; return; }
+    if (this.panels.length === 0) {
+      this.active = false;
+      this.wrap.style.display = 'none';
+      document.body.classList.remove('ps-open');
+      return;
+    }
 
     const bar = el('div', 'ps-timer');
     const fill = el('i');
@@ -80,12 +85,14 @@ export class PlaySelect {
     col.append(row, bar);
     this.wrap.appendChild(col);
     this.wrap.style.display = 'flex';
+    document.body.classList.add('ps-open');
     this.paintAll();
   }
 
   close(): void {
     this.active = false;
     this.wrap.style.display = 'none';
+    document.body.classList.remove('ps-open');
     this.match = null;
   }
 

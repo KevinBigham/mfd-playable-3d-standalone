@@ -175,10 +175,14 @@ html, body {
 .hud-msg.show { opacity: 1; animation: pop .35s cubic-bezier(.2,1.6,.4,1); }
 @keyframes pop { 0% { transform: translate(-50%,-50%) skewX(var(--skew)) scale(.6); } 100% { transform: translate(-50%,-50%) skewX(var(--skew)) scale(1); } }
 .hud-help {
-  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%);
+  max-width: min(92vw, 660px); text-align: center; box-sizing: border-box;
   font-family: system-ui, sans-serif; font-size: 13px; color: var(--ink-dim);
   background: rgba(5,8,14,.7); padding: 5px 14px; border: 1px solid var(--edge); letter-spacing: .04em;
 }
+/* While the play panel is up the legend is redundant — the panel carries its own — and it is the
+   one thing in the HUD that draws over it. */
+body.ps-open .hud-help { display: none; }
 #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; mix-blend-mode: screen; }
 
 /* ── play select ──────────────────────────────────────────────────── */
@@ -187,12 +191,22 @@ html, body {
    handler on every cell — the handler simply never fired, because a finger could not reach it.
    That made play calling keyboard-only on a device with no keyboard. */
 .ps-wrap { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3vh; pointer-events: none; }
+/* Two humans on opposite sides get two panels side by side, and the row that holds them used to
+   size itself to its content: two 570px panels in a window narrower than 1160 overflowed a
+   centred container, so the left one was clipped off the edge of the screen — and when the row
+   did wrap, the panels stacked left-aligned at different widths instead of centring. Both panels
+   now share the row and shrink to whatever is there, so the pair always fits. */
+.ps-wrap .stack { width: 100%; align-items: center; }
+.ps-wrap .row { flex-wrap: nowrap; justify-content: center; width: 100%; gap: 0; }
 .ps-side { pointer-events: auto; }
-.ps-side { background: linear-gradient(180deg, rgba(10,15,26,.94), rgba(5,8,14,.98)); border: 3px solid var(--edge); padding: 12px; margin: 0 10px; box-shadow: var(--shadow); }
+.ps-side { flex: 1 1 0; min-width: 0; max-width: 570px; box-sizing: border-box;
+  background: linear-gradient(180deg, rgba(10,15,26,.94), rgba(5,8,14,.98)); border: 3px solid var(--edge); padding: 12px; margin: 0 10px; box-shadow: var(--shadow); }
 .ps-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 18px; letter-spacing: .1em; }
 .ps-head .pg { color: var(--hot-2); }
-.ps-grid { display: grid; grid-template-columns: repeat(3, 168px); grid-auto-rows: 118px; gap: 8px; }
-.ps-cell { position: relative; border: 2px solid var(--edge); background: #0b1220; overflow: hidden; cursor: pointer; }
+/* Fluid columns, with the tile shape held by aspect-ratio. Fixed pixel columns are what made
+   the panel a size the window had to accommodate rather than the other way round. */
+.ps-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ps-cell { position: relative; aspect-ratio: 168 / 118; border: 2px solid var(--edge); background: #0b1220; overflow: hidden; cursor: pointer; }
 .ps-cell svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .ps-cell .nm { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(4,7,12,.86); font-size: 13px; padding: 3px 6px; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ps-cell.focused { border-color: var(--hot); box-shadow: inset 0 0 0 2px var(--hot-2); transform: scale(1.03); }
@@ -236,7 +250,8 @@ html, body {
 .vs-strip .vs { font-size: 52px; color: var(--hot); transform: skewX(var(--skew)); }
 
 @media (max-width: 760px) {
-  .ps-grid { grid-template-columns: repeat(3, 108px); grid-auto-rows: 84px; }
+  .ps-head { font-size: 15px; }
+  .ps-cell .nm { font-size: 11px; }
   .go-btn { font-size: 19px; }
 }
 
@@ -348,7 +363,8 @@ html, body {
   .ps-wrap { align-items: center; padding-bottom: 0; }
   .ps-side { padding: 8px; margin: 0 6px; }
   .ps-head { font-size: 13px; margin-bottom: 5px; }
-  .ps-grid { grid-template-columns: repeat(3, 132px); grid-auto-rows: 84px; gap: 6px; }
+  .ps-side { max-width: 430px; }
+  .ps-grid { gap: 6px; }
   .ps-cell .nm { font-size: 11px; padding: 2px 4px; }
   /* The keyboard legend is wrong on a phone and the coach banner already says the right thing. */
   .ps-hint { display: none; }
