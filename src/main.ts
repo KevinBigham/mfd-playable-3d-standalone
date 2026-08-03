@@ -18,13 +18,6 @@ function boot(): void {
 
   const game = new Game(canvas, uiRoot);
 
-  // Attract-mode environment behind the menus.
-  const home = TEAMS[0];
-  const away = TEAMS[1];
-  game.renderer.loadMatch(home, away, getStadium(home.stadium), {
-    weather: 'CLEAR', surface: 'GRASS', windX: 0, windZ: 0, traction: 1,
-  });
-
   for (const s of [
     new TitleScreen(game), new MainMenuScreen(game), new QuickPlayScreen(game),
     new MatchScreen(game), new PauseScreen(game), new SettingsScreen(game),
@@ -40,6 +33,33 @@ function boot(): void {
     bootEl.classList.add('hide');
     setTimeout(() => bootEl.remove(), 500);
   }
+
+  /**
+   * The attract-mode stadium, built AFTER the title exists.
+   *
+   * It used to run before the screens were registered, and building it is one long synchronous
+   * block — mostly shader compilation, measured at about a second on a fast GPU and twelve on a
+   * slow one. Nothing painted and no listener existed for the whole of it, so a phone player who
+   * tapped during the freeze had the tap silently dropped and had to work out that they should
+   * tap again.
+   *
+   * Moving it here does not make the block shorter. It makes it happen behind a title screen
+   * that is already listening, so the tap is queued by the browser and answered the moment the
+   * thread comes back. `requestIdleCallback` gives the first frame a chance to present first,
+   * with a timeout so a busy machine still gets its stadium promptly.
+   */
+  const home = TEAMS[0];
+  const away = TEAMS[1];
+  const attract = (): void => {
+    game.renderer.loadMatch(home, away, getStadium(home.stadium), {
+      weather: 'CLEAR', surface: 'GRASS', windX: 0, windZ: 0, traction: 1,
+    });
+  };
+  const idle = (window as unknown as {
+    requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void;
+  }).requestIdleCallback;
+  if (idle) idle(attract, { timeout: 1500 });
+  else setTimeout(attract, 32);
 
   (window as unknown as { GO: Game }).GO = game;
   window.addEventListener('error', (e) => console.error('[GO]', e.message));

@@ -9,7 +9,44 @@ export type CamMode = 'BROADCAST' | 'DEEP' | 'BREAKAWAY' | 'KICK' | 'CELEBRATE' 
 export interface CameraOptions {
   shake: number;      // 0..1 user preference
   reducedMotion: boolean;
+  /**
+   * How far to pull the camera in toward its own look point, 0..1. Zero is the broadcast shot
+   * this game was framed at on a monitor; a phone runs it at {@link PHONE_DOLLY}.
+   *
+   * The reason is physical rather than aesthetic. An athlete occupies about the same FRACTION of
+   * the screen on either device — roughly 8% of the height, because the camera scales with the
+   * viewport — but on a six-inch screen that fraction is about five millimetres of football
+   * player, some 2.4x smaller in visual angle than the same game on a desk. Receivers downfield
+   * measure seventeen pixels. Separation is the read this game is built on, and it is not legible
+   * at that size.
+   */
+  dolly: number;
 }
+
+/**
+ * Swept over 864 frames of dropback per step, six seeds, at 844x390. "On the man" is the gate
+ * `npm run touch` enforces: the badge centre within 4 px of its receiver.
+ *
+ * ```
+ *   dolly   median athlete   athletes on screen   badges still on the man
+ *   0.00    24 px            100.0%               98.4%
+ *   0.15    28 px             99.6%               87.9%
+ *   0.22    31 px             99.1%               64.4%
+ *   0.35    38 px             92.7%               56.0%
+ *   0.45    46 px             88.6%               51.6%
+ * ```
+ *
+ * A first pass shipped 0.35 on the strength of the middle column alone. The right-hand column is
+ * why it came back down: on a screen this size you cannot magnify without cropping, and what gets
+ * cropped first is the outside receiver. `paintBadges` then pins his badge to the bezel, so the
+ * control still works but stops being a READ — and the read is the entire argument for drawing
+ * badges on players instead of in a row.
+ *
+ * 0.15 is the knee. Past it the fidelity column falls off a cliff for very little extra size.
+ * Getting meaningfully bigger than this needs fewer or tighter-aligned players, not a longer
+ * lens — which is an argument for Drive Rush, not for this constant.
+ */
+export const PHONE_DOLLY = 0.15;
 
 /**
  * Arcade broadcast camera. Playability first:
@@ -225,7 +262,16 @@ export class GameCamera {
       this.shakeAmp = Math.max(0, this.shakeAmp - dt * 4);
       if (this.shakeAmp < 0.002) this.shakeAmp = 0;
     }
-    this.camera.position.set(this.posX + sx, this.posY + sy, this.posZ);
+    // Pull in toward the look point WITHOUT moving the look point. Scaling `dist` and `height`
+    // instead would have been the obvious edit and is not the same shot: `ahead` would still be
+    // throwing the aim well downfield, so the ball would slide down the frame as the camera
+    // closed. A true dolly keeps the composition and only changes how much of it you get.
+    // Replay clips keep their own framing — they are already tight and they are not played.
+    const k = this.mode === 'REPLAY' ? 0 : this.opts.dolly;
+    this.camera.position.set(
+      lerp(this.posX, this.lookX, k) + sx,
+      lerp(this.posY, this.lookY, k) + sy,
+      lerp(this.posZ, this.lookZ, k));
     this.camera.up.set(0, 1, 0);
     // Translate the whole shot rather than swivelling it — swivelling makes the far stands
     // swim across the screen, which reads as a broken camera rather than as an impact.

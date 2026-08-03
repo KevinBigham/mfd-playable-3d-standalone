@@ -3,12 +3,13 @@ import { FIXED_DT, MAX_SUBSTEPS } from '../core/constants.ts';
 import { Match, defaultMatchConfig } from '../rules/match.ts';
 import { configFromSnapshot, snapshotMatches, type MatchSnapshot } from '../rules/snapshot.ts';
 import { GameRenderer } from '../render/renderer.ts';
+import { PHONE_DOLLY } from '../render/camera.ts';
 import { InputManager } from '../input/manager.ts';
 import { getSave, writeSave, type Settings } from '../persistence/save.ts';
 import { getTeam, getStadium, TEAMS } from '../data/index.ts';
 import { createAudio, type AudioSuite } from '../audio/index.ts';
 import type { Screen, ScreenContext } from '../ui/uiKit.ts';
-import { el } from '../ui/uiKit.ts';
+import { el, coarsePointer } from '../ui/uiKit.ts';
 import { Hud } from '../ui/hud.ts';
 import { TouchControls } from '../ui/touchControls.ts';
 import { clamp, clamp01 } from '../core/math.ts';
@@ -60,6 +61,10 @@ export class Game {
       reducedMotion: this.settings.reducedMotion,
       flash: this.settings.screenFlash,
       resolutionScale: this.settings.resolutionScale,
+      // Decided once, from the pointer, and deliberately not a setting: a player on a phone
+      // cannot see well enough to judge the option that would fix their eyesight, and a player
+      // on a desktop has no reason to ever open it.
+      dolly: coarsePointer() ? PHONE_DOLLY : 0,
     });
     this.flashEl = el('div');
     this.flashEl.id = 'flash';

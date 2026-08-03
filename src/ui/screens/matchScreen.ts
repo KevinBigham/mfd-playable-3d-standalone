@@ -115,7 +115,13 @@ export class MatchScreen implements Screen {
     if (phase === 'PRE_SNAP' && m.isHuman(m.state.possession) && !coarsePointer()) {
       g.hud.help('PASS/A to snap · MOTION to shift a receiver · AUDIBLE to change the call', 2.4);
     }
-    if (phase === 'KICKOFF_SETUP') g.hud.help('Hold UP + TURBO + JUMP before the kick for an onside attempt', 3);
+    // Same reason as the snap prompt above, and worse: there is no onside gesture on the touch
+    // pad at all, so on a phone this named three keys that do not exist to describe a play that
+    // cannot be called. It also landed in the same band as the pad's own coach line and the two
+    // drew over each other.
+    if (phase === 'KICKOFF_SETUP' && !coarsePointer()) {
+      g.hud.help('Hold UP + TURBO + JUMP before the kick for an onside attempt', 3);
+    }
   }
 
   private openConversion(): void {

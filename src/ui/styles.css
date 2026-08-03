@@ -28,6 +28,10 @@ html, body {
   -webkit-font-smoothing: antialiased;
   user-select: none; -webkit-user-select: none;
   touch-action: none;
+  /* A downward drag near the top of the screen is pull-to-refresh on Android, and a rubber-band
+     on iOS. Both are reachable from the left thumb's normal travel, and one of them reloads the
+     game mid-drive. `touch-action: none` above does not cover either. */
+  overscroll-behavior: none;
 }
 
 #app { position: fixed; inset: 0; }
@@ -183,6 +187,11 @@ html, body {
 /* While the play panel is up the legend is redundant — the panel carries its own — and it is the
    one thing in the HUD that draws over it. */
 body.ps-open .hud-help { display: none; }
+/* `.hud-help` sits at bottom:48px and `.tc-coach` at bottom:15% — on a 390px-tall landscape
+   phone that is 58px, so the two occupy the same strip and draw over each other. The touch pad's
+   coach line is the one that teaches the grammar a finger actually has, so it wins outright. The
+   individual call sites are guarded too; this is the rule that stops the next one leaking. */
+@media (pointer: coarse) { .hud-help { display: none; } }
 #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; mix-blend-mode: screen; }
 
 /* ── play select ──────────────────────────────────────────────────── */
@@ -214,6 +223,7 @@ body.ps-open .hud-help { display: none; }
 .ps-timer { height: 6px; background: #0a0f1a; border: 2px solid var(--edge); margin-top: 8px; }
 .ps-timer i { display: block; height: 100%; background: var(--hot); }
 .ps-hint { font-family: system-ui, sans-serif; font-size: 12px; color: var(--ink-dim); margin-top: 6px; letter-spacing: .03em; }
+
 
 /* ── tables ───────────────────────────────────────────────────────── */
 .go-table { width: 100%; border-collapse: collapse; font-family: system-ui, sans-serif; font-size: 14px; }
@@ -297,6 +307,13 @@ body.ps-open .hud-help { display: none; }
   transition: transform .1s ease, background .1s ease;
 }
 .tc-badge.press .tc-badge-ring { transform: scale(1.22); background: rgba(255,77,31,.85); }
+/* Receiver is off the edge of the frame. Same target, same throw — but dashed and dimmed, so it
+   reads as "he is out there" rather than as a man standing on that spot. */
+.tc-badge.edge .tc-badge-ring {
+  border-style: dashed; opacity: .72;
+  box-shadow: 0 0 0 2px rgba(0,0,0,.55);
+}
+.tc-badge.edge .tc-badge-num { opacity: .8; }
 .tc-badge-num {
   position: relative; font: 700 22px/1 Impact, system-ui, sans-serif;
   color: #fff; text-shadow: 0 2px 0 #000; pointer-events: none;
@@ -334,7 +351,9 @@ body.ps-open .hud-help { display: none; }
 
 .tc-pause {
   position: absolute; left: calc(10px + env(safe-area-inset-left)); top: calc(10px + env(safe-area-inset-top));
-  width: 42px; height: 42px; border-radius: 50%;
+  /* 44 is the floor, not a preference: below it the miss rate on a moving thumb climbs sharply,
+     and this is the control that gets pressed in a hurry. */
+  width: 46px; height: 46px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: rgba(10,13,20,.6); border: 2px solid rgba(255,255,255,.24);
   color: var(--ink); font-size: 13px; letter-spacing: .08em;
@@ -365,6 +384,19 @@ body.ps-open .hud-help { display: none; }
   .ps-head { font-size: 13px; margin-bottom: 5px; }
   .ps-side { max-width: 430px; }
   .ps-grid { gap: 6px; }
+  /* The 430px cap is NOT a style choice, so do not widen it without changing the grid too.
+     Held sideways both thumbs are at the left and right edges, and a 430px panel centred in an
+     844px screen puts every cell in the middle 48% — the one region a thumb cannot reach without
+     letting go of the phone. Taking the cap off was tried and is worse: `aspect-ratio: 168/118`
+     then makes each cell 266x187, three rows come to 561px inside a 390px screen, and the top row
+     lands at y=-90 with the bottom row off the other end.
+     The height is what binds. Three rows only fit if a cell is about 95px tall, which caps the
+     width at about 135px, which is the 430 above. Reaching the thumbs needs FEWER CARDS, not a
+     wider panel: at two rows a cell can be 239x168 and the grid spans 729px, comfortably under
+     both thumbs and nearly three times today's cell area.
+     That is a change to the playbook, not to this file — plays carry a `slot` of 0..8, there is
+     a `SPECIAL_SLOT = 9`, and the cursor starts at 4 because 4 is the middle of a 3x3. See
+     MOBILE_PLAN §3 and §9.4. */
   .ps-cell .nm { font-size: 11px; padding: 2px 4px; }
   /* The keyboard legend is wrong on a phone and the coach banner already says the right thing. */
   .ps-hint { display: none; }

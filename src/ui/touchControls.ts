@@ -61,6 +61,8 @@ interface Badge {
   ring: HTMLElement;
   arrow: HTMLElement;
   visible: boolean;
+  /** Receiver is outside the frame; the badge is pinned to the edge on his side. */
+  edge: boolean;
 }
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : 0);
@@ -133,7 +135,7 @@ export class TouchControls implements IntentSource {
       const arrow = el('div', 'tc-badge-arrow');
       root.append(ring, num, arrow);
       root.dataset.slot = String(i);
-      this.badges.push({ root, num, ring, arrow, visible: false });
+      this.badges.push({ root, num, ring, arrow, visible: false, edge: false });
       this.root.appendChild(root);
     }
 
@@ -492,6 +494,18 @@ export class TouchControls implements IntentSource {
       if (out.behind) { this.setBadgeVisible(b, false); continue; }
       const x = clamp(out.x, 34, vw - 34);
       const y = clamp(out.y, 74, vh - 96);
+      // Marked when the receiver is genuinely OUTSIDE the viewport — not merely when the badge
+      // got clamped. The two are different and conflating them cries wolf: the safe area stops
+      // 96 px short of the bottom so badges do not hide under the controls, so a receiver still
+      // plainly visible near the bottom edge trips the clamp while being perfectly readable.
+      // Off the frame is the case worth flagging. The badge still throws to him, so hiding it
+      // would remove a legal option; dashed, it says "he is out there, that way" instead of
+      // pointing confidently at grass.
+      const offFrame = out.x < 0 || out.x > vw || out.y < 0 || out.y > vh;
+      if (b.edge !== offFrame) {
+        b.edge = offFrame;
+        b.root.classList.toggle('edge', offFrame);
+      }
       b.root.style.transform = `translate(${x}px, ${y}px) translate(-50%,-50%)`;
       b.num.textContent = String(a.def.number);
       this.setBadgeVisible(b, true);

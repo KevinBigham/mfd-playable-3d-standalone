@@ -73,8 +73,26 @@ export interface SaveFile {
  * worse than one that is slightly softer. Everything is still changeable in Settings, and the
  * adaptive-resolution governor works either way.
  */
+/**
+ * The tier a machine starts on, before the player has ever opened Settings.
+ *
+ * A coarse pointer takes LOW, and it is not a guess about taste — it is the measured spread.
+ * On a strong GPU every tier costs the same (2.7 ms at p50, all three) so the choice is free;
+ * on a weak one HIGH runs 67.5 ms at p95 against LOW's 16.8, a 4x gap that is the difference
+ * between a game and a slideshow. Phones live at the weak end and this file cannot tell an A18
+ * from a five-year-old Android, so it takes the option that is recoverable: too low is a
+ * settings change away, too high is a player who leaves.
+ *
+ * Dynamic resolution does not cover this. It scales the framebuffer and nothing else — the
+ * shadow map, the post chain and the crowd are all fixed by the tier.
+ *
+ * `matchMedia` is read inline rather than through `uiKit.coarsePointer` on purpose: persistence
+ * has no other reason to depend on the interface layer, and this is the only line that would
+ * create the edge.
+ */
 function defaultQuality(): QualityTier {
   try {
+    if (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches) return 'LOW';
     if (typeof window !== 'undefined' && (window as unknown as { __GO_ARTIFACT__?: boolean }).__GO_ARTIFACT__) {
       return 'MEDIUM';
     }

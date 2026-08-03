@@ -122,11 +122,18 @@ const TO_PRE_SNAP = `
       if (drops[0]) m.submitOffense(drops[0]);
     }
     window.__TP.step(1);
-    if (m && m.phase === 'PRE_SNAP' && m.state.possession === 0) {
+    // Wait for the PAD, not just the phase. PRE_SNAP begins a tick or two before the quarterback
+    // is actually holding the ball, and modeFor only turns the pad on once he is — so returning
+    // on the phase alone handed the next caller a control layer that was still display:none, and
+    // every control measured 0x0. That raced for as long as the timing happened to fall the right
+    // way and then broke the moment anything upstream moved by a frame.
+    // (No backticks in here: this whole block is a template literal.)
+    if (m && m.phase === 'PRE_SNAP' && m.state.possession === 0 && g.touch.mode === 'SNAP') {
       return { ok: true, i, phase: m.phase, play: m.world.offensePlay ? m.world.offensePlay.id : '?' };
     }
   }
-  return { ok: false, phase: g.match ? g.match.phase : 'none' };
+  return { ok: false, phase: g.match ? g.match.phase : 'none',
+    mode: g.touch ? g.touch.mode : 'no pad' };
 })()
 `;
 
@@ -166,6 +173,46 @@ async function main(): Promise<void> {
     }));
     check('browser reports a coarse pointer', dev.coarse && dev.touchPoints > 0,
       `coarse=${dev.coarse} maxTouchPoints=${dev.touchPoints}`);
+
+    // ── the app shell ────────────────────────────────────────────────
+    //
+    // `viewport-fit=cover` is checked here rather than trusted because the failure is silent and
+    // total: without it iOS returns 0 for every `env(safe-area-inset-*)`, and the five rules in
+    // styles.css that dodge the notch and the home indicator all quietly stop working. Nothing
+    // in the page looks wrong on a desktop or in an emulator when that happens.
+    // Written as a string, not an arrow: tsx compiles named arrows in this file with an injected
+    // `__name` helper that does not exist inside the page, and the evaluate throws on it.
+    const shell = await page.evaluate(`(function () {
+      var q = function (n) {
+        var e = document.querySelector('meta[name="' + n + '"]');
+        return e ? e.getAttribute('content') : null;
+      };
+      var man = document.querySelector('link[rel=manifest]');
+      return {
+        viewport: q('viewport') || '',
+        apple: q('apple-mobile-web-app-capable'),
+        web: q('mobile-web-app-capable'),
+        manifest: man ? man.getAttribute('href') : '',
+        envParsed: CSS.supports('padding-top', 'env(safe-area-inset-top)'),
+        overscroll: getComputedStyle(document.documentElement).overscrollBehaviorY,
+      };
+    })()`) as {
+      viewport: string; apple: string | null; web: string | null;
+      manifest: string; envParsed: boolean; overscroll: string;
+    };
+    check('viewport opts into the safe-area insets', /viewport-fit=cover/.test(shell.viewport),
+      shell.viewport);
+    check('the engine parses env(safe-area-inset-*)', shell.envParsed,
+      'inset VALUES need a notched device; this only proves the syntax is live');
+    check('iOS is told it can run without browser chrome', shell.apple === 'yes' && shell.web === 'yes',
+      `apple=${shell.apple} web=${shell.web}`);
+    // A data URI, not a file: the artifact is one self-contained HTML file and an external
+    // manifest would be the first thing to break that. Chromium resolves this form; blob: does not.
+    check('a web-app manifest is attached and stays inline',
+      shell.manifest.startsWith('data:application/manifest+json,'),
+      shell.manifest ? `${shell.manifest.slice(0, 34)}… (${shell.manifest.length} chars)` : 'absent');
+    check('pull-to-refresh cannot reload a live drive', shell.overscroll === 'none',
+      `overscroll-behavior-y: ${shell.overscroll}`);
 
     const titleText = await page.evaluate(() => document.body.innerText);
     check('title asks for a tap, not a key press',
@@ -223,23 +270,32 @@ async function main(): Promise<void> {
         // athletes stopped being seven feet tall even though the badge was still on the man.
         const lo = g.renderer.projectToScreen(a.x, 1.15, a.z, { x: 0, y: 0, behind: false });
         const hi = g.renderer.projectToScreen(a.x, 2.05, a.z, { x: 0, y: 0, behind: false });
+        const el = document.querySelectorAll('.tc-badge')[slot];
         out.rows.push({ slot, num: a.def.number, bx: b.x, by: b.y,
-          cx: Math.round(lo.x), cy: Math.round(lo.y), hy: Math.round(hi.y), size: b.w });
+          cx: Math.round(lo.x), cy: Math.round(lo.y), hy: Math.round(hi.y), size: b.w,
+          edge: el.classList.contains('edge') });
       }
       return out;
     })()`) as { mode: string; held: number; qb: number; hasBall: boolean; thrown: boolean;
       phase: string; playPhase: string; dead: string | null; playTicks: number;
       rows: Array<{ slot: number; num: number; bx: number; by: number;
-        cx: number; cy: number; hy: number; size: number }> };
+        cx: number; cy: number; hy: number; size: number; edge: boolean }> };
 
     // On the man: horizontally over him, and vertically somewhere between his chest and one head
     // above his helmet. That is what "the badge is on the receiver" means for a thumb.
+    //
+    // A badge marked `edge` is exempt from the position test and gets a stricter one instead: its
+    // receiver has to be genuinely outside the frame. That is not a loosened gate — it closes a
+    // hole. The old test only ever looked at one frame, so a clamped badge either passed by luck
+    // or failed for a reason the failure text did not name; now a clamp is either justified by
+    // the receiver's real position or it is a defect, and the two cannot be confused.
     const tracked = badges.rows.length > 0 && badges.rows.every((r) => {
+      if (r.edge) return r.cx < 0 || r.cx > 844 || r.cy < 0 || r.cy > 390;
       const body = r.cy - r.hy;                    // screen y grows downward
       return Math.abs(r.bx - r.cx) <= 4 && r.by <= r.cy && r.by >= r.hy - body * 0.45;
     });
-    check('receiver badges are drawn on the receivers', tracked,
-      badges.rows.map((r) => `#${r.num}@${r.bx},${r.by}`).join(' ')
+    check('receiver badges are drawn on the receivers, or honestly marked off-frame', tracked,
+      badges.rows.map((r) => `#${r.num}@${r.bx},${r.by}${r.edge ? '(edge→' + r.cx + ',' + r.cy + ')' : ''}`).join(' ')
       || `no badges visible — pad mode=${badges.mode} driving=${badges.held} qb=${badges.qb}`
          + ` hasBall=${badges.hasBall} thrown=${badges.thrown} phase=${badges.phase}/${badges.playPhase} dead=${badges.dead} t=${badges.playTicks}`);
     check('badges are thumb-sized', badges.rows.every((r) => r.size >= 44),

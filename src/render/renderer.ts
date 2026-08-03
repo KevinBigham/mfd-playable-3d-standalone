@@ -28,6 +28,8 @@ export interface RendererOptions {
   reducedMotion: boolean;
   flash: number;
   resolutionScale: number;
+  /** Camera pull-in, 0..1. See `CameraOptions.dolly`; a phone runs `PHONE_DOLLY`. */
+  dolly: number;
 }
 
 const sample: AnimSample = {
@@ -105,7 +107,8 @@ export class GameRenderer {
     this.renderer.toneMappingExposure = 1.06;
     this.scene = new THREE.Scene();
     this.registry = new SceneRegistry(this.scene);
-    this.gameCamera = new GameCamera(16 / 9, { shake: opts.shake, reducedMotion: opts.reducedMotion });
+    this.gameCamera = new GameCamera(16 / 9,
+      { shake: opts.shake, reducedMotion: opts.reducedMotion, dolly: opts.dolly });
     if (this.quality.postProcessing) this.post = new PostFX(this.renderer, this.quality);
     this.applyToneMapping();
     this.resize();
