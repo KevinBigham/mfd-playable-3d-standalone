@@ -36,6 +36,11 @@ what is still missing. A desktop with a mouse never sees any of this.
 > [`PROJECT_STATE.md`](PROJECT_STATE.md) is where the work stopped and what is still open —
 > **read that one first if you have been away.**
 
+Athletes are built to real proportions — six heads tall, legs at 47 % of stature, a receiver
+long-limbed and V-shaped where a tackle is deep through the chest — with arcade attitude on top:
+saturated kits, oversized pads and gloves, stage lighting and heavy contact. Every shape is
+procedural. `npm run anthro` asserts the anatomy so it cannot drift.
+
 Seven a side. Thirty yards for a first down. Two-minute quarters. No penalties, no referees, no
 huddle. Turbo you have to manage, hurdles and spins and stiff arms, hits that shake the camera, and
 a momentum state called **OVERDRIVE** that turns a hot streak into a genuine threat. Up to four
@@ -100,6 +105,8 @@ npm run footslip     # do planted feet actually grip the turf, measured at the s
 npm run fieldpos     # where drives start, how kick returns go, and every safety explained
 npm run poses        # contact sheet: one frame of every animation state
 npm run gait         # contact sheet: one sprint stride, frame by frame
+npm run anthro       # athlete proportions, asserted rather than eyeballed
+npm run roster       # contact sheet: eight positions, recognisable by silhouette
 npm run artifact     # folds the whole game into ONE self-contained HTML file
 npm run artifact:check  # boots that file in a sandboxed iframe and plays a match in it
 npm run qa           # typecheck + tests + scenarios + batch + motion + the artifact build
@@ -196,10 +203,10 @@ fall back to memory, so a session stays coherent even though nothing survives a 
 
 ## BROWSER EXPECTATIONS
 
-Needs **WebGL2** and a reasonably modern browser: Chrome/Edge 100+, Firefox 100+, Safari 16+. It is
-built for a desktop or laptop with a keyboard or a controller; there is no touch control scheme, so
-phones and tablets are not supported. Audio starts on your first click or key press, as browsers
-require. Everything runs locally — no network traffic after the page loads.
+Needs **WebGL2** and a reasonably modern browser: Chrome/Edge 100+, Firefox 100+, Safari 16+.
+Desktop, laptop, phone or tablet — keyboard, controller or thumbs. On a phone, hold it sideways;
+portrait raises a rotate prompt and stops the clock. Audio starts on your first click, tap or key
+press, as browsers require. Everything runs locally — no network traffic after the page loads.
 
 ---
 
@@ -217,8 +224,9 @@ consume a typed event stream; they never write back. Full contract in
 
 Recorded honestly here and in QA_REPORT.md:
 
-- **No touch controls.** Desktop and controller only.
 - **No online play.** Local multiplayer only, by design.
+- **Ball placement on touch is unverified against a human.** The grammar works and is measured by
+  `npm run touch`, but nobody has played a full game with a thumb and reported back.
 - **Performance numbers from this repository's CI are software-rendered.** The container that built
   this has no GPU, so Chromium falls back to SwiftShader. Draw calls, triangle counts and memory
   figures in QA_REPORT.md are hardware-independent and meaningful; frame times from that environment

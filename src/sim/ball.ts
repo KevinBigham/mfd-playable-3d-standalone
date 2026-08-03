@@ -102,14 +102,25 @@ export function launchKick(
   w.ball.possession = a.side;
 }
 
+/**
+ * Which arm the ball is tucked under: +1 the athlete's right, -1 his left.
+ *
+ * The renderer poses the tucking arm and draws the ball in the cradle it makes, so the sign has
+ * to be the same one the offset below uses. It lives here, next to the code that decides it,
+ * rather than being re-derived in the render layer where it could quietly drift out of step.
+ */
+export function carryArm(a: Athlete): number {
+  return (a.move === 'STIFFARM' ? -1 : 1) * (a.side === 0 ? 1 : -1);
+}
+
 /** Keep the ball glued to the carrier's hands. */
 export function syncHeldBall(w: World): void {
   const st = w.ball.state;
   if (st.kind !== 'held') return;
   const a = w.athletes[st.carrier];
-  const side = a.move === 'STIFFARM' ? -0.55 : 0.42;
-  w.ball.x = a.x + Math.cos(a.facing) * side * (a.side === 0 ? 1 : -1);
-  w.ball.z = a.z - Math.sin(a.facing) * side * (a.side === 0 ? 1 : -1);
+  const side = carryArm(a) * (a.move === 'STIFFARM' ? 0.55 : 0.42);
+  w.ball.x = a.x + Math.cos(a.facing) * side;
+  w.ball.z = a.z - Math.sin(a.facing) * side;
   w.ball.y = 1.15 + a.y + (a.anim.state === 'DIVE' ? -0.35 : 0);
   w.ball.spin = 0;
 }

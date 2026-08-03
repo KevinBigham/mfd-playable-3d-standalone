@@ -68,13 +68,13 @@ async function main(): Promise<void> {
         var cam = g.renderer.gameCamera.camera;
         var fx = Math.sin(a.facing), fz = Math.cos(a.facing);
         var rx = Math.cos(a.facing), rz = -Math.sin(a.facing);
-        var d = 7.6, px, pz;
+        var d = 6.7, px, pz;
         if (view === 'front') { px = a.x + fx * d; pz = a.z + fz * d; }
         else if (view === 'threequarter') { px = a.x + (fx*0.7 + rx*0.7) * d; pz = a.z + (fz*0.7 + rz*0.7) * d; }
         else { px = a.x + rx * d; pz = a.z + rz * d; }
         cam.fov = 24;
-        cam.position.set(px, 1.30, pz);
-        cam.lookAt(a.x, 0.95, a.z);
+        cam.position.set(px, 1.15, pz);
+        cam.lookAt(a.x, 0.98, a.z);
         cam.updateProjectionMatrix();
         g.renderer.render();
         var c = document.querySelector('canvas');

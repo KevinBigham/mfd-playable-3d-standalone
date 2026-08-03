@@ -197,15 +197,25 @@ async function main(): Promise<void> {
         const id = w.passTargets[slot];
         const a = w.athletes[id];
         const b = window.__TP.badgeAt(slot);
-        const p = g.renderer.projectToScreen(a.x, 2.4, a.z, { x: 0, y: 0, behind: false });
+        // Project the athlete's CHEST and his CROWN, not the height the badge happens to be
+        // drawn at. This check used to re-derive the same constant the UI uses, which made it a
+        // tautology: it passed because the two numbers matched, and it failed the moment the
+        // athletes stopped being seven feet tall even though the badge was still on the man.
+        const lo = g.renderer.projectToScreen(a.x, 1.15, a.z, { x: 0, y: 0, behind: false });
+        const hi = g.renderer.projectToScreen(a.x, 2.05, a.z, { x: 0, y: 0, behind: false });
         out.rows.push({ slot, num: a.def.number, bx: b.x, by: b.y,
-          px: Math.round(p.x), py: Math.round(p.y), size: b.w });
+          cx: Math.round(lo.x), cy: Math.round(lo.y), hy: Math.round(hi.y), size: b.w });
       }
       return out;
-    })()`) as { rows: Array<{ slot: number; num: number; bx: number; by: number; px: number; py: number; size: number }> };
+    })()`) as { rows: Array<{ slot: number; num: number; bx: number; by: number;
+      cx: number; cy: number; hy: number; size: number }> };
 
-    const tracked = badges.rows.length > 0 && badges.rows.every((r) =>
-      Math.abs(r.bx - r.px) <= 2 && Math.abs(r.by - r.py) <= 2);
+    // On the man: horizontally over him, and vertically somewhere between his chest and one head
+    // above his helmet. That is what "the badge is on the receiver" means for a thumb.
+    const tracked = badges.rows.length > 0 && badges.rows.every((r) => {
+      const body = r.cy - r.hy;                    // screen y grows downward
+      return Math.abs(r.bx - r.cx) <= 4 && r.by <= r.cy && r.by >= r.hy - body * 0.45;
+    });
     check('receiver badges are drawn on the receivers', tracked,
       badges.rows.map((r) => `#${r.num}@${r.bx},${r.by}`).join(' ') || 'no badges visible');
     check('badges are thumb-sized', badges.rows.every((r) => r.size >= 44),

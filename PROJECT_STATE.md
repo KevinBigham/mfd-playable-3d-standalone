@@ -6,6 +6,42 @@
 
 ## CURRENT MILESTONE
 
+**M17 — the athletes were seven feet tall.** The brief was "make the players look a lot more
+athletic and realistic". Measuring instead of eyeballing inverted the expected answer: the
+animation was in reasonable shape and the **anatomy** was not. Every athlete rendered between
+7ft 2 and 7ft 5, carried an eighteen-inch head byte-identical on all sixteen rosters, and stood
+**4.7 heads tall** with legs at 31 % of him against a real 47 %. None of it was a style decision —
+`height` said 2.01 yd and the bone chain quietly added 18 % nothing accounted for.
+
+Rebuilt in six stages, all inside `src/render` and `src/ui`: every vertical landmark is now a
+fraction of stature (**6.00 heads**, hip 0.52, shoulder 0.80, leg 0.47, soles actually on the
+turf); limbs and torso are lofted tubes with real profiles instead of rounded boxes, which is
+**1 900 triangles cheaper per athlete at HIGH**; joints are smooth-skinned; ambient occlusion is
+baked into the vertex colours at build time at zero runtime cost; the ball is drawn in the
+carrier's hands instead of floating at his navel; and `build` drives five physique axes instead of
+one uniform scale, so a receiver is a long-limbed V (pads 1.8× his waist) and a tackle is deep and
+low-slung (1.0×).
+
+Two latent bugs fell out: `mergeGeometries` copied only the first of four skin influences, and the
+skeleton was built after the geometry so three.js captured identity bind inverses — together the
+reason smooth skinning could not simply be switched on. Two *probes* were also wrong, both from
+hardcoding a constant the implementation owned: `footslip` classified planted feet against the old
+rig's sole height, and `touchprobe` compared the receiver badge against the height the UI drew it
+at. Both now measure the outcome instead of restating the code.
+
+Foot slip improved rather than regressing: median 1.16 → **0.672 yd/s**, 29 % → **16 %** of ground
+speed. Determinism, 222 unit tests, 24 scenarios, 24 touch checks, 42/0 acceptance and simulation
+smoothness are all unchanged — the last verified by running the tool in a clean worktree at the
+pre-pass commit and diffing every row. New instruments: `npm run anthro` and `npm run roster`.
+Full write-up in QA_REPORT §13.
+
+**M16 — it plays on a phone.** A full touch control layer: a floating left-thumb stick with a
+turbo ring, a snap button, tappable receiver badges, and **drag off a badge to place the ball** —
+the one control with real depth, and why the phone version is not a lesser one. Menus and
+play-call reworked for thumbs, a portrait rotate gate that stops the clock, and `npm run touch` as
+the regression harness. Published to GitHub Pages from the artifact build so the playable link can
+never serve last week's game.
+
 **M15 — the move economy, the bobble, and the deep zone.** Added the juke, ball protection and the
 bobble (a juggled or batted pass that stays live in the air but is still legally a forward pass, so
 the ground ends it as incomplete and never as a fumble). Five mechanism-level bugs found by building
@@ -274,7 +310,8 @@ None.
 
 ## KNOWN LIMITATIONS
 
-- No touch controls; desktop plus keyboard or controller only.
+- Ball placement on touch is measured by `npm run touch` but **unverified against a human** — nobody
+  has played a full game with a thumb and reported back.
 - No online multiplayer, by design.
 - Frame-time figures produced in this repository's container are software-rendered (no GPU
   available), so they are a worst case; draw calls, triangles and memory are hardware-independent.
@@ -333,4 +370,5 @@ npm run smoothness npm run pacing     npm run perf:sim
 npm run artifact   npm run artifact:check
 npm run acceptance npm run driveprobe npm run runprobe   npm run passprobe
 npm run human      npm run fieldpos   npm run footslip   npm run poses
+npm run gait       npm run touch      npm run anthro     npm run roster
 ```

@@ -33,6 +33,23 @@ export interface AnimSample {
    * direction the body is going rather than the direction it is pointing.
    */
   drift: number;
+  /**
+   * +1 if the ball is tucked under the right arm, -1 the left, 0 if this athlete has no ball.
+   *
+   * A carrier tucks with one arm and pumps the other. Both arms pumping identically while a ball
+   * floated in front of the belly was the clearest "these are dummies" tell in the whole game.
+   */
+  carry: number;
+  /** Where the head should turn, as a yaw offset from the body's facing. Radians. */
+  gaze: number;
+  /** …and how far it should tilt. Positive looks down. */
+  gazePitch: number;
+  /**
+   * How fast the drawn body is turning, radians per second. Heads and hands do not turn with a
+   * chest, they arrive a frame or two after it, and that lag is most of why a thing reads as
+   * having mass rather than as a rotating diagram.
+   */
+  turn: number;
 }
 
 /*
@@ -121,6 +138,14 @@ function clearance(psi: number): number {
   const c = Math.cos(psi), sn = Math.sin(psi);
   return SHOE.drop * (c - 1) + Math.max(SHOE.toe * sn, SHOE.heel * sn);
 }
+
+/**
+ * States where a ball carrier tucks it away. Everywhere else the pose is doing something
+ * specific with both arms — reaching, throwing, breaking a fall — and a tuck would fight it.
+ */
+const CARRY_OK: Partial<Record<AnimState, true>> = {
+  RUN: true, SPRINT: true, IDLE: true, SET: true, STUMBLE: true, BACKPEDAL: true, SPIN: true,
+};
 
 /** States that are legitimately off the turf; the foot-planting pass must leave them alone. */
 const AIRBORNE: Partial<Record<AnimState, true>> = {
@@ -215,8 +240,11 @@ export function poseAthlete(rig: AthleteRig, s: AnimSample): void {
       const lean = lerp(0.14, 0.42, drive) + s.lean;
       bodyLean = lean * 0.30;                       // the pelvis tips a little…
       const spine = lean;                           // …the ribcage carries the rest
-      hipRoll = Math.sin(TAU * p) * 0.05;
-      hipYaw = Math.sin(TAU * p) * 0.12;
+      // Pelvic list, phased to the SWING leg rather than to a bare sine: the unsupported hip
+      // drops, which happens a quarter-cycle after that foot leaves the ground, not at the
+      // strike. Deeper at speed, where a sprinter's pelvis visibly rocks.
+      hipRoll = Math.sin(TAU * (p - 0.25)) * lerp(0.045, 0.085, drive);
+      hipYaw = Math.sin(TAU * p) * lerp(0.10, 0.17, drive);
 
       for (let i = 0; i < 2; i++) {
         const right = i === 0;
@@ -252,15 +280,20 @@ export function poseAthlete(rig: AthleteRig, s: AnimSample): void {
         (rig as any).__dbg[right ? 'R' : 'L'] = { u, az, ay, toe, duty, contact, front, stride, thighW: line - alpha, knee: Math.PI - inner };
       }
 
-      // Arms oppose the legs: the right arm is furthest back as the right foot strikes.
+      // Arms oppose the legs: the right arm is furthest back as the right foot strikes. The
+      // outward splay grows on the outside of a turn — arms trail a body that is changing
+      // direction, they do not pivot with it.
       const c = Math.cos(TAU * p);
       const amp = lerp(0.32, 0.56, drive);
       const mid = lerp(0.16, 0.26, drive);
       const fold = lerp(-0.88, -1.06, drive);
-      poseArm(b, true, spine, mid + c * amp, mid + c * amp + fold + c * 0.20, 0.09);
-      poseArm(b, false, spine, mid - c * amp, mid - c * amp + fold - c * 0.20, 0.09);
+      const trail = clamp(s.turn, -3, 3) * 0.035;
+      poseArm(b, true, spine, mid + c * amp, mid + c * amp + fold + c * 0.20, 0.09 - trail);
+      poseArm(b, false, spine, mid - c * amp, mid - c * amp + fold - c * 0.20, 0.09 + trail);
 
-      set(b.chest, spine - bodyLean, -Math.sin(TAU * p) * 0.16, 0);
+      // Counter-rotation through the trunk: the ribcage twists against the pelvis, hard at
+      // sprint. This is what an arm swing is FOR, and it was barely present.
+      set(b.chest, spine - bodyLean, -Math.sin(TAU * p) * lerp(0.14, 0.30, drive) - hipYaw, 0);
       set(b.head, -spine * 0.62, Math.sin(TAU * p) * 0.05, 0);
       break;
     }
@@ -457,6 +490,28 @@ export function poseAthlete(rig: AthleteRig, s: AnimSample): void {
       break;
     }
     default: break;
+  }
+
+  // ── the ball, and where the head is looking ───────────────────────────────
+  //
+  // High and tight: upper arm hanging just behind vertical, forearm clamped across the ribs,
+  // elbow pinned in. The renderer draws the ball in the cradle this makes between the wrist and
+  // the elbow, which is why the two are written together — a tuck pose with the ball somewhere
+  // else is worse than no tuck at all.
+  if (s.carry !== 0 && CARRY_OK[s.state]) {
+    READ.setFromQuaternion(b.chest.quaternion, 'XYZ');
+    poseArm(b, s.carry > 0, bodyLean + READ.x, 0.06, -1.58, 0.03);
+  }
+
+  // Heads are remarkably still while a body works, and they point at what matters. Applied on
+  // top of whatever the state wrote so every pose gets it, and yaw-outermost so the turn
+  // survives a pitched-forward neck.
+  if (s.gaze !== 0 || s.gazePitch !== 0 || s.turn !== 0) {
+    READ.setFromQuaternion(b.head.quaternion, 'YXZ');
+    set(b.head,
+      READ.x + clamp(s.gazePitch, -0.5, 0.5),
+      READ.y + clamp(s.gaze, -1.1, 1.1) - clamp(s.turn, -3, 3) * 0.055,
+      READ.z, 'YXZ');
   }
 
   // ── plant the feet ────────────────────────────────────────────────────────

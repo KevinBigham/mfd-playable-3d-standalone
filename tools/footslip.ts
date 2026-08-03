@@ -56,11 +56,17 @@ async function main(): Promise<void> {
       var slips = [], grounds = [], straight = [], planted = 0, floating = 0;
       var prev = {};                          // athleteId -> {m:[matrixWorld], low:[y,y]}
       // A standing athlete's sole rests here, and it is the same for every athlete: the rig
-      // derives leg length from hip height, so the ankle always lands 0.08 up and the sole
-      // 0.108 below that. A foot is only counted as planted when it is within a centimetre
-      // of that line on BOTH ticks of the pair — otherwise the two frames either side of a
-      // toe-off get counted as a plant, and they are the fastest-moving frames in the cycle.
-      var REST = -0.028, TOL = 0.012;
+      // puts the ankle at exactly the sole thickness, so the cleat sits ON the turf and this
+      // line is zero. npm run anthro asserts that, which is what lets it be a constant here.
+      // A foot is only counted as planted when it is within a centimetre of the line on BOTH
+      // ticks of the pair — otherwise the two frames either side of a toe-off get counted as a
+      // plant, and they are the fastest-moving frames in the cycle.
+      //
+      // It used to read -0.028, the rest height of a rig whose ankle landed 0.08 up and whose
+      // legs were 31% of him. Left alone through the proportion pass it stopped selecting
+      // planted feet at all and started selecting feet digging in at push-off, which reported
+      // as an 18% slip regression that had not happened.
+      var REST = 0, TOL = 0.012;
       // Sole samples in foot-bone space, heel to toe, and how far the sole sits below the ankle.
       var SAMPLES = [-0.1325, -0.05, 0.06, 0.16, 0.2525];
       var DROP = -0.108;

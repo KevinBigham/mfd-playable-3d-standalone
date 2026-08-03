@@ -5,7 +5,10 @@ import type { TeamColors } from '../core/types.ts';
 /** The football: a lathed prolate spheroid with laces and stripes. */
 export function buildBall(reg: SceneRegistry): THREE.Mesh {
   const pts: THREE.Vector2[] = [];
-  const L = 0.34, R = 0.19;
+  // 16in by 10in — about half again life size, which is the smallest a ball stays readable at
+  // twenty yards. It used to be 24in by 14in: sized against athletes who were seven feet tall,
+  // and once they became six foot three it was a watermelon.
+  const L = 0.225, R = 0.135;
   for (let i = 0; i <= 14; i++) {
     const t = i / 14;
     const y = (t - 0.5) * 2 * L;
@@ -19,17 +22,17 @@ export function buildBall(reg: SceneRegistry): THREE.Mesh {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = true;
 
-  const laceGeo = new THREE.BoxGeometry(0.035, 0.02, 0.20);
+  const laceGeo = new THREE.BoxGeometry(0.024, 0.014, 0.132);
   const laceMat = new THREE.MeshBasicMaterial({ color: 0xf2ede2 });
   reg.trackAll(laceGeo, laceMat);
   const lace = new THREE.Mesh(laceGeo, laceMat);
-  lace.position.set(0, 0.175, 0);
+  lace.position.set(0, 0.133, 0);
   mesh.add(lace);
 
-  const stripeGeo = new THREE.TorusGeometry(0.135, 0.016, 4, 14);
+  const stripeGeo = new THREE.TorusGeometry(0.113, 0.011, 4, 14);
   const stripeMat = new THREE.MeshBasicMaterial({ color: 0xf2ede2 });
   reg.trackAll(stripeGeo, stripeMat);
-  for (const z of [-0.14, 0.14]) {
+  for (const z of [-0.095, 0.095]) {
     const s = new THREE.Mesh(stripeGeo, stripeMat);
     s.position.set(0, 0, z);
     mesh.add(s);

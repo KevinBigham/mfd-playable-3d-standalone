@@ -90,14 +90,14 @@ async function main(): Promise<void> {
         g.renderer.sync(w, m.state, 1, 0, false);
         g.renderer.sync(w, m.state, 1, tSec, false);
         var cam = g.renderer.gameCamera.camera;
-        var d = 8.0;
+        var d = 7.0;
         var px, pz;
         if (view === 'front') { px = 0; pz = 50 + d; }
         else if (view === 'side') { px = d; pz = 50; }
         else { px = d * 0.72; pz = 50 + d * 0.72; }
         cam.fov = 22;
-        cam.position.set(px, 1.55, pz);
-        cam.lookAt(0, 1.00, 50);
+        cam.position.set(px, 1.35, pz);
+        cam.lookAt(0, 1.04, 50);
         cam.updateProjectionMatrix();
         g.renderer.render();
         return document.querySelector('canvas').toDataURL('image/png');

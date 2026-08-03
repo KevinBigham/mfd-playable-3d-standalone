@@ -484,7 +484,9 @@ export class TouchControls implements IntentSource {
       const b = this.badges[i];
       const a = id >= 0 ? w.athletes[id] : null;
       if (!a || a.move === 'DOWN') { this.setBadgeVisible(b, false); continue; }
-      renderer.projectToScreen(a.x, 2.4, a.z, out);
+      // Helmet height. This is a control, not decoration — a thumb has to land on the receiver,
+      // so it tracks the crown (2.05–2.12, see PROP in athleteRig.ts) rather than a fixed guess.
+      renderer.projectToScreen(a.x, 2.10, a.z, out);
       // Behind the camera projects to a mirrored point on the far side of the screen, which
       // would put a badge on the wrong receiver. Hide it instead.
       if (out.behind) { this.setBadgeVisible(b, false); continue; }

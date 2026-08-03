@@ -1476,7 +1476,232 @@ inside the catch radius plus a stride.
 
 ---
 
-## 13. WHAT WAS RUN TO PRODUCE THIS
+## 13. THE ATHLETES WERE SEVEN FEET TALL
+
+The brief was "make the players look a lot more athletic and realistic". The finding that came
+back from measuring rather than eyeballing was narrower, and inverted what I expected:
+
+> **The animation was in reasonable shape. The anatomy was not.**
+
+The run cycle is solved, not swept (§9), and foot slip was already down to about a yard a second.
+Spending the pass on more animation states would have been polishing the wrong thing. What that
+machinery was driving was a toy.
+
+### 13.1 What the measurement found
+
+`tools/anthro.ts` (`npm run anthro`) builds real rigs with the same `buildAthleteRig` the game
+calls, at HIGH detail, and walks every vertex of the merged buffer. It needs no GPU. It asserts
+proportions rather than pixels, so it fails when somebody adds a riser to a bone offset and passes
+when somebody restyles a helmet.
+
+| | before | after | real athlete, helmeted |
+|---|---|---|---|
+| stature | **7ft 2 – 7ft 5** | **6ft 2 – 6ft 4** | 6ft 1 – 6ft 5 |
+| head, crown to jaw | **18.0 in**, identical on all sixteen rosters | 12.3 – 12.7 in | ≈ 12 in |
+| **heads tall** | **4.69** | **6.00** | 6.40 |
+| hip joint / stature | 0.385 | 0.501 – 0.534 | 0.520 |
+| shoulder / stature | 0.759 | **0.800** | 0.800 |
+| **leg, hip→ankle / stature** | **0.310** | **0.450 – 0.482** | 0.480 |
+| shoulder-pad span | 44.0 in | 24.3 – 28.4 in | ≈ 24 in |
+| triangles per athlete, HIGH | 7 450 | **5 334 – 5 598** | — |
+
+Four things fell out of that table, and none of them was a style decision anybody took:
+
+1. **Every athlete was seven feet tall.** `height` said 2.01–2.10 yd, but the bone chain stacked a
+   0.36 neck riser and a 0.29 head offset on a chest at 70 % of nominal, so the figure that
+   rendered was 18 % taller than the number configuring it. Nothing consumed the discrepancy, so
+   it never surfaced. Every vertical landmark is now a fraction of stature (`PROP` in
+   `athleteRig.ts`) and each bone offset is a landmark minus its parent's — there is nowhere left
+   for an unaccounted riser to hide.
+2. **The head was eighteen inches and byte-identical on all sixteen rosters.** It was the one
+   dimension `build` did not touch. At 21 % of stature it is the loudest cue in the silhouette.
+3. **The legs were 31 % of the body against a real 47 %.** This is the number behind "not
+   athletic": long legs under a compact trunk is *the* visual signature of a sprinter, and the rig
+   had the inverse.
+4. **Nothing tapered.** `bulk` scaled the torso's width and depth by the same factor, so `build`
+   made everyone bigger and nobody a different *shape*.
+
+**The proportion target is six heads.** Real helmeted proportion is 6.4 and a late-90s arcade
+cabinet is about 5. This is a deliberate point on that axis and it is signed off in `DESIGN.md`
+§9, which previously committed to "chunky athletes" and now says what these are.
+
+### 13.2 A latent bug that blocked smooth skinning, and a second one behind it
+
+`mergeGeometries` copied **only component 0** of `skinIndex` and `skinWeight`. Harmless while
+every vertex was bound to one bone at weight 1; the moment a second weight existed, every blended
+vertex would have collapsed toward the origin.
+
+Fixing that was necessary and not sufficient. The deeper problem was that the skeleton was built
+*after* the geometry and before any `updateMatrixWorld`, so three.js captured **identity** bind
+inverses and the geometry was left in per-bone space. That works perfectly for one bone and cannot
+work for two: the shoulder and the elbow map the same authored point to two different places, so
+any blended vertex is torn between them.
+
+The rig now builds its skeleton first, captures real rest matrices, and the builder moves each
+part from its bone's space into rest space. `npm run anthro` asserts that every bone's rest
+skinning matrix is the identity (measured: exactly 0 error) and that every vertex's influences sum
+to one (3.0e-8). Both checks exist because the first attempt at this silently double-transformed
+the whole athlete, and the athletes came out 3.9 yards tall.
+
+### 13.3 Lofted limbs are cheaper than the boxes they replaced
+
+A rounded box has no profile: the upper arm and the forearm come out the same diameter, and so do
+the thigh and the shin. `limb()` sweeps an elliptical tube through a list of rings, which buys the
+deltoid swell, the tricep, the taper to the wrist, the quad sweep, the calf belly — sitting behind
+the shin's axis, which is why a ring carries a centre offset — and an actual ankle.
+
+It is **cheaper than what it replaced**: a `chunk` at HIGH is a 4×4×4 `BoxGeometry`, 192 triangles
+spent on a shape with no profile, against 80 for an eight-sided five-ring loft with a full one.
+The torso became a loft too, which is where the V-taper lives. Net: about **1 900 triangles
+returned per athlete** while adding every profile the athletes did not have.
+
+Trim did not survive the change unaltered. Sleeve hems, armbands, wrist tape and sock tops were
+flat boxes, which is fine on a flat-sided limb and turns into a fin sticking out of a round one.
+They sample the profile they wrap now (`band()`), and the pad lip — a shadow line drawn as
+geometry — was deleted outright because ambient occlusion draws it better.
+
+### 13.4 Ambient occlusion, at zero runtime cost
+
+There were no contact shadows anywhere: nothing in the armpit, under the pads, beneath the chin or
+between the legs. Every form was lit identically, so the parts sat *near* each other instead of
+joining — most of what made a body read as a bag of plastic pieces.
+
+`bakeAO` multiplies occlusion straight into the `color` attribute the mesh already carries, at
+build time, from capsule proxies laid along the rest skeleton. **No new attribute, no shader
+change, no extra draw call, nothing at runtime.** About 5 500 vertices against 15 capsules per
+athlete, fourteen athletes — under a million distance tests at match load.
+
+Proxies are deliberately *narrower* than the limbs they stand for, which leaves every convex
+surface point outside them and facing away. Convex surfaces stay bright and only genuine
+concavities go dark, which is what makes a proxy bake worth doing instead of ray-tracing the real
+triangles for a thousand times the cost.
+
+### 13.5 The ball was never in anybody's hands
+
+`syncHeldBall` parks the ball on the carrier's centreline at a fixed `y = 1.15`. That is the
+anchor catches, contact and fumbles are measured from, and it is a correct one. It was also the
+position the ball got **drawn** at, so in every frame of the game the ball floated in front of
+somebody's belly touching nothing.
+
+The simulation is untouched. The drawn ball now sits in the cradle the tuck pose makes between the
+carrier's wrist and elbow, pulled up and in against the ribs, pointing along the forearm it is
+clamped against. `carryArm` moved into `src/sim/ball.ts` next to the offset that decides it, so
+the drawn arm and the drawn ball cannot drift onto opposite sides of the body. The replay buffer
+carries it too, in a per-athlete float slot that was writing a constant nobody read.
+
+The ball itself was **24 inches long and 14 across** — sized against seven-foot athletes. It is
+16 × 10 now, about half again life size, which is the smallest that stays readable at twenty yards.
+
+Also in this pass: a carrier tucks with one arm and pumps the other (both arms pumped identically
+before); heads turn toward the live ball, or toward whoever has it; the head lags a turning body;
+and trunk counter-rotation and pelvic list were deepened, with the list phased to the **swing** leg
+— the unsupported hip drops a quarter-cycle after that foot leaves the ground, not at the strike.
+
+### 13.6 Five physique axes instead of one
+
+`BUILD_RANGE` in `src/data/names.ts` already separated a corner (0.14–0.32) from a tackle
+(0.82–1.00). The number was simply never asked for more than one thing. It drives mass, breadth,
+depth, waist and limb length independently now — no data change.
+
+Limb length moves the **hip and knee landmarks**, so a long-legged athlete gets a shorter trunk at
+the same stature, which is how real bodies differ. Measured across a real roster:
+
+| | wide receiver | offensive tackle |
+|---|---|---|
+| pad span / waist — the V | **1.81** | **1.00** |
+| leg / stature | 0.482 | 0.450 |
+| chest depth / stature | 0.174 | 0.273 |
+
+`npm run roster` is the eight-position silhouette sheet; `npm run anthro` asserts all three
+spreads, so a future change cannot quietly collapse them back to one figure at two scales.
+
+### 13.7 Feet grip better than they did
+
+`npm run footslip`, same harness, same seed:
+
+| | before this pass | after |
+|---|---|---|
+| slip, median | 1.16 yd/s | **0.672** |
+| slip, mean | 2.90 | **1.679** |
+| slip as a share of ground speed | 29 % | **16.0 %** |
+| slip while running straight, mean | 1.19 | **0.683** |
+| tick-pairs with a foot down | — | 6 451 |
+
+Longer legs make a longer stride at the same ground covered, so the duty factor moves and this had
+to be measured rather than assumed. It moved the right way, for a reason worth recording: the rig
+now satisfies `hipHeight = legLength + soleThickness` exactly, so a standing athlete's cleats rest
+**on** the turf. `athletePose` drops the pelvis onto precisely that height, and the old rig missed
+it by 0.08 yd — every stance in the game was that far out.
+
+> **The probe was recalibrated, and the first run after the proportion change was wrong.**
+> `footslip` classified a foot as planted within a centimetre of `REST = -0.028`, the sole height
+> of a rig whose ankle landed 0.08 up. Left alone, it stopped selecting planted feet and started
+> selecting feet digging in at push-off, and reported an 18 % slip *regression* that had not
+> happened. `REST` is 0 now, which `npm run anthro` asserts. The before column above is the
+> recorded figure from §9, measured when `-0.028` was correct for that rig; both columns therefore
+> describe correctly-classified planted feet in their own rig.
+
+### 13.8 What it costs
+
+`npm run perf`, same harness, against the **pre-pass commit measured in a clean git worktree**
+rather than against the figures recorded earlier in this document — which turned out to be stale
+for LOW's draw calls in exactly the way §6's smoothness figures were stale.
+
+| tier | draw calls | triangles, scene | per athlete |
+|---|---|---|---|
+| HIGH | 40 → **39** | 209 508 → **183 668** (−12.3 %) | 7 450 → **5 598** |
+| MEDIUM | 35 → **35** | 106 880 → 107 168 | — → 2 998 |
+| LOW | 50 → **50** | 48 860 → **≈ 52 000** (+6 %) | 835 → **1 056** |
+
+Draw calls are unchanged at every tier, which is the number that actually matters: one skinned
+mesh per athlete, and this pass added no meshes.
+
+**HIGH got materially cheaper.** A `chunk` at HIGH is a 4×4×4 `BoxGeometry` — 192 triangles for a
+shape with no profile — against 80 for an eight-sided five-ring loft with a full one, so replacing
+ten limb segments and the torso returns about 1 900 triangles per athlete.
+
+**LOW got more expensive, and the ceiling in `npm run anthro` was deliberately raised from 835 to
+1 100.** At LOW a `chunk` is 12 triangles, so there a loft costs more than it saves. Ring counts
+and sides are already decimated at that tier (four sides, every other interior ring dropped, ends
+always kept). The remaining 221 triangles per athlete is 3 100 across the field, against a scene
+budget of 420 000 — 0.7 %. It is worth paying because a 56-pixel athlete on a phone is *all*
+silhouette: limb profile buys more at this tier than at any other, which is the opposite of where
+you would normally spend. Raising a budget quietly would be the wrong move; the arithmetic is in
+the assertion.
+
+### 13.9 What this pass did not touch, by construction
+
+Everything is inside `src/render` and `src/ui`, plus one pure helper exported from `src/sim/ball.ts`
+that the simulation itself now uses. So:
+
+- `npm run replay` — identical hashes (`ec37fe8a`, `c4bca483`), 12 / 12
+- `npm test` — 222 / 222, including the layer-purity boundary
+- `npm run smoothness` — **byte-identical**, verified by running the tool in a clean git worktree
+  at the pre-pass commit and diffing: churn 1.853, facing jerk 10 164, position jerk 4 075,
+  positional pops 6.854 / athlete / s, body overlap 1.476 %. Every row the same to the digit.
+
+That last check is worth stating plainly because §6's recorded smoothness numbers (churn 1.780,
+facing jerk 9 968, position jerk 3 786) **no longer match what the tool prints**. The difference
+predates this pass — it came in with the mobile and touch work — and it was verified rather than
+assumed, by measuring HEAD in a separate worktree. This pass moved simulation motion by zero.
+
+### 13.10 What was deliberately not done
+
+- **No toe bone.** It would let the sole roll through push-off. But the *fixed* contact reference
+  at the ball of the foot is why slip fell from 6.86 to about 1 yd/s, and a rolling reference is
+  exactly the thing that measured 4.7 yd/s while looking fine in stills (§9). Not worth risking on
+  the same pass as everything else. It should be revisited alone, against `footslip`.
+- **No imported models or mocap.** The repository ships zero binary assets and `artifact.ts` folds
+  everything into one HTML file with no network access. A rigged glTF athlete would end both
+  properties.
+- **No facial detail, no cloth simulation, no new textures.** The gameplay camera sits 13.5–23 yd
+  out, which puts an athlete at roughly 128 px on a desktop and 56 px on a phone. At 128 px
+  proportion, silhouette, taper and joint quality all read. Pore detail does not, at any distance.
+  At 56 px only the silhouette survives, which is the argument for having spent the pass on it.
+
+---
+
+## 14. WHAT WAS RUN TO PRODUCE THIS
 
 > **The capture set is not in the repository.** Screenshots referenced throughout this report live
 > in `docs/captures/` and are regenerated by `npm run capture` (whole set) or `npm run shot`
@@ -1507,6 +1732,8 @@ npm run driveprobe       # yards and conversions by concept, down and distance, 
 npm run runprobe         # run-game autopsy: blockers, first contact, gain shape, §12
 npm run passprobe        # what happens to every forward pass, §12
 npm run pacing           # frame pacing, §6
+npm run anthro           # athlete proportions, asserted rather than eyeballed, §13
+npm run roster           # eight positions side by side, silhouette check, §13
 npm run poses            # one frame per animation state, §9
 npm run gait             # one stride, frame by frame, §9
 npm run capture          # visual review set
@@ -1517,7 +1744,7 @@ npm run artifact:check   # boots and plays that file in a sandboxed iframe, §8
 
 ---
 
-## 14. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
+## 15. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
 
 Stated as failures rather than omissions:
 

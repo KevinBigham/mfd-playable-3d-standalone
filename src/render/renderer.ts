@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type {
   AnimState, Conditions, GameEvent, MatchState, StadiumDef, TeamDef, TeamSide,
 } from '../core/types.ts';
+import { carryArm } from '../sim/ball.ts';
 import { SceneRegistry, QUALITY_PRESETS, type QualitySettings, type QualityTier } from './registry.ts';
 import { buildAthleteRig, rimUniforms, type AthleteRig } from './athleteRig.ts';
 import {
@@ -31,6 +32,7 @@ export interface RendererOptions {
 
 const sample: AnimSample = {
   state: 'IDLE', phase: 0, speed01: 0, lean: 0, fire: 0, t: 0, stride: 3, drift: 0,
+  carry: 0, gaze: 0, gazePitch: 0, turn: 0,
 };
 
 /** Per-athlete presentation state: pose cross-fade, smoothed yaw, body lean and bank. */
@@ -39,6 +41,9 @@ interface RigMotion {
   fadeT: number;
   fadeDur: number;      // 0 = not fading
   yaw: number;
+  /** Last frame's `yaw`, so the head and hands can lag a body that is turning. */
+  prevYaw: number;
+  turn: number;
   bank: number;
   visible: boolean;     // was it drawn last frame? if not, snap instead of easing
   /** side*1000 + jersey. A slot can change hands between plays; that is a different body. */
@@ -47,13 +52,15 @@ interface RigMotion {
 function makeMotion(): RigMotion {
   return {
     fadeFrom: new Float32Array(POSE_FLOATS), fadeT: 0, fadeDur: 0,
-    yaw: 0, bank: 0, visible: false, rigKey: -1,
+    yaw: 0, prevYaw: 0, turn: 0, bank: 0, visible: false, rigKey: -1,
   };
 }
 
 /** Body yaw chases the simulation heading; 26 is roughly a 40 ms tail. */
 /** Scratch for projectToScreen. Called a few times per frame; allocating a Vector3 each time isn't. */
 const PROJ = new THREE.Vector3();
+const HAND = new THREE.Vector3();
+const ELBOW = new THREE.Vector3();
 
 const YAW_LAMBDA = 26;
 /** Beyond this the heading changed because the athlete was moved, not because he turned. */
@@ -371,6 +378,12 @@ export class GameRenderer {
       if (!mo.visible || Math.abs(angDelta(mo.yaw, yawTarget)) > YAW_SNAP) mo.yaw = yawTarget;
       else mo.yaw += angDelta(mo.yaw, yawTarget) * (1 - Math.exp(-YAW_LAMBDA * dt));
 
+      // Turn rate of the DRAWN body, smoothed: a raw per-frame delta is noise at 120 Hz and a
+      // step at 30, and this drives a visible lag on the head.
+      const rate = dt > 1e-4 ? angDelta(mo.yaw, mo.prevYaw) / dt : 0;
+      mo.turn = mo.visible ? damp(mo.turn, rate, 14, dt) : 0;
+      mo.prevYaw = mo.yaw;
+
       const bankTarget = clamp(-a.anim.accelLat * BANK_PER_ACCEL, -BANK_MAX, BANK_MAX);
       mo.bank = mo.visible ? damp(mo.bank, bankTarget, 11, dt) : bankTarget;
       rig.root.rotation.set(0, mo.yaw, mo.bank);
@@ -408,6 +421,27 @@ export class GameRenderer {
       sample.drift = spd > 0.4 ? angDelta(mo.yaw, Math.atan2(a.vx, a.vz)) : 0;
       sample.fire = a.onFire ? 1 : 0;
       sample.t = this.animT[i];
+      sample.carry = a.hasBall ? carryArm(a) : 0;
+      sample.turn = mo.turn;
+
+      // Eyes on the ball. A live ball is the only thing on the field worth watching, and when
+      // somebody has it, everyone else watches HIM. The renderer already knows every position
+      // this needs; the athletes were simply never told to look.
+      const bst = world.ball.state;
+      let gx = 0, gy = 0, gz = 0, look = false;
+      if (bst.kind === 'inAir' || bst.kind === 'kicked' || bst.kind === 'loose') {
+        gx = world.ball.x; gy = world.ball.y; gz = world.ball.z; look = true;
+      } else if (bst.kind === 'held' && bst.carrier !== a.id) {
+        const c = world.athletes[bst.carrier];
+        gx = c.x; gy = 1.35 + c.y; gz = c.z; look = true;
+      }
+      if (look) {
+        const dist = Math.hypot(gx - a.x, gz - a.z);
+        sample.gaze = dist > 0.6 ? angDelta(mo.yaw, Math.atan2(gx - a.x, gz - a.z)) : 0;
+        sample.gazePitch = -Math.atan2(gy - (1.45 + a.y), Math.max(1.0, dist));
+      } else {
+        sample.gaze = 0; sample.gazePitch = 0;
+      }
       poseAthlete(rig, sample);
 
       if (mo.fadeDur > 0) {
@@ -425,7 +459,19 @@ export class GameRenderer {
     const b = world.ball;
     const bx = lerp(b.prevX, b.x, alpha), by = lerp(b.prevY, b.y, alpha), bz = lerp(b.prevZ, b.z, alpha);
     this.ball.position.set(bx, by, bz);
-    if (b.state.kind === 'inAir' || b.state.kind === 'kicked') {
+    if (b.state.kind === 'held') {
+      // In his HANDS, not at his navel.
+      //
+      // `syncHeldBall` parks the ball on the athlete's centreline at a fixed 1.15 because that is
+      // the anchor catches, contact and fumbles are measured from — a physics position, and a
+      // correct one. It was also the position it got DRAWN at, so in every frame of the game the
+      // ball floated in front of somebody's belly touching nothing. The simulation is untouched
+      // here; only the drawn ball moves, into the cradle the tuck pose makes between the wrist
+      // and the elbow.
+      const car = world.athletes[b.state.carrier];
+      const rig = this.rigs[car.side].get(car.def.number);
+      if (rig && rig.root.visible) this.tuckBall(rig, carryArm(car), this.motion[car.id].yaw);
+    } else if (b.state.kind === 'inAir' || b.state.kind === 'kicked') {
       // Point the ball along the path it is actually travelling. A thrown ball is moved by
       // interpolating between two points rather than by integrating a velocity, so `b.v*` is
       // zero for the whole flight and the spiral used to hang at a fixed angle.
@@ -479,7 +525,9 @@ export class GameRenderer {
       const sp = this.numberSprites[a.controlledBySeat];
       if (sp) {
         sp.visible = true;
-        sp.position.set(lerp(a.prevX, a.x, alpha), 3.05 + a.y, lerp(a.prevZ, a.z, alpha));
+        // Clear of the tallest crown in the league (2.12) plus a gap. Every height in this file
+        // used to assume a seven-foot athlete; see PROP in athleteRig.ts.
+        sp.position.set(lerp(a.prevX, a.x, alpha), 2.62 + a.y, lerp(a.prevZ, a.z, alpha));
       }
       seatIdx++;
     }
@@ -492,7 +540,7 @@ export class GameRenderer {
       // moving at the display rate is more obvious than the body would have been on its own.
       mk.carrierMark.position.set(
         lerp(car.prevX, car.x, alpha),
-        2.75 + lerp(car.prevY, car.y, alpha) + Math.sin((world.tick + alpha) * 0.14) * 0.08,
+        2.40 + lerp(car.prevY, car.y, alpha) + Math.sin((world.tick + alpha) * 0.14) * 0.08,
         lerp(car.prevZ, car.z, alpha),
       );
       (mk.carrierMark.material as THREE.MeshBasicMaterial).color.setHex(car.onFire ? 0xff7a2a : 0xffe14d);
@@ -509,7 +557,7 @@ export class GameRenderer {
       const r = world.athletes[id];
       sp.visible = true;
       sp.position.set(
-        lerp(r.prevX, r.x, alpha), 2.95 + lerp(r.prevY, r.y, alpha), lerp(r.prevZ, r.z, alpha),
+        lerp(r.prevX, r.x, alpha), 2.58 + lerp(r.prevY, r.y, alpha), lerp(r.prevZ, r.z, alpha),
       );
     }
 
@@ -524,6 +572,23 @@ export class GameRenderer {
       mk.reticle.visible = false;
     }
     void match;
+  }
+
+  /** Put the drawn ball in the cradle the tuck pose makes between that arm's wrist and elbow. */
+  private tuckBall(rig: AthleteRig, arm: number, yaw: number): void {
+    rig.root.updateMatrixWorld(true);
+    HAND.setFromMatrixPosition((arm > 0 ? rig.bones.handR : rig.bones.handL).matrixWorld);
+    ELBOW.setFromMatrixPosition((arm > 0 ? rig.bones.elbowR : rig.bones.elbowL).matrixWorld);
+    this.ball.position.copy(ELBOW).lerp(HAND, 0.52);
+    // …then pulled up and in against the ribs, which is the difference between carrying a ball
+    // and holding one out for somebody to take.
+    this.ball.position.x += Math.sin(yaw) * 0.02 - Math.cos(yaw) * arm * 0.11;
+    this.ball.position.z += Math.cos(yaw) * 0.02 + Math.sin(yaw) * arm * 0.11;
+    this.ball.position.y += 0.11;
+    // Pointing along the forearm it is clamped against.
+    HAND.sub(ELBOW);
+    this.ball.rotation.set(
+      Math.atan2(-HAND.y, Math.hypot(HAND.x, HAND.z)), Math.atan2(HAND.x, HAND.z), 0);
   }
 
   /** Pose everything from a recorded replay frame. Never touches simulation state. */
@@ -557,6 +622,13 @@ export class GameRenderer {
       sample.stride = 2.6;
       sample.drift = 0;             // replay frames carry no velocity; the stride runs true ahead
       sample.fire = 0;
+      sample.turn = 0;
+      sample.carry = a.carry;
+      // Replays record the ball's position but not its state, which is all a gaze needs.
+      const gd = Math.hypot(view.ball.x - a.x, view.ball.z - a.z);
+      const mine = a.carry !== 0;
+      sample.gaze = !mine && gd > 0.6 ? angDelta(mo.yaw, Math.atan2(view.ball.x - a.x, view.ball.z - a.z)) : 0;
+      sample.gazePitch = mine ? 0 : -Math.atan2(view.ball.y - (1.45 + a.y), Math.max(1.0, gd));
       sample.t = this.animT[i] += dt;
       poseAthlete(rig, sample);
       if (mo.fadeDur > 0) {
@@ -570,6 +642,12 @@ export class GameRenderer {
       for (const rig of this.rigs[side].values()) if (!shown.has(rig)) rig.root.visible = false;
     }
     this.ball.position.set(view.ball.x, view.ball.y, view.ball.z);
+    const held = view.athletes.findIndex((a) => a.carry !== 0);
+    if (held >= 0) {
+      const a = view.athletes[held];
+      const rig = this.rigs[a.side]?.get(a.jersey);
+      if (rig && rig.root.visible) this.tuckBall(rig, a.carry, this.motion[held].yaw);
+    }
     this.ball.visible = true;
     for (const r of this.markers.rings) r.visible = false;
     for (const sp of this.numberSprites) sp.visible = false;

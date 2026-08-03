@@ -229,15 +229,45 @@ Season, **off** for Tournament. Settings → Comeback Assist.
 
 ## 9. ART DIRECTION
 
-A lost late-90s arcade cabinet rebuilt with modern clarity. Chunky athletes with broad shoulder
-pads and oversized hands; saturated invented team colours; hard shadows and bright speculars; turf
-debris, sparks, impact rings and camera impulses on contact. No photorealism, no gore, no blood.
+A lost late-90s arcade cabinet rebuilt with modern clarity. Broad shoulder pads and oversized
+gloves; saturated invented team colours; hard shadows and bright speculars; turf debris, sparks,
+impact rings and camera impulses on contact. No photorealism, no gore, no blood.
 
 Everything is generated from code at runtime: geometry, canvas textures, SVG logos, shaders. There
 is not a single binary art asset in the repository.
 
-Athletes are one `SkinnedMesh` each with rigid single-bone skinning and vertex colours, so a full
-7-on-7 costs about fourteen draw calls. Poses are procedural — no imported animation clips.
+### The athletes are arcade in attitude and anatomical in build
+
+This section used to say "chunky athletes", and it was honest about what the game shipped: every
+athlete rendered between 7ft 2 and 7ft 5, carried an eighteen-inch head that was byte-identical on
+all sixteen rosters, and stood **4.7 heads tall** with his legs making up 31% of him. None of that
+was a style decision anybody took. `height` said 2.01 yards and the bone chain quietly added 18%
+on top of it that nothing accounted for.
+
+The resolution, chosen deliberately rather than drifted into: **keep the arcade attitude, fix the
+anatomy.** Saturated kits, stage lighting, oversized pads and gloves, heavy contact and exaggerated
+poses all stay. The body underneath is built to real proportions.
+
+The target is **six heads tall**. Real helmeted proportion is 6.4 and a late-90s cabinet is about
+5, so six is a deliberate point on that axis: unmistakably athletic in silhouette, still stylised
+enough that the game does not start writing cheques its 800-triangle LOW tier cannot cash. Every
+vertical landmark is a fraction of stature — hip 0.519, shoulder 0.800, chin 0.833 — so an athlete
+is one number with a shape attached rather than a pile of multipliers that happened to agree.
+`npm run anthro` asserts all of it, including that a standing athlete's soles are on the turf.
+
+`build` used to drive one uniform scale, which made a lineman a receiver at 130% — bigger, never a
+different shape. It is five axes now: mass, breadth, depth, waist and limb length. A receiver is a
+long-limbed V (pads 1.8× his waist); a tackle is deep through the chest and low-slung (pads 1.0×
+his waist, chest depth 0.27 of his height against a receiver's 0.17). `npm run roster` is the
+eight-position silhouette sheet that check exists to protect.
+
+Athletes are one `SkinnedMesh` each with vertex colours, so a full 7-on-7 still costs about
+fourteen draw calls. Limbs are lofted tubes with real profiles — deltoid, tricep, wrist, quad
+sweep, calf belly, ankle — which is both more shape and about 1 900 **fewer** triangles per
+athlete than the rounded boxes they replaced. Joints are smooth-skinned across a band, so an elbow
+bends as one surface instead of two solids interpenetrating. Contact shadows are baked into the
+vertex colours at build time from capsule proxies along the bones: no new attribute, no shader
+change, no draw call, nothing at runtime. Poses are procedural — no imported animation clips.
 
 ## 9b. RENDERING
 

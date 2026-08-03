@@ -40,7 +40,9 @@
     "passprobe": "tsx tools/passprobe.ts",
     "driveprobe": "tsx tools/driveprobe.ts",
     "runprobe": "tsx tools/runprobe.ts",
-    "deepprobe": "tsx tools/deepprobe.ts"
+    "deepprobe": "tsx tools/deepprobe.ts",
+    "anthro": "tsx tools/anthro.ts",
+    "roster": "tsx tools/roster.ts"
   },
   "dependencies": {
     "three": "^0.169.0"
