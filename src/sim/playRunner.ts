@@ -16,7 +16,7 @@ import {
   startJuke,
 } from './movement.ts';
 import { giveBall, releasePass, stepBall, killBall, syncHeldBall, dropLoose } from './ball.ts';
-import { resolveAirBall, resolveLooseBall } from './catching.ts';
+import { resolveAirBall, resolveLooseBall, fieldKickoff } from './catching.ts';
 import {
   updateBlocking, updateTackling, resolveBodyOverlap, clearAllEngagements, applyPush,
   updatePostPlaySlapstick,
@@ -812,6 +812,7 @@ export function stepPlay(w: World, controllers: (Controller | null)[]): DeadReas
 
   stepBall(w);
   if (w.playPhase === 'LIVE') {
+    if (w.ball.state.kind === 'kicked') fieldKickoff(w);
     if (w.ball.state.kind === 'inAir') resolveAirBall(w);
     if (w.ball.state.kind === 'loose') resolveLooseBall(w);
     if (w.ball.state.kind === 'held') syncHeldBall(w);

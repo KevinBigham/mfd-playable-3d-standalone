@@ -91,7 +91,7 @@ npm run preview   # serves dist/ on http://localhost:4173
 ```bash
 npm run typecheck    # strict TypeScript across src, tools and tests
 npm test             # unit tests (rules, league data, playbook, audio, layer purity)
-npm run scenarios    # 24 deterministic gameplay scenarios with assertions
+npm run scenarios    # 25 deterministic gameplay scenarios with assertions
 npm run sim          # CPU-vs-CPU batch simulation with a balance report
 npm run sim:batch    # 200 games
 npm run invariants   # 50 games with per-tick rules-invariant checking
@@ -101,6 +101,7 @@ npm run perf         # frame-time profile of moving gameplay at every quality pr
 npm run smoothness   # motion quality: animation churn, heading and position jerk, stride cadence
 npm run pacing       # frame pacing: apparent-speed jitter across eight display models
 npm run human        # scripts a PLAYER onto the sticks and checks what the game does about it
+npm run touch        # plays a down on a phone-sized screen with two thumbs and no keyboard
 npm run footslip     # do planted feet actually grip the turf, measured at the shoe
 npm run fieldpos     # where drives start, how kick returns go, and every safety explained
 npm run poses        # contact sheet: one frame of every animation state

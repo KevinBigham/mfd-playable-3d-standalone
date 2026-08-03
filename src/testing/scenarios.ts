@@ -3,6 +3,8 @@ import { Match, defaultMatchConfig } from '../rules/match.ts';
 import { getTeam, TEAM_IDS } from '../data/index.ts';
 import { giveBall, dropLoose, killBall } from '../sim/ball.ts';
 import { OFF_START, DEF_START, carrier } from '../sim/world.ts';
+import { kickReturner } from '../sim/catching.ts';
+import { baseSpeed } from '../sim/movement.ts';
 import { computeFirstDown, dirOf, goalOf, noteCatch, breakStreaks } from '../rules/rulesEngine.ts';
 import { s } from '../core/constants.ts';
 
@@ -89,6 +91,35 @@ export const SCENARIOS: Scenario[] = [
     const ok = m.phase === 'KICKOFF_LIVE';
     runUntil(m, (x) => x.phase === 'PLAY_CALL' || x.phase === 'SCORE_RESOLVE', s(45));
     return { pass: ok && countEvent(m, 'kickoff') > 0, detail: `phase=${m.phase} kickoffs=${countEvent(m, 'kickoff')}` };
+  }),
+
+  scenario('the deep man fields every kickoff, at a sprint', (m) => {
+    // The two things the kick return is built on, asserted rather than hoped for: he catches it —
+    // all of them, no bounce, no scramble — and he is running when he does. Catching it standing
+    // still is worth 3.9 yards a return, which is what this used to be.
+    let kicks = 0; let fielded = 0; let slow = 0; let deep = 0;
+    for (let i = 0; i < 14; i++) {
+      runUntil(m, (x) => x.phase === 'KICKOFF_LIVE', s(90));
+      if (m.phase !== 'KICKOFF_LIVE') break;
+      const w = m.world;
+      const ret = kickReturner(w);
+      if (!ret || w.special === 'ONSIDE') { runUntil(m, (x) => x.phase !== 'KICKOFF_LIVE', s(30)); continue; }
+      kicks++;
+      // He must start in his own end zone: the run-up is the whole design.
+      if ((ret.homeZ - goalOf(w.possession)) * dirOf(w.possession) >= 3) deep++;
+      const id = ret.id;
+      runUntil(m, (x) => x.world.athletes[id].hasBall || x.phase !== 'KICKOFF_LIVE', s(30));
+      const a = w.athletes[id];
+      if (a.hasBall) {
+        fielded++;
+        if (Math.hypot(a.vx, a.vz) < baseSpeed(a)) slow++;
+      }
+      runUntil(m, (x) => x.phase !== 'KICKOFF_LIVE', s(30));
+    }
+    return {
+      pass: kicks >= 4 && fielded === kicks && slow === 0 && deep === kicks,
+      detail: `${fielded}/${kicks} fielded, ${slow} caught below jogging pace, ${deep}/${kicks} lined up in the end zone`,
+    };
   }),
 
   scenario('play reaches a snap and a dead ball', (m) => {

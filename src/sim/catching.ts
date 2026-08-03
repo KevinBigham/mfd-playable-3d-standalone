@@ -6,7 +6,7 @@ import {
 } from '../core/constants.ts';
 import { clamp, clamp01, dist } from '../core/math.ts';
 import type { World } from './world.ts';
-import { OFF_START, DEF_START } from './world.ts';
+import { dirOf } from './world.ts';
 import { giveBall, dropLoose, killBall, bobbleBall } from './ball.ts';
 import { knockDown, startJump } from './movement.ts';
 
@@ -19,6 +19,57 @@ function reachOf(a: Athlete): number {
 }
 
 export interface CatchCandidate { a: Athlete; d: number; claim: number }
+
+/**
+ * The deep man on a kick return: whoever on the receiving team lined up furthest from the kicker.
+ *
+ * Read off alignment rather than a roster flag or a slot index, so it survives any formation and
+ * stays a pure function of the world — which the replay harness requires.
+ */
+export function kickReturner(w: World): Athlete | null {
+  const dir = dirOf(w.possession);          // the kicking team kicks this way; deepest is furthest
+  let best: Athlete | null = null;
+  for (const a of w.athletes) {
+    if (a.side === w.possession) continue;
+    if (best === null || a.homeZ * dir > best.homeZ * dir) best = a;
+  }
+  return best;
+}
+
+/** How close the returner has to be to a falling kickoff to take it. Generous on purpose. */
+const FIELD_RADIUS = 2.4;
+
+/**
+ * Fielding a kickoff. The only catch in this file with no dice in it.
+ *
+ * A kickoff used to have no catch at all: the ball hit the turf, bounced, and `resolveLooseBall`
+ * gave it to whoever fell on it. Measured over sixty games that is worth 3.9 yards a return, and
+ * one return in six went BACKWARDS. The deep man now sets up in the back of his own end zone, runs
+ * up underneath it and catches it moving — and there is nothing a coin flip adds to a man standing
+ * alone under a ball with his hands out. What he does with it afterwards is the play.
+ *
+ * Onside kicks are deliberately excluded: a ball nobody is meant to catch cleanly is the whole
+ * point of one, and it keeps its scramble.
+ */
+export function fieldKickoff(w: World): boolean {
+  const st = w.ball.state;
+  if (st.kind !== 'kicked' || st.kickKind !== 'KICKOFF') return false;
+  const b = w.ball;
+  if (b.vy >= 0) return false;                       // still on the way up
+  const r = kickReturner(w);
+  if (!r || r.move === 'DOWN' || r.move === 'GETUP' || r.move === 'STUNNED') return false;
+  if (b.y > reachOf(r)) return false;
+  if (dist(r.x, r.z, b.x, b.z) > FIELD_RADIUS) return false;
+
+  giveBall(w, r.id);
+  // `recover`, not `catch`, and the distinction is not cosmetic: a `catch` in this game is a
+  // COMPLETION — it carries yards past the line of scrimmage, it feeds the Overdrive streak and
+  // it is what every probe counts as a reception. Fielding a kick is none of those. `recover` is
+  // also exactly what this moment emitted before, when it came out of the loose-ball scramble, so
+  // it sounds the same and no counter moves.
+  w.bus.emit({ type: 'recover', tick: w.tick, by: r.id, side: r.side });
+  return true;
+}
 
 /**
  * Called every tick while the ball is in the air.

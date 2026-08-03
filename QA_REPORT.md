@@ -47,8 +47,8 @@ called out wherever it distorts a number.
 
 ```
 npm run typecheck    clean, strict, across src + tools + tests
-npm test             9 files, 214 tests, all passing (~34 s)
-npm run scenarios    24 / 24 deterministic gameplay scenarios
+npm test             10 files, 222 tests, all passing (~12 s)
+npm run scenarios    25 / 25 deterministic gameplay scenarios
 npm run replay       12 / 12 determinism + persistence checks
 npm run smoke        19 / 19 browser checks
 npm run sim:batch    200 games, 0 violations, 0 watchdogs
@@ -1701,7 +1701,131 @@ assumed, by measuring HEAD in a separate worktree. This pass moved simulation mo
 
 ---
 
-## 14. WHAT WAS RUN TO PRODUCE THIS
+## 14. A KICKOFF HAD NEVER ONCE BEEN CAUGHT
+
+The brief was specific: put a man in the back of the end zone, have him run up and catch every
+kickoff cleanly, and make everyone else on the receiving team a blocker. Reading the code to find
+where to improve the catch turned up the actual finding:
+
+> **There was no catch. A kickoff had never been caught in this game, not once.**
+
+`stepBall` turned a landing kickoff into a **loose ball** (`ball.ts`), and `resolveLooseBall` gave
+it to whoever fell on it first. Every kick return in the history of this build started with a
+scramble for a bouncing ball. The numbers over sixty games say exactly that:
+
+| `npm run fieldpos`, 60 games, PRO | before | after |
+|---|---|---|
+| kickoffs fielded at | own 13.2 | own 16.6 |
+| return ended at | own 17.1 | **own 26.2** |
+| net gained on the return | 3.9 yd | **9.6 yd** |
+| returns that went BACKWARDS | **17 %** | **0 %** |
+| drive start after a kickoff | own 17.9 | **own 24.2** |
+| snaps starting inside the own 10 | 4.7 % | 2.7 % |
+| snaps starting inside the own 5 | 1.5 % | 1.1 % |
+| safeties a game | 0.25 | 0.22 |
+
+### 14.1 The run-up is the feature
+
+The deep man sets up `RETURNER_DEPTH` (7) yards into his own end zone. That spot is measured from
+the **goal line**, not from the line of scrimmage, and it therefore cannot come out of the
+alignment table with the other six: a kickoff lands a set distance from the goal whether it was
+struck from the 30 or, after a safety, from the 20.
+
+He does not sprint to the landing spot and stand on it. He squares up under the ball while it is
+up, and leaves when his own run time matches the ball's remaining flight — then runs **through** the
+catch, with the lead folding away as the ball drops so he does not overrun it. The catch itself has
+no dice in it. He is alone under a ball with his hands out; a coin flip adds nothing, and what he
+does next is the play.
+
+| `tools/koprobe` (scratch), 120 games | |
+|---|---|
+| kickoffs (onside excluded by design) | 1 125 |
+| fielded cleanly by the deep man | **1 125 — 100.0 %** |
+| speed at the catch | mean **15.1 yd/s**, min 11.6 (base skill speed is 9.4) |
+| his gap to the ball as it came into reach | mean 0.4 yd, max 1.6, against a 2.4 yd radius |
+
+The permanent version of that is a scenario — `the deep man fields every kickoff, at a sprint` —
+which fails if a single kickoff hits the turf, if one is caught below jogging pace, or if the deep
+man is not lined up in his own end zone. It runs in `npm run scenarios`.
+
+### 14.2 Three defects that were already there
+
+None of these were in the new code. All three were exposed by it.
+
+**Both teams charged the kicker.** Until it is struck the ball is *held*, which makes the kicker a
+`carrier`, which sent the entire receiving team at a man standing on his own thirty for the half
+second before every kickoff — and the kicking team blocking for him. It cost the deep man six of
+the ten yards of run-up his whole alignment exists to buy. Nobody moves now until the kick is away.
+
+**`turboSpeed` is not the top speed.** The returner solved his run-up against `turboSpeed(a)`,
+which is short by the 11 % Overdrive multiplier the moment the man catches fire. He set off early,
+arrived a quarter of a second before the ball and ran out from under it — **one kickoff in a
+hundred**, and every single failure traced to a returner with `turbo=100` running 16.9 yd/s against
+a 15.2 prediction. `movement.ts` now exports `topSpeed`, the number it already computed internally
+for gait, and both callers use it. This is the same defect class as §13's probe bugs: a second
+module re-deriving a value the owning module already had.
+
+**The camera filmed returns from in front.** It faced `dirOf(w.possession)`, and possession names
+the *kicking* team for the whole of a kickoff — so it sat downfield of the returner and watched him
+run at the lens with his own end zone behind him. Same on a pick-six and a fumble return. It now
+faces whichever way the man **carrying** the ball is going; the swing is damped like every other
+framing parameter, so a turnover pans rather than cuts. `playRunner.idleStep` already carried a
+comment diagnosing this exact confusion for celebrations, one layer down.
+
+A fourth, found while fixing the third: `projectToScreen` read the camera's world matrix without
+refreshing it, and `lookAt` does not write one — three.js only recomputes it inside `render`. So it
+answered with wherever the camera pointed on the last drawn frame. Harmless while the shot is
+steady, and not harmless during a 180° swing, where every receiver badge went to the mirrored point
+on the far side of the screen.
+
+### 14.3 Where it lands is a run-up length, not a yard line
+
+The obvious reading of "back of the end zone, runs up" is to drop the ball near the goal line and
+make the run-up as long and as pretty as possible. Measured across four landing windows, that is
+the worst of the four:
+
+| kick lands on the receiver's… | catch at own | drives after a kickoff start at own |
+|---|---|---|
+| 2 to 9 | 6.6 | 16.9 |
+| 8 to 15 | 12.4 | 17.6 |
+| **12 to 20** (shipped) | 16.8 | **20.6** |
+| 16 to 24 | 20.8 | 24.5 |
+
+(scripted player on the sticks, 32 seeds; the 16-to-24 row buys its field position by making the
+run-up short enough to stop being the point.) A returner who is not steered perfectly out of his
+own 6 loses more to the field position than the momentum ever gives back. Twelve-to-twenty leaves
+a twenty-five-yard run-up — long enough to be at top speed, short enough to never be late.
+
+### 14.4 What it did not change
+
+CPU-vs-CPU balance, essentially: **55.3 combined points against 53.3**, 56.5 plays against 54.7,
+212.7 passing and 37.6 rushing against 209.2 / 36.7, 8.0 touchdowns against 7.7, 0 rules violations
+and 0 watchdog trips in 200 games. Punt returns improved as a side effect of the blocker change
+(net −1.8 → **+2.6** yards, backwards on 76 % → 57 %), which was not the goal and is not a
+regression.
+
+A scripted player on the sticks, over 64 seeded games against the same opponent at HEAD and after:
+189 → 187 yards a game, 16.6 → 15.3 points, 153 → 144 touchdowns, 6 → 4 shutouts, and his own
+drives after a kickoff starting on the **18.3 → 19.5**. The yardage and field-position numbers
+carry the sample (n≈400 drives); the scoring numbers do not — the same configuration measured 18.2
+points at 32 seeds and 15.3 at 64, so treat the points column as noise and the drive-start column
+as the result.
+
+### 14.5 A probe that was measuring the play caller
+
+`npm run touch` failed after this pass, and not for a touch reason. Its receiver-badge checks rode
+out the play-call clock and took whatever down the auto-picker produced; that happened to be a pass
+for as long as nobody moved the RNG, and this pass moved it. It drew a run, there were no receivers
+to put badges on, and the check reported "no badges visible" for a defect that did not exist.
+
+It now calls the deepest drop in the book — no handoff in the routes, out of the gun, latest primary
+read — which is the down it always needed and never asked for. Its failure message prints the pad
+mode, who the seat is driving and the dead-ball reason, so the next time it fails for a reason that
+is not badges, it says so. **24/24.**
+
+---
+
+## 15. WHAT WAS RUN TO PRODUCE THIS
 
 > **The capture set is not in the repository.** Screenshots referenced throughout this report live
 > in `docs/captures/` and are regenerated by `npm run capture` (whole set) or `npm run shot`
@@ -1715,10 +1839,11 @@ assumed, by measuring HEAD in a separate worktree. This pass moved simulation mo
 ```bash
 npm install
 npm run typecheck        # clean
-npm test                 # 214 / 214
-npm run scenarios        # 24 / 24
+npm test                 # 222 / 222
+npm run scenarios        # 25 / 25
 npm run replay           # 12 / 12
-npm run human            # 17 / 17  scripted human on the sticks, §9
+npm run human            # 19 / 19  scripted human on the sticks, §9
+npm run touch            # 24 / 24  two thumbs and nothing else, §14
 npm run sim -- --games 200 --invariants
 npm run perf:sim
 npm run build
@@ -1726,7 +1851,7 @@ npm run smoke            # 19 / 19
 npm run perf
 npm run smoothness       # motion quality, §6
 npm run footslip         # do planted feet grip the turf, §9
-npm run fieldpos         # drive starts, kick returns and every safety, §10
+npm run fieldpos         # drive starts, kick returns and every safety, §10, §14
 npm run acceptance       # the 61-test matrix, §12
 npm run driveprobe       # yards and conversions by concept, down and distance, §12
 npm run runprobe         # run-game autopsy: blockers, first contact, gain shape, §12
@@ -1744,7 +1869,7 @@ npm run artifact:check   # boots and plays that file in a sandboxed iframe, §8
 
 ---
 
-## 15. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
+## 16. KNOWN LIMITATIONS AND UNVERIFIED CLAIMS
 
 Stated as failures rather than omissions:
 

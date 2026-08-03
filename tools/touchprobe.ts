@@ -105,12 +105,26 @@ const TO_PRE_SNAP = `
             { side: 0, active: false }, { side: 1, active: false }], mode: 'QUICKPLAY' },
     returnScreen: 'mainMenu' });
   window.__TP.init();
-  // Ride out the kickoff and the play call. The call clock expires on its own, which keeps the
-  // approach to the snap identical on every run.
+  // Ride out the kickoff, then CALL THE DEEPEST DROP IN THE BOOK. Letting the play-call clock
+  // expire looked like the neutral choice and was not: it hands the down to whatever the
+  // auto-picker fancies, and everything below needs one specific kind of down — a quarterback
+  // still holding the ball a beat after the snap, with receivers to put badges on. Seed 90210
+  // drew one of those for a while, then drew a run the moment anything upstream moved the RNG by
+  // a single draw. So: no handoff in the routes, out of the gun, and the latest primary read
+  // available, which is the same thing a person picks when they want a second to look.
   for (let i = 0; i < 4000; i++) {
-    window.__TP.step(1);
     const m = g.match;
-    if (m && m.phase === 'PRE_SNAP' && m.state.possession === 0) return { ok: true, i, phase: m.phase };
+    if (m && m.phase === 'PLAY_CALL' && m.state.possession === 0 && !m.pendingOffense) {
+      const drops = m.offensePlays.filter((p) =>
+        !p.players.some((q) => q.route.some((n) => n.action === 'CARRY'))
+        && /SHOTGUN/.test(p.formation));
+      drops.sort((a, b) => b.timing.primary - a.timing.primary);
+      if (drops[0]) m.submitOffense(drops[0]);
+    }
+    window.__TP.step(1);
+    if (m && m.phase === 'PRE_SNAP' && m.state.possession === 0) {
+      return { ok: true, i, phase: m.phase, play: m.world.offensePlay ? m.world.offensePlay.id : '?' };
+    }
   }
   return { ok: false, phase: g.match ? g.match.phase : 'none' };
 })()
@@ -165,8 +179,8 @@ async function main(): Promise<void> {
     check('a real touch gets past the title screen', afterTap === 'mainMenu', `screen=${afterTap}`);
 
     // ── into a match, at the snap ────────────────────────────────────
-    const arrive = await page.evaluate(TO_PRE_SNAP.replace('SEED', '90210')) as { ok: boolean; phase: string };
-    check('reaches the snap with the ball', arrive.ok, `phase=${arrive.phase}`);
+    const arrive = await page.evaluate(TO_PRE_SNAP.replace('SEED', '90210')) as { ok: boolean; phase: string; play?: string };
+    check('reaches the snap with the ball', arrive.ok, `phase=${arrive.phase} play=${arrive.play ?? '?'}`);
 
     const snapBtn = await page.evaluate(() => {
       const b = document.querySelector('.tc-snap') as HTMLElement;
@@ -191,7 +205,13 @@ async function main(): Promise<void> {
       const g = window.GO;
       window.__TP.step(24);
       const w = g.match.world;
-      const out = { mode: null, rows: [] };
+      const me = w.athletes.find((a) => a.controlledBySeat === 0);
+      // The pad only draws badges in QB mode. When this check fails it is usually because the
+      // down is not the one it thinks it is, so say which mode it actually got.
+      const out = { mode: g.touch.mode, held: me ? me.id : -1, qb: w.qbId,
+        hasBall: !!(me && me.hasBall), thrown: w.passThrown,
+        phase: g.match.phase, playPhase: w.playPhase,
+        dead: w.deadReason, playTicks: w.playTicks, rows: [] };
       const vis = window.__TP.visibleBadges();
       for (const slot of vis) {
         const id = w.passTargets[slot];
@@ -207,8 +227,10 @@ async function main(): Promise<void> {
           cx: Math.round(lo.x), cy: Math.round(lo.y), hy: Math.round(hi.y), size: b.w });
       }
       return out;
-    })()`) as { rows: Array<{ slot: number; num: number; bx: number; by: number;
-      cx: number; cy: number; hy: number; size: number }> };
+    })()`) as { mode: string; held: number; qb: number; hasBall: boolean; thrown: boolean;
+      phase: string; playPhase: string; dead: string | null; playTicks: number;
+      rows: Array<{ slot: number; num: number; bx: number; by: number;
+        cx: number; cy: number; hy: number; size: number }> };
 
     // On the man: horizontally over him, and vertically somewhere between his chest and one head
     // above his helmet. That is what "the badge is on the receiver" means for a thumb.
@@ -217,7 +239,9 @@ async function main(): Promise<void> {
       return Math.abs(r.bx - r.cx) <= 4 && r.by <= r.cy && r.by >= r.hy - body * 0.45;
     });
     check('receiver badges are drawn on the receivers', tracked,
-      badges.rows.map((r) => `#${r.num}@${r.bx},${r.by}`).join(' ') || 'no badges visible');
+      badges.rows.map((r) => `#${r.num}@${r.bx},${r.by}`).join(' ')
+      || `no badges visible — pad mode=${badges.mode} driving=${badges.held} qb=${badges.qb}`
+         + ` hasBall=${badges.hasBall} thrown=${badges.thrown} phase=${badges.phase}/${badges.playPhase} dead=${badges.dead} t=${badges.playTicks}`);
     check('badges are thumb-sized', badges.rows.every((r) => r.size >= 44),
       `${badges.rows.map((r) => r.size).join('/')} px`);
     await shot(page, '11-touch-badges');

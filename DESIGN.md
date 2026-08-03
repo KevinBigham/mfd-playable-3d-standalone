@@ -312,11 +312,16 @@ and the middle is destroyed.
 
 ## 10. CAMERA
 
-One automatic broadcast camera, never player-controlled, never rolling, never flipping orientation
-mid-play (which would be unplayable in local multiplayer). It starts behind the offence, frames the
-line of scrimmage and the first-down marker before the snap, widens on deep throws, tightens on
-breakaways, pulls back for kicks, and settles fast after the whistle. Impact shake is scaled by a
-user setting and disabled entirely by Reduced Motion.
+One automatic broadcast camera, never player-controlled, never rolling. It starts behind the
+offence, frames the line of scrimmage and the first-down marker before the snap, widens on deep
+throws, tightens on breakaways, pulls back for kicks, and settles fast after the whistle. Impact
+shake is scaled by a user setting and disabled entirely by Reduced Motion.
+
+It faces whichever way the man **carrying** the ball is going, which is not the same as whose down
+it is. On a scrimmage play they agree; on every return they are opposites, and keying the shot to
+possession filmed kick returns, pick-sixes and fumble returns from in front — the returner running
+at the lens with his own end zone behind him. The turn happens once, on the change of possession,
+and it is damped like every other framing parameter, so it pans rather than cuts.
 
 The framing numbers — distance, height, look-ahead, field of view — are eased in their own right
 before the camera is placed from them, so a change of shot is a second-order move rather than a
@@ -376,10 +381,27 @@ A kick is the only play where both teams are running at full speed in the same d
 the one place where "offence" and "defence" stop being useful words — the kicking team has the
 ball, so it is nominally the offence while doing nothing but chasing.
 
+- **The deep man catches it, and he catches it running.** He sets up seven yards deep in his own
+  end zone, waits out the flight, and leaves when his own run time matches the ball's — so the
+  catch happens twenty-five yards later, at a sprint, with the return already under way. There is
+  no roll on it: he is alone under a ball with his hands out and a coin flip adds nothing. What he
+  does next is the play. This is worth stating in numbers because it was the difference between a
+  kick return and a formality — 3.9 yards a return and one in six going BACKWARDS, against 9.6
+  yards and none.
+- **Everyone else on the return team blocks, from the moment it is struck.** Not "once he catches
+  it": the wall forms in front of where the return will START, which is not where the returner is
+  standing — he is twenty-five yards behind it and about to run through. Six men converging on a
+  ball in the air is a return team blocking nobody.
+- **Nobody moves until the ball is.** The kicker holds the ball on the tee, which makes him a
+  carrier, which had both teams setting off half a second early — one side charging a man standing
+  on his own thirty, the other blocking for him.
 - **Hang time and coverage speed are a single dial.** A kick that hangs too briefly for the cover
   team arrives with an open field in front of the returner and every return scores. One that hangs
   too long lands with the coverage already there and no return ever gets started. They are set
   together or not at all.
+- **Where it lands is a run-up length, not a yard line.** Deeper is not kinder. Landing it on the
+  goal line gives a glorious run-up and starts the drive on the 6, and a returner who is not
+  steered perfectly out of there loses more to the field position than the momentum returns.
 - **Coverage sprints the whole way and keeps a reserve.** Sixty yards is not a pursuit angle, it is
   a race — but a cover man who arrives empty watches the returner run away from him, because the
   ball carrier has a small speed advantage by design.

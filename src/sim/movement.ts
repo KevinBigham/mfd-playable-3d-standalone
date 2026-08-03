@@ -42,6 +42,17 @@ export function turboSpeed(a: Athlete): number {
   const raw = isLineman(a) ? SPEED_LINE_TURBO : SPEED_SKILL_TURBO;
   return raw * (1 + (a.def.ratings.speed - 50) * SPEED_RATING_SCALE);
 }
+/**
+ * The fastest this athlete can travel right now, Overdrive included.
+ *
+ * `turboSpeed` is NOT that number and anybody timing a run against it is wrong by eleven per cent
+ * the moment the man catches fire. That is exactly how the kick returner used to miss one kickoff
+ * in a hundred: he solved his run-up against `turboSpeed`, set off in Overdrive, arrived a quarter
+ * of a second early and ran out from under the ball.
+ */
+export function topSpeed(a: Athlete): number {
+  return turboSpeed(a) * (a.onFire ? OVERDRIVE_SPEED : 1);
+}
 
 export function canAct(a: Athlete): boolean {
   return a.move !== 'DOWN' && a.move !== 'GETUP' && a.move !== 'STUNNED' && a.move !== 'CELEBRATE';
@@ -154,7 +165,7 @@ function decayTurn(a: Athlete): void {
 }
 
 function updateGait(a: Athlete, vx0: number, vz0: number): void {
-  const top = turboSpeed(a) * (a.onFire ? OVERDRIVE_SPEED : 1);
+  const top = topSpeed(a);
   const an = a.anim;
   // Distance covered since the last update, which is exactly one tick, however it was covered.
   // Clamped so a formation reset or a teleporting spawn cannot spike the stride.

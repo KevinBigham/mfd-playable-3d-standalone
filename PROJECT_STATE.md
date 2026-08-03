@@ -6,6 +6,24 @@
 
 ## CURRENT MILESTONE
 
+**M18 — the kick return is a play now.** The ask: put a man in the back of the end zone, have him
+run up and catch every kickoff cleanly, and make everyone else on the receiving team a blocker.
+There was no catch to improve — a kickoff had never been caught. The ball hit the turf, bounced,
+and `resolveLooseBall` gave it to whoever fell on it, which is worth **3.9 yards a return with one
+in six going BACKWARDS**. The deep man now sets up seven yards deep, waits out the flight, leaves
+when his own run time matches the ball's, and takes it at a **dead sprint 25 yards later —
+1 125 of 1 125 kickoffs, at 15.1 yd/s against a 9.4 base**. The other six block from the moment it
+is struck, walling the point where the return will start rather than converging on the man.
+
+Returns end on the **own 26.2** against 17.1, drives after a kickoff start on the **24.2** against
+17.9, and no return goes backwards. Snaps beginning inside the own 10 fell from 4.7 % to 2.7 %.
+Three defects surfaced on the way, none of them in the new code: both teams charged the kicker for
+the half second he stood on the tee holding the ball (he counts as a *carrier*); the returner
+solved his run-up against `turboSpeed`, which is 11 % short of the truth in Overdrive, and ran out
+from under one kick in a hundred; and the camera faced whichever way *possession* pointed, so every
+kick return, pick-six and fumble return was filmed from in front. New gate: a scenario that fails
+if a single kickoff hits the ground or is caught below jogging pace. Full write-up in QA_REPORT §14.
+
 **M17 — the athletes were seven feet tall.** The brief was "make the players look a lot more
 athletic and realistic". Measuring instead of eyeballing inverted the expected answer: the
 animation was in reasonable shape and the **anatomy** was not. Every athlete rendered between
@@ -157,9 +175,12 @@ Full detail in QA_REPORT.md. Headline numbers:
   (54.7 against a 55 floor). Both are the same unsolved problem — drives end too soon.
 - Scripted human on the sticks: 19/19 checks, 271 yards and 21 points reading the play.
 - Every balance target in range except first downs, which is stated as a miss rather than omitted.
-- Browser smoke: **19/19**. Unit tests **214/214**. Scene at HIGH: **40 draw calls, 210 k
+- Browser smoke: **19/19**. Unit tests **222/222**. Scene at HIGH: **40 draw calls, 210 k
   triangles** against a 180 / 420 k budget — the whole graphics pass cost one draw call.
-  Scenarios **24/24**. Determinism **12/12**.
+  Scenarios **25/25**. Determinism **12/12**. Touch **24/24**. Artifact **11/11**.
+- Kick returns: **100 % of kickoffs fielded cleanly** by the deep man (1 125 of 1 125 over 120
+  games, onside excluded), at **15.1 yd/s** against a 9.4 base. Returns end on the own 26.2 against
+  17.1, and none go backwards against 17 % before.
 - Motion: animation churn **−44 %**, run/sprint flips **−52 %**, heading jerk **−20 %**, worst
   single-tick positional correction **−22 %**, foot-slide structurally eliminated.
 - Frame pacing: apparent-speed jitter cut **3–7×** across eight display models, clock drift ≤30 ms

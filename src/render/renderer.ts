@@ -176,6 +176,13 @@ export class GameRenderer {
    * pinning it to an edge at a mirrored position.
    */
   projectToScreen(x: number, y: number, z: number, out = { x: 0, y: 0, behind: false }): typeof out {
+    // `project` reads the camera's world matrix, and `lookAt` does not write one — three only
+    // refreshes it inside `render`. So this used to answer with wherever the camera was pointing
+    // the last time a frame was drawn, which is fine while the shot is steady and wrong the moment
+    // it is not: on a kick return the camera swings a hundred and eighty degrees, and every
+    // receiver badge went to the mirrored point on the far side of the screen or vanished as
+    // "behind the camera". Refreshing here costs one matrix inverse a few times a frame.
+    this.gameCamera.camera.updateMatrixWorld();
     PROJ.set(x, y, z).project(this.gameCamera.camera);
     const el = this.renderer.domElement;
     const w = el.clientWidth || 1;

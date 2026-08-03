@@ -290,6 +290,13 @@ function playAGame(seed: number, blind = false): { yards: number; score: number;
       if (mine) press(Action.TURBO); else release(Action.TURBO);
     } else {
       clearInput(); armed = false;
+      // A person does not put the controller down because the other team kicked off. The seat
+      // takes the returner the instant he catches it, and this script handed him to nobody — it
+      // froze him where he stood and then measured the human offence's field position as whatever
+      // the coverage did to a stationary man. It was reading the return team's alignment, not the
+      // player's offence, and it moved every time the kickoff did.
+      const car = carrier(w);
+      if (car && car.controlledBySeat === 0) { held.moveZ = 1; press(Action.TURBO); }
     }
     m.tick(); t++;
   }

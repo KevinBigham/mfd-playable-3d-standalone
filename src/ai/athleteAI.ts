@@ -5,8 +5,8 @@ import { FIELD_HALF_WIDTH, s, TURBO_COST } from '../core/constants.ts';
 import type { World } from '../sim/world.ts';
 import { OFF_START, DEF_START, dirOf, goalOf, carrier } from '../sim/world.ts';
 import { routeSteer } from '../sim/playRunner.ts';
-import { baseSpeed, turboSpeed } from '../sim/movement.ts';
-import { ballLead, ballArrival } from '../sim/catching.ts';
+import { baseSpeed, turboSpeed, topSpeed } from '../sim/movement.ts';
+import { ballLead, ballArrival, kickReturner } from '../sim/catching.ts';
 import type { AiProfile } from './difficulty.ts';
 
 const steer = { x: 0, z: 0, turbo: false };
@@ -680,30 +680,68 @@ function holdZone(w: World, a: Athlete, cx: number, cz: number, out: PlayerInten
  * the left naturally takes the left-hand coverage. No assignment table, no shared state, and it
  * stays deterministic, which the replay harness requires.
  */
-function returnBlockAI(w: World, a: Athlete, car: Athlete, out: PlayerIntent, ctx: AiContext): void {
+function returnBlockAI(w: World, a: Athlete, refX: number, refZ: number, out: PlayerIntent, ctx: AiContext): void {
   const dir = dirOf(a.side);
   let target: Athlete | null = null;
   let bestCost = Infinity;
   for (let i = 0; i < w.athletes.length; i++) {
     const d = w.athletes[i];
     if (d.side === a.side || d.move === 'DOWN') continue;
-    const ahead = (d.z - car.z) * dir;
+    const ahead = (d.z - refZ) * dir;
     if (ahead < -4 || ahead > 34) continue;        // already beaten, or not yet relevant
     const cost = dist(a.x, a.z, d.x, d.z)
-      + Math.abs(d.x - car.x) * 0.45               // prefer men in the returner's path
+      + Math.abs(d.x - refX) * 0.45                // prefer men in the returner's path
       + Math.abs(d.x - a.homeX) * 0.60;            // and men on my own side of the field
     if (cost < bestCost) { bestCost = cost; target = d; }
   }
   if (target === null) {
-    // Nobody left to block: get out in front and lead him up the field.
-    pursue(w, a, car.x, car.z + dir * 12, out, ctx, 1);
+    // Nobody to block: get out in front and lead him up the field, half-way between the lane he
+    // lined up in and the one the ball is in. Aiming straight at the returner is how six blockers
+    // end up standing on each other, and while the kick is still in the air it is ALL of them —
+    // the coverage is sixty yards away and none of it is worth blocking yet.
+    pursue(w, a, (a.homeX + refX) * 0.5, refZ + dir * 12, out, ctx, 1);
     return;
   }
   // Take a position a quarter of the way from the cover man toward the returner: goal side of
   // him, which is the side that actually obstructs.
-  pursue(w, a, target.x + (car.x - target.x) * 0.25, target.z + (car.z - target.z) * 0.25,
+  pursue(w, a, target.x + (refX - target.x) * 0.25, target.z + (refZ - target.z) * 0.25,
     out, ctx, 1);
   if (a.turbo > 12) out.held |= Action.TURBO;
+}
+
+/**
+ * Seconds of slack in the returner's run-up. He starts from a standstill, so `distance / topSpeed`
+ * understates his run — measured at 0.15 s over a twelve-yard approach. It is set high of that on
+ * purpose: leaving early costs him a yard of overrun, which the catch radius absorbs, and leaving
+ * late costs him the ball.
+ */
+const RUNUP_ACCEL = 0.25;
+/** How far past the catch point he aims, so he is still running when he takes it. */
+const RUNUP_THROUGH = 6;
+
+/**
+ * The deep man under a kickoff.
+ *
+ * He does not sprint to the landing spot and stand on it. He sets up in the back of his own end
+ * zone, squares up under the ball while it is in the air, and leaves when his own run time matches
+ * the ball's — then runs THROUGH the catch, so he takes it at speed with the return already begun.
+ * A returner who fields a kick flat-footed gains three yards; the whole point of setting him up
+ * twenty-five yards behind the ball is that he arrives at a sprint.
+ */
+function fieldTheKick(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  if (!ballArrival(w, arrival)) return;
+  const dir = dirOf(a.side);
+  const d = dist(a.x, a.z, arrival.x, arrival.z);
+  if (arrival.eta > d / Math.max(1, topSpeed(a)) + RUNUP_ACCEL) {
+    // Too early to go. Line up under it without giving away the depth the run-up needs.
+    pursue(w, a, arrival.x, a.z, out, ctx, 0.55);
+    return;
+  }
+  // Aim past the ball while there is still flight left, so he is accelerating rather than pulling
+  // up into it, and fold that lead away as it lands — a man who runs at a point six yards beyond
+  // the catch is through it and gone by the time the ball is at head height.
+  pursue(w, a, arrival.x, arrival.z + dir * RUNUP_THROUGH * clamp01(arrival.eta / 0.35), out, ctx, 1);
+  out.held |= Action.TURBO;
 }
 
 /**
@@ -744,12 +782,32 @@ function kickTeamAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): vo
   const car = carrier(w);
   const receiving = a.side !== w.possession ? a.side : null;
 
-  if (car) {
+  // Until it is struck the ball is in the kicker's hands, which makes him a CARRIER — so for the
+  // half second before every kickoff both teams treated him as a live runner and set off, one
+  // side charging a man standing on his own thirty and the other blocking for him. It cost the
+  // deep man six of the ten yards of run-up his whole alignment exists to buy him. Nobody moves
+  // until the kick is away.
+  const onTee = st.kind === 'held' && st.carrier === w.qbId
+    && (w.special === 'KICKOFF' || w.special === 'ONSIDE');
+
+  if (car && !onTee) {
     if (car.side === a.side) {
-      returnBlockAI(w, a, car, out, ctx);
+      returnBlockAI(w, a, car.x, car.z, out, ctx);
     } else {
       pursueCarrier(w, a, car, out, ctx);
     }
+    return;
+  }
+
+  // A kickoff in the air has exactly one man assigned to it. Everybody else on the receiving team
+  // is a blocker from the moment it is struck: they form up in front of where the return will
+  // START — not in front of the returner, who is twenty-five yards behind that and about to run
+  // through it. Six men converging on a ball is how a return team blocks nobody.
+  if (receiving !== null && st.kind === 'kicked' && w.special === 'KICKOFF') {
+    const ret = kickReturner(w);
+    if (ret && ret.id === a.id) { fieldTheKick(w, a, out, ctx); return; }
+    ballArrival(w, arrival);
+    returnBlockAI(w, a, arrival.x, arrival.z, out, ctx);
     return;
   }
 

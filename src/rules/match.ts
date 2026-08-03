@@ -9,7 +9,7 @@ import {
   QUARTER_BREAK_TICKS, PLAY_CALL_SECONDS, PLAY_CLOCK_SECONDS, PAT_MAKE_BASE, PAT_DISTANCE,
   FG_METER_PERIOD, PUNT_POWER_PERIOD, TOUCHBACK_Z, FIELD_HALF_WIDTH, OVERTIME_PERIODS,
   CLOCK_SCALE,
-  DEFAULT_QUARTER_SECONDS,
+  DEFAULT_QUARTER_SECONDS, RETURNER_DEPTH,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist } from '../core/math.ts';
 import {
@@ -23,6 +23,7 @@ import {
 } from '../sim/world.ts';
 import { setupPlay, snap, stepPlay, idleStep, type Controller } from '../sim/playRunner.ts';
 import { giveBall, killBall, assertBallInvariant, dropLoose } from '../sim/ball.ts';
+import { kickReturner } from '../sim/catching.ts';
 import {
   KICKOFF_OFFENSE, KICKOFF_DEFENSE, PUNT_OFFENSE, PUNT_DEFENSE, FG_OFFENSE, FG_DEFENSE,
 } from '../sim/specialFormations.ts';
@@ -431,6 +432,16 @@ export class Match {
     this.applyOverdriveFlags();
     w.special = 'KICKOFF';
     setupPlay(w, { offense: KICKOFF_OFFENSE, defense: KICKOFF_DEFENSE, losZ: spot, spotX: 0, possession: kicking });
+    // The deep man sets up in the back of his own end zone so he can run UP to the ball and catch
+    // it already moving. That spot is measured from the GOAL LINE, not from the line of scrimmage:
+    // a kickoff lands a set distance from the goal whether it was struck from the 30 or, after a
+    // safety, from the 20 — so it cannot come out of the alignment table with everyone else.
+    const ret = kickReturner(w);
+    if (ret) {
+      ret.x = 0;
+      ret.z = goalOf(kicking) + dirOf(kicking) * RETURNER_DEPTH;
+      ret.homeX = ret.x; ret.homeZ = ret.z;
+    }
     // Onside decision.
     this.onsideRequested = this.isHuman(kicking)
       ? false
