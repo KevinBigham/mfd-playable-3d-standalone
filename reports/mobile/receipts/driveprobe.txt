@@ -1,7 +1,7 @@
 
 DRIVE CENSUS — 20 CPU games, 2:00 quarters, 30-yard chain
 ──────────────────────────────────────────────────────────────────────────
-  fingerprint  driveprobe · build 1.0.0@e3f0e2d · rules v2 · chain 30 yd
+  fingerprint  driveprobe · build 1.0.0@31d5e3f · rules v2 · chain 30 yd
                seeds 4400..4419 · teams rotating home/away over TEAM_IDS · PRO · 120s quarters · assist NONE
 ──────────────────────────────────────────────────────────────────────────
   play type    plays/gm  yd/play  lost  20+  throws  comp%   YAC   separation  sack%

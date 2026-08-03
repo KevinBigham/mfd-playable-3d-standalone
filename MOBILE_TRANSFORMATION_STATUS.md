@@ -23,7 +23,10 @@ WAITING_FOR_PHYSICAL_EVIDENCE — protocol + telemetry shipped, both surfaces re
 **Wave 4 — Mobile product: COMPLETE** (see `reports/mobile/WAVE_4_RECEIPT.md` — Mobile Home, three-card
 play call, Drive Results + instant retry with full renderer reuse, persistence v2 live, staged
 mobile startup, governor v2, hosted PWA path; W4-004 FTUE human gates WAITING_FOR_PHYSICAL_EVIDENCE).
-**Wave 5 — Replayability: in progress.**
+**Wave 5 — Replayability: COMPLETE** (PBs/Daily/mastery/challenge codes; practice drills + import UI open).
+**Wave 6 — Polish/release: PARTIAL** (see `reports/mobile/WAVE_5_6_RECEIPT.md`; device/human gates
+WAITING_FOR_PHYSICAL_EVIDENCE; monetization disabled by absence). Final battery ALL GREEN:
+12/12 bundle · 18/18 classic · 20/20 lifecycle · 32/32 touch · 7/7 driverush · 11/11 artifact.
 **Wave 3 — Core fun: COMPLETE** (see `reports/mobile/WAVE_3_RECEIPT.md` — Ruleset seam + Drive Rush,
 RULES_VERSION 2 balance package: coverage-aware catches with flight scaling, pass breakups,
 placement authority, screen diagnose window, wider block pickup. Fun gate: informed +92.6% EP/drive
