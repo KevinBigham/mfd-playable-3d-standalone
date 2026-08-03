@@ -69,6 +69,8 @@ export class MobileHomeScreen implements Screen {
       });
     }));
     items.push(
+      button('MASTERY DRILLS', () => ctx.go('drills'), 'ghost'),
+      button('BEAT MY DRIVE · ENTER CODE', () => ctx.go('challengeEntry'), 'ghost'),
       button('CLASSIC MATCH', () => ctx.go('quickPlay'), 'ghost'),
       button('MORE · SEASON, PRACTICE, EDITOR…', () => ctx.go('mainMenu'), 'ghost'),
       button('⚙ SETTINGS', () => ctx.go('settings'), 'ghost'),

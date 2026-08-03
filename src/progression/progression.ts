@@ -21,6 +21,8 @@ export interface ProgressionData {
   teamDrives: Record<string, number>;
   /** Daily Drive: date string of the last completed daily, for the "done today" chip. */
   lastDailyCompleted: string | null;
+  /** Mastery-drill reps banked per drill id — identity and variety, never a stat boost. */
+  drillReps?: Record<string, number>;
 }
 
 export function defaultProgression(): ProgressionData {
@@ -56,6 +58,15 @@ export function bestFor(rulesetId: string, difficulty: Difficulty): PersonalBest
 }
 
 export function teamDriveCount(teamId: string): number { return data().teamDrives[teamId] ?? 0; }
+
+export function recordDrillRep(drillId: string): number {
+  const d = data();
+  if (!d.drillReps) d.drillReps = {};
+  d.drillReps[drillId] = (d.drillReps[drillId] ?? 0) + 1;
+  writeSave();
+  return d.drillReps[drillId];
+}
+export function drillRepCount(drillId: string): number { return data().drillReps?.[drillId] ?? 0; }
 
 export function markDailyDone(date: string): void {
   data().lastDailyCompleted = date;

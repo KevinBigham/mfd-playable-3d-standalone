@@ -2,7 +2,7 @@
   "fingerprint": {
     "tool": "mobile:baseline",
     "buildVersion": "1.0.0",
-    "gitCommit": "31d5e3f",
+    "gitCommit": "8663b4a",
     "rulesVersion": 2,
     "firstDownYards": 30,
     "seeds": "per-tool (see each receipt)",
@@ -11,7 +11,7 @@
     "quarterSeconds": null,
     "assistProfile": "NONE",
     "policy": null,
-    "generatedAt": "2026-08-03T20:17:02.993Z",
+    "generatedAt": "2026-08-03T21:03:47.100Z",
     "node": "v24.14.1"
   },
   "allOk": true,
@@ -21,7 +21,7 @@
       "command": "npx tsc --noEmit",
       "ok": true,
       "exitCode": 0,
-      "seconds": 1.836,
+      "seconds": 2.187,
       "receipt": "reports/mobile/receipts/typecheck.txt"
     },
     {
@@ -29,7 +29,7 @@
       "command": "npx vitest run",
       "ok": true,
       "exitCode": 0,
-      "seconds": 12.687,
+      "seconds": 13.813,
       "receipt": "reports/mobile/receipts/unit-tests.txt"
     },
     {
@@ -37,7 +37,7 @@
       "command": "npx tsx tools/scenarios.ts",
       "ok": true,
       "exitCode": 0,
-      "seconds": 0.6,
+      "seconds": 0.656,
       "receipt": "reports/mobile/receipts/scenarios.txt"
     },
     {
@@ -45,7 +45,7 @@
       "command": "npx tsx tools/determinism.ts",
       "ok": true,
       "exitCode": 0,
-      "seconds": 1.49,
+      "seconds": 1.579,
       "receipt": "reports/mobile/receipts/determinism.txt"
     },
     {
@@ -53,7 +53,7 @@
       "command": "npx tsx tools/humanprobe.ts",
       "ok": true,
       "exitCode": 0,
-      "seconds": 0.971,
+      "seconds": 1.112,
       "receipt": "reports/mobile/receipts/humanprobe.txt"
     },
     {
@@ -61,7 +61,7 @@
       "command": "npx tsx tools/simperf.ts",
       "ok": true,
       "exitCode": 0,
-      "seconds": 0.366,
+      "seconds": 0.44,
       "receipt": "reports/mobile/receipts/simperf.txt"
     },
     {
@@ -69,7 +69,7 @@
       "command": "npx tsx tools/driveprobe.ts",
       "ok": true,
       "exitCode": 0,
-      "seconds": 1.648,
+      "seconds": 1.875,
       "receipt": "reports/mobile/receipts/driveprobe.txt"
     },
     {
@@ -77,7 +77,7 @@
       "command": "npx tsx tools/passprobe.ts",
       "ok": true,
       "exitCode": 0,
-      "seconds": 1.662,
+      "seconds": 1.815,
       "receipt": "reports/mobile/receipts/passprobe.txt"
     },
     {
@@ -85,7 +85,7 @@
       "command": "npx tsx tools/deepprobe.ts",
       "ok": true,
       "exitCode": 0,
-      "seconds": 0.982,
+      "seconds": 1.197,
       "receipt": "reports/mobile/receipts/deepprobe.txt"
     },
     {
@@ -93,7 +93,7 @@
       "command": "npx tsx tools/runprobe.ts",
       "ok": true,
       "exitCode": 0,
-      "seconds": 0.973,
+      "seconds": 1.124,
       "receipt": "reports/mobile/receipts/runprobe.txt"
     },
     {
@@ -101,7 +101,7 @@
       "command": "npx tsx tools/fieldpos.ts",
       "ok": true,
       "exitCode": 0,
-      "seconds": 8.443,
+      "seconds": 9.909,
       "receipt": "reports/mobile/receipts/fieldpos.txt"
     },
     {
@@ -109,7 +109,7 @@
       "command": "npx tsx tools/policyprobe.ts",
       "ok": true,
       "exitCode": 0,
-      "seconds": 7.717,
+      "seconds": 8.898,
       "receipt": "reports/mobile/receipts/policyprobe.txt"
     }
   ]

@@ -35,6 +35,7 @@
     "lifecycle": "tsx tools/lifecycleprobe.ts",
     "classic": "tsx tools/classicprobe.ts",
     "driverush": "tsx tools/driverushprobe.ts",
+    "a11y": "tsx tools/a11yprobe.ts",
     "gait": "tsx tools/gait.ts",
     "poses": "tsx tools/poses.ts",
     "footslip": "tsx tools/footslip.ts",

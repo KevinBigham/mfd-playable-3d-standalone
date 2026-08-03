@@ -7,6 +7,8 @@ import {
 import { MatchScreen } from './ui/screens/matchScreen.ts';
 import { MobileHomeScreen } from './ui/screens/mobileHome.ts';
 import { DriveResultsScreen } from './ui/screens/driveResults.ts';
+import { ChallengeEntryScreen } from './ui/screens/challengeEntry.ts';
+import { DrillsScreen } from './ui/screens/drillsScreen.ts';
 import { TournamentScreen } from './ui/screens/tournament.ts';
 import { SeasonScreen } from './ui/screens/season.ts';
 import { PracticeScreen } from './ui/screens/practice.ts';
@@ -42,7 +44,8 @@ function boot(): void {
     new ControlsScreen(game), new FinalScreen(game), new CreditsScreen(),
     new TournamentScreen(game), new SeasonScreen(game), new PracticeScreen(game),
     new PlayEditorScreen(game),
-    new MobileHomeScreen(game), new DriveResultsScreen(game),
+    new MobileHomeScreen(game), new DriveResultsScreen(game), new ChallengeEntryScreen(game),
+    new DrillsScreen(game),
   ]) game.register(s);
 
   game.go('title');

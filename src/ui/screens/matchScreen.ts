@@ -21,6 +21,8 @@ export interface MatchParams {
   resume?: boolean;
   /** Set when this attempt is the Daily Drive for the given date string. */
   daily?: string;
+  /** Set when this attempt is a Beat My Drive challenge: the bar to beat. */
+  challenge?: { points: number; yards: number };
 }
 
 /**
@@ -76,12 +78,16 @@ export class MatchScreen implements Screen {
           seed: m.config.seed, home: m.config.home, away: m.config.away,
           difficulty: m.config.difficulty, points, yards,
         });
+        const challenge = this.params?.challenge;
         setTimeout(() => {
           this.ctx.go('driveResults', {
-            outcome, yards, points, facts, pb, share,
+            outcome, yards, points, facts, pb, share, challenge,
+            // A challenge retry replays the SAME drive — that is the whole point of the code.
+            // A normal retry rolls the seed so the next drive is a fresh problem.
             retry: () => this.ctx.reset('match', {
-              config: { ...cfg, seed: ((cfg.seed ?? 0) + 1) >>> 0 },
+              config: challenge ? { ...cfg } : { ...cfg, seed: ((cfg.seed ?? 0) + 1) >>> 0 },
               returnScreen: this.params?.returnScreen ?? 'mobileHome',
+              challenge,
             }),
           });
         }, 900);

@@ -23,16 +23,27 @@ WAITING_FOR_PHYSICAL_EVIDENCE — protocol + telemetry shipped, both surfaces re
 **Wave 4 — Mobile product: COMPLETE** (see `reports/mobile/WAVE_4_RECEIPT.md` — Mobile Home, three-card
 play call, Drive Results + instant retry with full renderer reuse, persistence v2 live, staged
 mobile startup, governor v2, hosted PWA path; W4-004 FTUE human gates WAITING_FOR_PHYSICAL_EVIDENCE).
-**Wave 5 — Replayability: COMPLETE** (PBs/Daily/mastery/challenge codes; practice drills + import UI open).
+**Wave 5 — Replayability: COMPLETE** (PBs/Daily/mastery/challenge codes; W5-004 mastery drills and
+the challenge-code import UI shipped in the follow-up pass — six curated drills with persistent rep
+counts behind MASTERY DRILLS on Mobile Home, and BEAT MY DRIVE code entry with honest decode errors
+and bar-to-beat verdict on Drive Results; challenge retries replay the SAME seed).
 **Wave 6 — Polish/release: PARTIAL** (see `reports/mobile/WAVE_5_6_RECEIPT.md`; device/human gates
-WAITING_FOR_PHYSICAL_EVIDENCE; monetization disabled by absence). Final battery ALL GREEN:
-12/12 bundle · 18/18 classic · 20/20 lifecycle · 32/32 touch · 7/7 driverush · 11/11 artifact.
+WAITING_FOR_PHYSICAL_EVIDENCE; monetization disabled by absence). W6-001 formal single-priority
+feedback arbiter shipped (`src/ui/feedback.ts`, 9 unit tests): one banner surface, priority
+preemption, stale lower-priority feedback dropped, never queued. Accessibility: `npm run a11y`
+automates the machine-checkable matrix slice — 11/11 (150% text, 130% controls, min opacity,
+left/right mirror symmetry, fully muted + haptics-off playability); human/screen-reader/haptic
+validation stays physical. Final battery ALL GREEN: 12/12 bundle · 18/18 classic · 20/20 lifecycle ·
+32/32 touch · 7/7 driverush · 11/11 artifact · 11/11 a11y.
 **Wave 3 — Core fun: COMPLETE** (see `reports/mobile/WAVE_3_RECEIPT.md` — Ruleset seam + Drive Rush,
 RULES_VERSION 2 balance package: coverage-aware catches with flight scaling, pass breakups,
 placement authority, screen diagnose window, wider block pickup. Fun gate: informed +92.6% EP/drive
 over blind with fewer turnovers; the read now outscores the blind arm in the human probe too.
 PlayGrade facts, three-card recommendations, flag-gated skill Overdrive. Open: third-down curve not
-strictly monotone; QUICK human validation pending).
+strictly monotone; QUICK human validation pending. Follow-up investigation at 4–5× sample
+(`reports/mobile/receipts/thirddown_quick_investigation.md`): the 9–16 yd inversion is REAL — a
+play-menu gap (no intermediate concept between ~6 yd tools and 16.8 yd DEEP), deferred to a
+versioned AI/balance change; QUICK held at 42% completion over 80 games, flight-scaling fix stands).
 W4-007 staged startup, W4-008 multi-axis governor, W4-009 persistence v2, W4-010 hosted PWA.
 
 ## Wave 0 results

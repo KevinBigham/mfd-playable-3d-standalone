@@ -25,6 +25,7 @@ import type {
 } from '../../core/types.ts';
 import { TEAMS, findTeam, teamLogoSvg } from '../../data/index.ts';
 import { getSave, writeSave } from '../../persistence/save.ts';
+import { recordDrillRep } from '../../progression/progression.ts';
 import { OFFENSE_PLAYS } from '../../plays/offense.ts';
 import { DEFENSE_PLAYS } from '../../plays/defense.ts';
 import { playDiagramSvg } from '../../plays/diagram.ts';
@@ -48,6 +49,12 @@ export interface PracticeParams {
   autoStart?: boolean;
   /** Caption shown on the drill strip. */
   label?: string;
+  /** Spot the ball here (yards from the offense's own goal line). */
+  yard?: number;
+  /** Start each rep on this down. */
+  down?: number;
+  /** Set for a mastery drill: banked reps are counted under this id. */
+  drillId?: string;
 }
 
 type DrillMode = 'ROUTES' | 'VERSUS';
@@ -184,6 +191,8 @@ export class PracticeScreen implements Screen {
     if (this.params.defense) base.defenseId = this.params.defense.id;
     if (this.params.side) base.humanSide = this.params.side;
     if (this.params.routesOnly) base.mode = 'ROUTES';
+    if (this.params.yard !== undefined) base.yard = clamp(Math.round(this.params.yard), 1, 99);
+    if (this.params.down !== undefined) base.down = clamp(Math.round(this.params.down), 1, 4);
     if (base.mode === 'ROUTES') base.humanSide = 'OFF';
     if (!this.offenseList.some((p) => p.id === base.offenseId)) {
       base.offenseId = this.offenseList[0]?.id ?? OFFENSE_PLAYS[0].id;
@@ -681,6 +690,7 @@ export class PracticeScreen implements Screen {
         this.called = false;
         this.repCount++;
         if (this.repNode) this.repNode.textContent = `REP ${this.repCount}`;
+        if (this.params.drillId) recordDrillRep(this.params.drillId);
       }
     } else if (phase === 'CONVERSION_CALL') {
       if (m.pendingConversion === null) m.submitConversion('KICK');

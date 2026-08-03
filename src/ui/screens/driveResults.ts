@@ -18,6 +18,8 @@ export interface DriveResultsParams {
   pb?: { previous: { points: number; yards: number } | null; isNewBest: boolean };
   /** Beat-my-drive challenge code for this attempt. */
   share?: string;
+  /** When this attempt was a challenge: the imported bar to beat. */
+  challenge?: { points: number; yards: number };
   /** Restart with the same matchup. */
   retry: () => void;
 }
@@ -49,6 +51,16 @@ export class DriveResultsScreen implements Screen {
         p.appendChild(pbEl);
       }
     }
+    if (p0.challenge) {
+      const c = p0.challenge;
+      const beat = p0.points > c.points || (p0.points === c.points && p0.yards > c.yards);
+      const line = beat
+        ? `★ CHALLENGE BEATEN — bar was ${c.points} pts / ${Math.round(c.yards)} yd`
+        : `CHALLENGE MISSED — bar to beat: ${c.points} pts / ${Math.round(c.yards)} yd`;
+      const cEl = el('p', '', line);
+      cEl.style.cssText = beat ? 'color:var(--hot-2);letter-spacing:.1em' : 'color:var(--ink-dim);letter-spacing:.08em';
+      p.appendChild(cEl);
+    }
     const last = [...p0.facts].reverse().find((f) => chipFor(f) !== null);
     if (last) {
       const chip = el('p', 'muted', `LAST READ: ${chipFor(last)} → ${last.result.replace(/_/g, ' ')}`);
@@ -56,8 +68,16 @@ export class DriveResultsScreen implements Screen {
       p.appendChild(chip);
     }
     if (p0.share) {
-      const sh = el('p', 'muted', `CHALLENGE CODE · ${p0.share}`);
-      sh.style.cssText = 'font-family:monospace;font-size:11px;letter-spacing:.04em;user-select:text;-webkit-user-select:text';
+      const sh = el('p', 'muted', `CHALLENGE CODE · ${p0.share} · TAP TO COPY`);
+      sh.style.cssText = 'font-family:monospace;font-size:11px;letter-spacing:.04em;user-select:text;'
+        + '-webkit-user-select:text;cursor:pointer';
+      sh.addEventListener('click', () => {
+        const code = p0.share!;
+        void navigator.clipboard?.writeText(code).then(
+          () => { sh.textContent = `CHALLENGE CODE · ${code} · COPIED ✓`; },
+          () => { /* selection stays available for a manual copy */ },
+        );
+      });
       p.appendChild(sh);
     }
     const items: FocusItem[] = [
