@@ -7,10 +7,14 @@
 No install, no download, no account. It is one HTML file that contains the whole game — engine, 3D
 renderer, audio, sixteen teams, every mode — and it makes no network requests once it loads.
 
-**On a phone you can look but not yet play.** The title screen takes a tap and the menus browse
-fine, but the game itself still needs a keyboard or a controller: touch controls are the next
-thing being built, and [`MOBILE_PLAN.md`](MOBILE_PLAN.md) is the plan for them. The page says as
-much when it detects a touch screen rather than letting you find out at kickoff.
+**It plays on a phone.** Hold it sideways. Your left thumb is a floating stick that appears
+wherever you put it; push past the ring for turbo. Everything else is your right thumb: tap **SNAP**
+to hike, tap the badge over a receiver to throw to him — and **drag off that badge to place the
+ball**, away from the defender or back to the sideline. Swipe to juke, hurdle and dive.
+
+Placement is the one control with real depth, and it is why the phone version is not a lesser
+version. [`CONTROLS.md`](CONTROLS.md) has the full grammar; [`MOBILE_PLAN.md`](MOBILE_PLAN.md) has
+what is still missing. A desktop with a mouse never sees any of this.
 
 > ### Picking this up on a new machine
 >

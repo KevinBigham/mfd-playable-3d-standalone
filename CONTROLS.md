@@ -5,6 +5,40 @@ JUMP and you can play.
 
 ---
 
+## TOUCH (phone or tablet)
+
+Appears on its own when the device has a coarse pointer, or the first time a finger touches the
+glass. A mouse never sees it. **Hold the phone sideways** — portrait raises a gate and stops the
+clock rather than costing you a down.
+
+| Where | Gesture | What it does |
+|---|---|---|
+| Left half | press and drag | **floating stick** — appears under your thumb, steers |
+| Left half | drag past the outer ring | **turbo** (the ring turns orange) |
+| Bottom right | tap **SNAP** | hike the ball |
+| On a receiver | tap the **badge** | throw to him |
+| On a receiver | **drag off the badge**, then release | throw to him **and place the ball** — see below |
+| Bottom right | tap **LOB** | arms a touch pass for your next throw, then disarms |
+| Right half | tap | smart throw to whoever is open (QB) · **spin** (carrier) · switch (defence) |
+| Right half | swipe ◀ ▶ | **juke** |
+| Right half | swipe ▲ | **hurdle** (carrier) · jump/tackle (defence) |
+| Right half | swipe ▼ | **dive** |
+| Right half | press and hold | **protect the ball** |
+| Top left | tap **❚❚** | pause |
+
+### Placement is the whole game on a phone
+
+A tap throws it at the receiver. **Dragging off the badge throws it somewhere** — the direction of
+your drag is where the ball goes relative to him, and the length of the drag is how far. Drag away
+from the defender and you have thrown him open. Drag into one and you have thrown a pick.
+
+The drag direction is read against the live camera, not a fixed compass, so "drag left" means
+left **on your screen** no matter which end of the field you are driving toward.
+
+This is the one control with real depth, and it is the only one you have to practise.
+
+---
+
 ## GAMEPAD (any standard controller)
 
 | Input | Menus | Offence — ball carrier | Offence — QB in the pocket | Defence |

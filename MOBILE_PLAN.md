@@ -335,9 +335,73 @@ yards across aim-left / aim-none / aim-right on every seed that produced a throw
 now separable from steering and measurable from a script** — the thing `QA_REPORT.md` §12.12 says
 no script could do. That unblocks the M3 policy harness.
 
+---
+
+## 8. M1 — the touch grammar — done 2026-08-02
+
+`npm run touch` is the gate: **24/24**, in Chromium with touch emulation at 844×390, no keyboard
+touched at any point.
+
+**The seam.** `InputManager` gained one `IntentSource` hook that merges a contribution into seat 0.
+Deliberately *not* the full `InputSource` refactor of §5/M1.2: rewriting the keyboard and gamepad
+paths is real regression risk against a determinism guarantee, and it buys nothing a touch source
+needs. Keyboard and gamepad still poll inline. With no source attached the file behaves exactly as
+before, which is what keeps replays byte-identical.
+
+**The grammar as built.** Floating stick on the left, turbo past the ring — no button. Everything
+else is the right thumb: SNAP, receiver badges, and a gesture surface that changes meaning with the
+mode (`SNAP` · `QB` · `CARRY` · `FREE`). One button in the whole layout, LOB, and it only exists
+while the quarterback is holding the ball.
+
+**Badges are drawn on the receivers**, not in a row, via a new `GameRenderer.projectToScreen`.
+Verified to within 2 px of the athletes' projected positions. This is the thing that makes the
+phone version teach football rather than hide it: the read and the input are the same act.
+
+**Screen-to-world is solved, not assumed.** A basis is measured off the live camera every frame
+and inverted. Hardcoding "screen right is world +X" is correct for one drive and backwards after
+the change of possession, and a placement control that inverts at halftime is worse than none.
+
+**Placement, proved end to end.** Same seed, same play, same snap, same frame count — only the
+drag direction differs:
+
+```
+drag left   ball target x = 1.4        spread 1.37 yd
+tap         ball target x = 0.7        tap sits exactly between the two drags
+drag right  ball target x = 0.0
+```
+
+That is a finger moving a football through `PlayerIntent.aimX` and out the other side of the
+deterministic simulation, with nothing below `src/ui` aware a touch screen exists.
+
+**Desktop is protected.** The pad requires a coarse primary pointer, or a real finger on the glass
+— a mouse never triggers it, proved by a second browser context in the same probe. Determinism
+byte-identical on all three seeds; 222 unit · 24 scenarios · 19 human · 42 acceptance · 11 artifact
+· 21 smoke all still pass.
+
+**Two bugs found on the way, neither in the touch code:**
+
+1. `.ps-cell` had click handlers that could never fire — the match overlay is `pointer-events:none`
+   and nothing re-enabled it. **Play calling was keyboard-only on a device with no keyboard.**
+2. `tools/artifact.ts` and `tools/artifactcheck.ts` spliced the built bundle in with a *string*
+   replacement, so `$&` inside minified three.js expanded to the matched text. The artifact shipped
+   with `pt=</body>&$.mapping` spliced into the renderer — a blank page and `Unexpected token '<'`.
+   Both now use function replacements, and the build asserts the payload survives byte for byte.
+
+### Still missing before this is a mobile *product*
+
+- **Landscape play-select still shows the desktop 3×3 at reduced size.** It fits now (a
+  `max-height` breakpoint — the old one keyed off width, which a landscape phone never trips), but
+  §3's three contextual cards are not built.
+- **No PWA manifest or service worker.** M5.
+- **No haptics beyond `navigator.vibrate`**, which iOS ignores.
+- **Lazy boot not done.** `src/main.ts` still builds an attract-mode stadium and imports the
+  1,407-line play editor before the first tap.
+- **M0 item 3 still open**: separate `defenderPossessionEvent` from `creditedInterception` from
+  `turnoverDrive` — 5.2 interception events a game against 2.8 credited.
+
 ### Next
 
-M0 item 3 is still open: separate `defenderPossessionEvent` from `creditedInterception` from
-`turnoverDrive`. The 200-game batch shows why it matters — `interception=5.2` events per game
-against `ints 2.8` credited. Then M1: `InputSource` interface, `TouchSource`, and the touch
-grammar from §3.
+**M3 is now the bar, and it is unblocked.** The policy harness can finally model the mobile policy
+— tap a receiver, drag a placement — because both exist and both are scriptable. Nothing else on
+this list matters if reading the play does not beat mashing one badge by 20% expected points per
+drive, and that is the next thing to measure.
