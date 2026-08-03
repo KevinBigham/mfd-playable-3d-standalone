@@ -7,6 +7,13 @@ export const FIXED_DT = 1 / 60;
 export const TICK_HZ = 60;
 export const MAX_SUBSTEPS = 5;
 
+/**
+ * Version of the authoritative football behavior. Bump on any intentional change to rules,
+ * balance, or simulation outcomes so receipts, saves, and challenge codes can refuse to compare
+ * incompatible results. Version 1 is the behavior of the received baseline.
+ */
+export const RULES_VERSION = 1;
+
 export function s(seconds: number): number { return Math.round(seconds * TICK_HZ); }
 
 // ── field ──────────────────────────────────────────────────────────────────

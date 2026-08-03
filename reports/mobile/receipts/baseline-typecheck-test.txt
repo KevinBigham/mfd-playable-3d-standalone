@@ -1,0 +1,19 @@
+> gridiron-overdrive@1.0.0 typecheck
+> tsc --noEmit
+
+=== TEST ===
+     50|     const bad: string[] = [];
+     51|     const scan = (dir: string) => {
+     52|       for (const name of readdirSync(dir)) {
+       |                          ^
+     53|         const p = join(dir, name);
+     54|         if (name === 'node_modules' || name === '.git' || name === 'di…
+ ❯ tests/purity.test.ts:61:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 9 passed (10)
+      Tests  1 failed | 221 passed (222)
+   Start at  12:52:48
+   Duration  13.76s (transform 915ms, setup 0ms, collect 2.06s, tests 14.98s, environment 1ms, prepare 583ms)
+

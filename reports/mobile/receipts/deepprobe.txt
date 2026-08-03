@@ -1,0 +1,19 @@
+
+DEEP-BALL AUTOPSY — 200 throws of 18+ air yards over 10 games
+──────────────────────────────────────────────────────────────────────
+  completed            76/200 = 38%
+  intercepted          40
+  air yards            mean 39.8   flight 2.03 s
+──────────────────────────────────────────────────────────────────────
+  separation from the nearest defender, yards
+    at the release     7.57
+    at the arrival     2.87
+    change in flight   -4.70
+──────────────────────────────────────────────────────────────────────
+  throw miss           16.27 yd off the receiver at release
+  covering defender    57 turbo left at the release
+──────────────────────────────────────────────────────────────────────
+  completions had      7.38 yd at release, 2.13 at arrival
+  failures had         7.69 yd at release, 3.67 at arrival
+──────────────────────────────────────────────────────────────────────
+

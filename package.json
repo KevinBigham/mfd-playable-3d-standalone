@@ -42,6 +42,8 @@
     "runprobe": "tsx tools/runprobe.ts",
     "deepprobe": "tsx tools/deepprobe.ts",
     "anthro": "tsx tools/anthro.ts",
+    "policyprobe": "tsx tools/policyprobe.ts",
+    "mobile:baseline": "tsx tools/mobilebaseline.ts",
     "roster": "tsx tools/roster.ts"
   },
   "dependencies": {
