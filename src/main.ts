@@ -84,6 +84,16 @@ function boot(): void {
   window.addEventListener('error', (e) => console.error('[GO]', e.message));
 }
 
-const start = (): void => { void bootPersistence().then(boot); };
+// Hosted PWA path only: the one-file artifact stays portable with no service-worker
+// assumptions, and file:// cannot register one anyway.
+function registerServiceWorker(): void {
+  try {
+    const isArtifact = !!(window as unknown as { __GO_ARTIFACT__?: boolean }).__GO_ARTIFACT__;
+    if (isArtifact || location.protocol === 'file:' || !('serviceWorker' in navigator)) return;
+    void navigator.serviceWorker.register('./sw.js').catch(() => { /* offline shell is optional */ });
+  } catch { /* never a boot blocker */ }
+}
+
+const start = (): void => { registerServiceWorker(); void bootPersistence().then(boot); };
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
 else start();
