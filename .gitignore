@@ -1,0 +1,4 @@
+node_modules/
+dist/
+dist-artifact/*.html.tmp
+reports/mobile/receipts/tmp/

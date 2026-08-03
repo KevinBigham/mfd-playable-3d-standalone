@@ -1,0 +1,59 @@
+GRIDIRON OVERDRIVE — start here
+================================
+
+TO JUST PLAY IT
+---------------
+In a browser, on any device including a phone:
+
+   https://kevinbigham.github.io/mfd-playable-3d-standalone/
+
+That link serves the exact bytes of the one-file build, rewritten by the build
+itself, so it can never be out of date. On a phone hold it sideways, and use
+Add to Home Screen if you want the browser chrome out of the way.
+
+Offline, or from this folder:
+Open  dist-artifact/gridiron-overdrive.html  in any browser. Double-click it.
+That single file is the whole game — engine, 3D, audio, 16 teams, every mode.
+No install, no internet, nothing else needed.
+
+Controls: see CONTROLS.md. Short version, keyboard:
+   WASD move · Left Shift turbo · Space snap/pass/lateral
+   U I O throw to the left / middle / right receiver
+   J jump  K dive  L spin  ·  Esc pause
+
+TO WORK ON IT
+-------------
+   npm install
+   npm run dev        then open the URL it prints
+
+Requires Node 20+. Everything else installs from package.json.
+
+The full git history is in this folder (.git), so you can keep committing on any
+machine. To point it at GitHub:
+   git remote set-url origin https://github.com/<you>/<repo>.git
+   git push -u origin master
+
+WHERE THINGS ARE
+----------------
+   PROJECT_STATE.md   where the work stopped and what is still open — READ FIRST
+   QA_REPORT.md       every measurement, including the failures and retractions
+   DESIGN.md          what the game is trying to be
+   ARCHITECTURE.md    the code's contracts and the rules it must not break
+   CONTROLS.md        every button
+   IP_SAFETY.md       why nothing here is anybody else's
+
+USEFUL COMMANDS
+---------------
+   npm test           222 unit tests
+   npm run scenarios  25 end-to-end football situations
+   npm run human      a scripted human on the sticks
+   npm run acceptance the 61-test acceptance matrix
+   npm run sim -- --games 200     batch balance
+   npm run driveprobe yards and conversions by concept, down and distance
+   npm run artifact   rebuild the single playable HTML file
+
+NOT INCLUDED
+------------
+node_modules (npm install rebuilds it) and docs/captures (npm run capture
+rebuilds those). Both are regenerable and together they cost 700+ MB of history,
+which is why they are gone.
