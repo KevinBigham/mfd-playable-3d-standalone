@@ -27,6 +27,11 @@ See `reports/football-intelligence-measurements.md`. These are post-change censu
 A/B proof. Screen: 2.4500 yd/play on seeds 9100..9199 and 4.0588 on 19100..19199. Short-yardage:
 2.8000 / 1.0000. Goal-to-go quick: 2.3611 / 1.5000. Holdout data was not used for tuning.
 
+A subsequent receiver-radius pass widened only the intended receiver's normal-pass envelope from
+1.782 to 2.025 yards at a 50 hands rating; defender reach is unchanged. The fixed pass census moved
+from 43.7% to 49.5% completions and from 16.0% to 12.4% defender-possession events. Deep completion
+moved from 31% to 36%; every throw outcome still reconciles.
+
 ## Foot-slip
 
 Two consecutive renderer runs produced byte-equivalent reported categories and counts:
@@ -70,7 +75,7 @@ boxes; and clears proxies on unload. Touch/photo gestures cannot produce footbal
 | Command | Result |
 |---|---|
 | `npm run typecheck` | PASS |
-| `npm test` | PASS — 28 files, 321 tests |
+| `npm test` | PASS — 29 files, 324 tests |
 | `npm run scenarios` | PASS — 25/25 |
 | `npm run replay` | PASS — three seeds identical x3; persistence checks pass |
 | `npm run human` | PASS — 19/19 |

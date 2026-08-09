@@ -116,6 +116,8 @@ export const PASS_ARC = { TOUCH: 0.85, NORMAL: 0.5, BULLET: 0.17, LATERAL: 0.28,
 export const CATCH_RADIUS_BASE = 1.35;
 export const CATCH_RADIUS_BY_KIND = { TOUCH: 1.55, NORMAL: 1.35, BULLET: 1.05, LATERAL: 1.5, PUMP: 0 } as const;
 export const CATCH_HANDS_SCALE = 0.006;   // per rating point over 50
+/** Intended receivers get a readable hands-and-body envelope without increasing defender reach. */
+export const CATCH_TARGET_RADIUS_SCALE = 1.50;
 export const CATCH_WINDOW_TICKS = s(0.34);
 export const INT_BASE = 0.22;             // defender in position → chance to pick vs swat (v2: fewer
                                           // marginal errors become takeaways; swats carry the message)
