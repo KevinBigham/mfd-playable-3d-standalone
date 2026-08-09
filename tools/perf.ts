@@ -10,20 +10,25 @@ interface Row {
   calls: number; triangles: number; textures: number; geometries: number; frames: number;
 }
 
-async function measure(page: import('playwright').Page, tier: string, seconds: number): Promise<Row> {
-  await page.evaluate((t) => {
+async function measure(
+  page: import('playwright').Page, tier: string, seconds: number, stadium: string | null,
+): Promise<Row> {
+  await page.evaluate(({ t, stadiumId }) => {
     const g = (window as unknown as { GO: any }).GO;
     g.settings.quality = t;
+    g.settings.autoQuality = false;
+    g.settings.dynamicResolution = false;
     g.applySettings();
     g.reset('match', {
       config: {
         seed: 424242, quarterSeconds: 120, difficulty: 'PRO',
+        ...(stadiumId ? { stadium: stadiumId } : {}),
         seats: [{ side: 0, active: false }, { side: 1, active: false },
           { side: 0, active: false }, { side: 1, active: false }],
       },
       returnScreen: 'mainMenu',
     });
-  }, tier);
+  }, { t: tier, stadiumId: stadium });
   await page.waitForTimeout(2500);            // let it settle and warm shaders
   await page.evaluate(() => { (window as unknown as { GO: any }).GO.perfReset?.(); });
 
@@ -42,7 +47,9 @@ async function measure(page: import('playwright').Page, tier: string, seconds: n
     const mem = g.renderer.renderer.info.memory;
     return { ...perf, ...info, textures: mem.textures, geometries: mem.geometries };
   });
-  void liveSamples;
+  if (liveSamples === 0) {
+    throw new Error(`${tier} performance window contained no live-play samples`);
+  }
   return {
     tier, p50: r.p50, p95: r.p95, p99: r.p99, worst: r.worst,
     calls: r.calls, triangles: r.triangles, textures: r.textures,
@@ -51,6 +58,9 @@ async function measure(page: import('playwright').Page, tier: string, seconds: n
 }
 
 async function main(): Promise<void> {
+  const stadiumFlag = process.argv.indexOf('--stadium');
+  const stadium = stadiumFlag >= 0 ? process.argv[stadiumFlag + 1] : null;
+  if (stadiumFlag >= 0 && !stadium) throw new Error('--stadium requires an existing stadium id');
   ensureBuild();
   const url = await startServer(4174);
   const h = await launch(url, { width: 1600, height: 900 });
@@ -58,14 +68,14 @@ async function main(): Promise<void> {
   const boot = await h.page.evaluate(() => performance.now());
   try {
     for (const tier of ['HIGH', 'MEDIUM', 'LOW']) {
-      rows.push(await measure(h.page, tier, 22));
+      rows.push(await measure(h.page, tier, 22, stadium));
     }
   } finally {
     await h.close();
     stopServer();
   }
   const f = (n: number) => n.toFixed(2);
-  console.log(`\nGRIDIRON OVERDRIVE — performance (1600x900, moving gameplay, software WebGL)\n`
+  console.log(`\nGRIDIRON OVERDRIVE — performance (1600x900, moving gameplay, software WebGL${stadium ? `, ${stadium}` : ''})\n`
     + `boot to interactive: ${(boot / 1000).toFixed(2)} s\n`
     + '────────────────────────────────────────────────────────────────────────────\n'
     + 'tier     p50ms   p95ms   p99ms   worst   calls   tris     tex   geo   frames');

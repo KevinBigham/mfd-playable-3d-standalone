@@ -5,6 +5,10 @@ import { fieldMarkingsTexture, turfTexture, turfMicroTexture, fieldWearTexture, 
 import { GeoBatch, chamferBox } from './geo.ts';
 import { SURF, applySurfaceShader, makeRimUniforms, type RimUniforms } from '../surfaces.ts';
 import { rimUniforms } from '../athleteRig.ts';
+import { ENDZONE_DEPTH, FIELD_HALF_WIDTH, FIELD_LENGTH } from '../../core/constants.ts';
+import {
+  FIELD_APRON_END_CLEARANCE, FIELD_APRON_HALF_WIDTH,
+} from '../stadiumVisual/protection.ts';
 
 /**
  * The playing surface and everything painted, planted or parked on it.
@@ -23,16 +27,16 @@ import { rimUniforms } from '../athleteRig.ts';
  * proud of the grass — rides on the same shader for free.
  */
 
-const HALF_W = 26.665;
-const LENGTH = 120;          // z ∈ [-10, 110]
-const CENTER_Z = 50;
+const HALF_W = FIELD_HALF_WIDTH;
+const LENGTH = FIELD_LENGTH + ENDZONE_DEPTH * 2; // z ∈ [-10, 110]
+const CENTER_Z = FIELD_LENGTH / 2;
 const TURF_TILE = 10;        // yards per turf detail (albedo) tile
 const MICRO_TILE = 7;        // yards per micro-relief tile — deliberately not a factor of 5 or 10,
                              // so the relief never lines up with the mow bands or the yard lines
 const MOW_PERIOD = 10;       // yards for a light+dark pair, i.e. 5-yard bands on the 5-yard lines
 /** Apron reaches the largest rectangle that fits inside the stadium bowl's inner wall. */
-const APRON_OUT_X = 37;
-const APRON_OUT_Z = 16;      // beyond each end line
+const APRON_OUT_X = FIELD_APRON_HALF_WIDTH;
+const APRON_OUT_Z = FIELD_APRON_END_CLEARANCE; // beyond each end line
 
 export const GOAL_HALF_WIDTH = 9.25;
 export const CROSSBAR_Y = 10 / 3;          // 10 feet

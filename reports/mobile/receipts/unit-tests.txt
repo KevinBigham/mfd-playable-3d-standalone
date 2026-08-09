@@ -1,36 +1,47 @@
 
- RUN  v2.1.9 /Users/tkevinbigham/Projects/mfd-playable-3d-standalone-main
+ RUN  v2.1.9 /Users/kevin/Downloads/3D FB_mfd-playable-3d-standalone-main
 
- ✓ tests/rules.test.ts (16 tests) 4ms
- ✓ tests/controlLayout.test.ts (8 tests) 26ms
- ✓ src/audio/audio.test.ts (14 tests) 12ms
- ✓ src/plays/plays.test.ts (52 tests) 49ms
- ✓ src/modes/playEditor.test.ts (38 tests) 31ms
- ✓ src/data/league.test.ts (36 tests) 92ms
- ✓ tests/throwLedger.test.ts (3 tests) 3ms
- ✓ tests/pauseController.test.ts (7 tests) 5ms
- ✓ tests/framePacer.test.ts (8 tests) 39ms
- ✓ tests/feedback.test.ts (9 tests) 1ms
+ ✓ tests/controlLayout.test.ts (8 tests) 33ms
+ ✓ src/audio/audio.test.ts (14 tests) 9ms
+ ✓ src/data/league.test.ts (36 tests) 105ms
+ ✓ src/plays/plays.test.ts (52 tests) 59ms
+ ✓ src/modes/playEditor.test.ts (38 tests) 39ms
+ ✓ tests/rules.test.ts (16 tests) 6ms
+ ✓ tests/stadiumVisualContract.test.ts (19 tests) 182ms
+ ✓ tests/throwLedger.test.ts (3 tests) 4ms
+ ✓ tests/purity.test.ts (8 tests) 33ms
+ ✓ tests/framePacer.test.ts (8 tests) 53ms
+ ✓ tests/pauseController.test.ts (7 tests) 4ms
+ ✓ tests/feedback.test.ts (9 tests) 4ms
  ✓ tests/progression.test.ts (4 tests) 5ms
- ✓ tests/purity.test.ts (7 tests) 49ms
- ✓ tests/saveDebounce.test.ts (2 tests) 16ms
+ ✓ tests/stadiumPresentationBoundary.test.ts (3 tests) 1386ms
+   ✓ authored stadiums stay presentation-only > keeps a fixed-seed replay, event log and hash identical with the override present or absent 1379ms
+ ✓ tests/stadiumNativeSeams.test.ts (2 tests) 5ms
+ ✓ tests/saveDebounce.test.ts (2 tests) 5ms
  ✓ tests/persistenceV2.test.ts (3 tests) 5ms
- ✓ tests/kickoffChoice.test.ts (4 tests) 1120ms
-   ✓ human kickoff choice > CPU-vs-CPU games are byte-identical to the pre-change behavior window 987ms
- ✓ tests/playGrade.test.ts (3 tests) 929ms
-   ✓ play grade facts > produces one fact per resolved throw, with evidence, deterministically 911ms
- ✓ tests/snapshot.test.ts (8 tests) 1234ms
-   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 1500 and continues identically 365ms
- ✓ src/modes/tournament.test.ts (21 tests) 1560ms
-   ✓ CPU games come from the real engine > plays a whole four-team ladder headlessly and crowns a champion 1125ms
-   ✓ CPU games come from the real engine > is deterministic for a given seed and resolves byes without simulating 369ms
- ✓ tests/driveRush.test.ts (3 tests) 1371ms
-   ✓ Drive Rush ruleset > every attempt over 60 seeds ends in a declared way, and all end kinds occur 1212ms
- ✓ src/modes/season.test.ts (22 tests) 12533ms
-   ✓ playoffs > crowns exactly one champion through the real match simulator 12178ms
+ ✓ tests/snapshot.test.ts (8 tests) 2180ms
+   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 1500 and continues identically 559ms
+   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 4000 and continues identically 481ms
+   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 7000 and continues identically 397ms
+   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 11000 and continues identically 440ms
+ ✓ tests/kickoffChoice.test.ts (4 tests) 2043ms
+   ✓ human kickoff choice > CPU-vs-CPU games are byte-identical to the pre-change behavior window 1931ms
+ ✓ tests/playGrade.test.ts (3 tests) 1678ms
+   ✓ play grade facts > produces one fact per resolved throw, with evidence, deterministically 1654ms
+ ✓ src/modes/tournament.test.ts (21 tests) 2507ms
+   ✓ CPU games come from the real engine > plays a whole four-team ladder headlessly and crowns a champion 1920ms
+   ✓ CPU games come from the real engine > is deterministic for a given seed and resolves byes without simulating 480ms
+ ✓ tests/driveRush.test.ts (3 tests) 2124ms
+   ✓ Drive Rush ruleset > every attempt over 60 seeds ends in a declared way, and all end kinds occur 1918ms
+ ✓ tests/stadiumPromotion.test.ts (4 tests) 4726ms
+   ✓ stadium promotion lifecycle > leaves promoted assets and registry byte-identical when validation fails 1009ms
+   ✓ stadium promotion lifecycle > restores both tracked surfaces when promotion fails after the asset write 723ms
+   ✓ stadium promotion lifecycle > rejects traversal and encoded/path-like rollback targets before touching promoted files 2982ms
+ ✓ src/modes/season.test.ts (22 tests) 14652ms
+   ✓ playoffs > crowns exactly one champion through the real match simulator 14307ms
 
- Test Files  20 passed (20)
-      Tests  268 passed (268)
-   Start at  17:08:06
-   Duration  13.12s (transform 925ms, setup 0ms, collect 2.77s, tests 19.09s, environment 2ms, prepare 1.16s)
+ Test Files  24 passed (24)
+      Tests  297 passed (297)
+   Start at  13:34:03
+   Duration  15.27s (transform 1.16s, setup 0ms, collect 3.19s, tests 31.85s, environment 3ms, prepare 1.77s)
 

@@ -49,7 +49,17 @@
     "anthro": "tsx tools/anthro.ts",
     "policyprobe": "tsx tools/policyprobe.ts",
     "mobile:baseline": "tsx tools/mobilebaseline.ts",
-    "roster": "tsx tools/roster.ts"
+    "roster": "tsx tools/roster.ts",
+    "stadium:validate": "tsx tools/stadium/validate.ts",
+    "stadium:roundtrip": "tsx tools/stadium/roundtrip.ts",
+    "stadium:budget": "tsx tools/stadium/budget.ts",
+    "stadium:promote": "tsx tools/stadium/promote.ts",
+    "stadium:rollback": "tsx tools/stadium/rollback.ts",
+    "stadium:probe": "tsx tools/stadiumprobe.ts",
+    "stadium:studio": "npm --prefix tools/pascal-stadium-studio run studio",
+    "stadium:studio:typecheck": "npm --prefix tools/pascal-stadium-studio run typecheck",
+    "stadium:studio:test": "npm --prefix tools/pascal-stadium-studio test",
+    "stadium:studio:build": "npm --prefix tools/pascal-stadium-studio run build"
   },
   "dependencies": {
     "three": "^0.169.0"

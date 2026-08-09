@@ -93,7 +93,7 @@ async function main(): Promise<void> {
     }
     return false;
   })()`);
-  check('match reaches PRE_SNAP', booted, '');
+  check('match reaches PRE_SNAP', booted === true, '');
 
   // Promotion ladder, driven synthetically and atomically (one evaluate = no real RAF
   // interleaving). Real frame timing is silenced afterwards via dynamicResolution=false.

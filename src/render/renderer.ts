@@ -15,9 +15,10 @@ import { Effects } from './effects.ts';
 import { buildBall, buildMarkers, makeNumberSprite, type Markers } from './props.ts';
 import { resolveKits } from './kits.ts';
 import { buildEnvironment, type Environment } from './env/index.ts';
+import { resolveStadiumVisual } from './stadiumVisual/generatedRegistry.ts';
 import type { ReplayView } from './replay.ts';
 import type { World } from '../sim/world.ts';
-import { carrier, dirOf } from '../sim/world.ts';
+import { carrier } from '../sim/world.ts';
 import { strideLengthFor } from '../sim/movement.ts';
 import { clamp, clamp01, lerp, angLerp, angDelta, damp, smoothstep } from '../core/math.ts';
 import { FIXED_DT } from '../core/constants.ts';
@@ -30,6 +31,25 @@ export interface RendererOptions {
   resolutionScale: number;
   /** Camera pull-in, 0..1. See `CameraOptions.dolly`; a phone runs `PHONE_DOLLY`. */
   dolly: number;
+}
+
+/**
+ * Every presentation input that changes built scene resources. Kept as a pure helper so cache-key
+ * behavior can be tested without constructing WebGL. Resolution scale is intentionally absent: it
+ * changes the framebuffer, not the environment geometry.
+ */
+export function rendererSceneKey(
+  home: Pick<TeamDef, 'id'>,
+  away: Pick<TeamDef, 'id'>,
+  stadium: Pick<StadiumDef, 'id'>,
+  conditions: Pick<Conditions, 'weather' | 'surface' | 'windX' | 'windZ'>,
+  quality: QualitySettings,
+  visualHash: string | null,
+): string {
+  return JSON.stringify([
+    home.id, away.id, stadium.id, visualHash ?? 'legacy',
+    conditions.weather, conditions.surface, conditions.windX, conditions.windZ, quality,
+  ]);
 }
 
 const sample: AnimSample = {
@@ -138,6 +158,7 @@ export class GameRenderer {
   }
 
   setQuality(tier: QualityTier, resolutionScale = 1): void {
+    const tierChanged = this.quality.tier !== tier;
     this.quality = devicePreset(tier);
     this.opts.quality = tier;
     this.opts.resolutionScale = resolutionScale;
@@ -152,6 +173,14 @@ export class GameRenderer {
       this.post = null;
     }
     this.applyToneMapping();
+    // Stadium segmentation, authored minQuality gates, crowd density, sky complexity and athlete
+    // detail are build-time choices. Rebuild the presentation scene when a live tier changes so the
+    // advertised tier is the scene actually being drawn. Simulation state is untouched and the next
+    // sync repopulates every dynamic transform from authoritative world state.
+    const args = this.loadedSceneArgs;
+    if (tierChanged && args && this.env && !this.unloadDeferred) {
+      this.loadMatch(args.home, args.away, args.stadium, args.conditions);
+    }
   }
 
   /**
@@ -222,6 +251,12 @@ export class GameRenderer {
   /** Build (or rebuild) the world for a match. */
   /** What the current scene was built for. Same key on the next load = reset, not rebuild. */
   private loadedKey = '';
+  private loadedSceneArgs: {
+    home: TeamDef;
+    away: TeamDef;
+    stadium: StadiumDef;
+    conditions: Conditions;
+  } | null = null;
   /** Teardown owed but postponed: an immediate retry cancels it; entering a menu performs it. */
   private unloadDeferred = false;
 
@@ -237,52 +272,71 @@ export class GameRenderer {
     // environment and its PMREM capture, fourteen athlete rigs, ball, markers, effects pools —
     // is still exactly right. Reset the dynamic state and skip the rebuild; this is what makes
     // ONE MORE DRIVE feel instant instead of re-running venue construction and shader warmup.
-    const key = `${home.id}|${away.id}|${stadium.id}|${conditions.weather}|${JSON.stringify(this.quality)}`;
-    if (this.loadedKey === key && this.env) { this.unloadDeferred = false; this.resetMatchScene(); return; }
+    const resolvedVisual = resolveStadiumVisual(stadium.id);
+    const key = rendererSceneKey(home, away, stadium, conditions, this.quality, resolvedVisual?.hash ?? null);
+    const request = { home, away, stadium, conditions };
+    if (this.loadedKey === key && this.env) {
+      this.loadedSceneArgs = request;
+      this.unloadDeferred = false;
+      this.resetMatchScene();
+      return;
+    }
     this.unloadMatch();
-    this.loadedKey = key;
-    this.env = buildEnvironment(this.registry, { home, away, stadium, conditions, quality: this.quality });
-    // Capture the finished venue into an environment map BEFORE any athlete exists, so the
-    // reflections in a helmet are the sky, the stands and the turf — and not fourteen other
-    // helmets. Physically-shaded materials get their whole ambient response from this.
-    this.buildEnvMap();
-    // The image-based light is a fill, not a second key: at full strength it flattens the hard
-    // key the whole look is built on.
-    this.scene.environmentIntensity = 0.55;
-    // The edge light that keeps bodies off the turf takes its colour from the venue.
-    const pal = this.env.palette;
-    rimUniforms.uRimColor.value.copy(pal.rimColor);
-    rimUniforms.uRimGain.value = clamp(pal.rimIntensity * 0.42 + 0.16, 0.12, 0.72);
-    this.gradeForVenue(pal, conditions);
-    this.effects = new Effects(this.registry, this.quality);
-    this.ball = buildBall(this.registry);
-    this.markers = buildMarkers(this.registry, [home.colors, away.colors], this.quality);
+    this.loadedSceneArgs = request;
+    try {
+      this.env = buildEnvironment(this.registry, {
+        home, away, stadium, conditions, quality: this.quality,
+        visual: resolvedVisual?.visual,
+        visualHash: resolvedVisual?.hash,
+      });
+      // Capture the finished venue into an environment map BEFORE any athlete exists, so the
+      // reflections in a helmet are the sky, the stands and the turf — and not fourteen other
+      // helmets. Physically-shaded materials get their whole ambient response from this.
+      this.buildEnvMap();
+      // The image-based light is a fill, not a second key: at full strength it flattens the hard
+      // key the whole look is built on.
+      this.scene.environmentIntensity = 0.55;
+      // The edge light that keeps bodies off the turf takes its colour from the venue.
+      const pal = this.env.palette;
+      rimUniforms.uRimColor.value.copy(pal.rimColor);
+      rimUniforms.uRimGain.value = clamp(pal.rimIntensity * 0.42 + 0.16, 0.12, 0.72);
+      this.gradeForVenue(pal, conditions);
+      this.effects = new Effects(this.registry, this.quality);
+      this.ball = buildBall(this.registry);
+      this.markers = buildMarkers(this.registry, [home.colors, away.colors], this.quality);
 
-    const kits = resolveKits(home, away);
-    const group = this.registry.group('athletes');
-    for (const side of [0, 1] as TeamSide[]) {
-      const team = side === 0 ? home : away;
-      const colors = side === 0 ? kits.home : kits.away;
-      for (const p of team.roster) {
-        const rig = buildAthleteRig(this.registry, p, colors, this.quality, side === 1);
-        // Yaw first, then bank in the yawed frame, so leaning into a cut tips the body
-        // sideways rather than rolling it about the world axis.
-        rig.root.rotation.order = 'YXZ';
-        rig.root.visible = false;
-        group.add(rig.root);
-        this.rigs[side].set(p.number, rig);
+      const kits = resolveKits(home, away);
+      const group = this.registry.group('athletes');
+      for (const side of [0, 1] as TeamSide[]) {
+        const team = side === 0 ? home : away;
+        const colors = side === 0 ? kits.home : kits.away;
+        for (const p of team.roster) {
+          const rig = buildAthleteRig(this.registry, p, colors, this.quality, side === 1);
+          // Yaw first, then bank in the yawed frame, so leaning into a cut tips the body
+          // sideways rather than rolling it about the world axis.
+          rig.root.rotation.order = 'YXZ';
+          rig.root.visible = false;
+          group.add(rig.root);
+          this.rigs[side].set(p.number, rig);
+        }
       }
+      const seatColors = ['#3fd0ff', '#ff5a4a', '#ffd23f', '#78ff8a'];
+      for (let i = 0; i < 4; i++) {
+        const sp = makeNumberSprite(this.registry, String(i + 1), seatColors[i], '#0a0d14');
+        sp.visible = false;
+        this.registry.group('markers').add(sp);
+        this.numberSprites.push(sp);
+      }
+      for (const m of this.motion) { m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1; }
+      for (let i = 0; i < this.lastAnimState.length; i++) { this.lastAnimState[i] = ''; this.animT[i] = 0; }
+      this.prewarm();
+      // Publish the key only after the complete scene is reusable. A failed construction must never
+      // turn into a same-key hit against partial resources.
+      this.loadedKey = key;
+    } catch (error) {
+      this.unloadMatch();
+      throw error;
     }
-    const seatColors = ['#3fd0ff', '#ff5a4a', '#ffd23f', '#78ff8a'];
-    for (let i = 0; i < 4; i++) {
-      const sp = makeNumberSprite(this.registry, String(i + 1), seatColors[i], '#0a0d14');
-      sp.visible = false;
-      this.registry.group('markers').add(sp);
-      this.numberSprites.push(sp);
-    }
-    for (const m of this.motion) { m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1; }
-    for (let i = 0; i < this.lastAnimState.length; i++) { this.lastAnimState[i] = ''; this.animT[i] = 0; }
-    this.prewarm();
   }
 
   /** Same-configuration retry: hide and neutralize everything dynamic, dispose nothing. */
@@ -361,6 +415,7 @@ export class GameRenderer {
 
   unloadMatch(): void {
     this.loadedKey = '';
+    this.loadedSceneArgs = null;
     this.unloadDeferred = false;
     this.scene.environment = null;
     this.envRT?.dispose();
@@ -551,18 +606,19 @@ export class GameRenderer {
     }
     this.ball.visible = b.state.kind !== 'dead' || world.playPhase !== 'SETUP';
 
-    this.syncMarkers(world, match, alpha);
+    this.syncMarkers(world, alpha);
 
     // Field markers + shadow focus.
     if (this.env) {
-      const dir = dirOf(world.possession);
+      const clockSeconds = Math.max(0, Math.ceil(match.clockTicks * FIXED_DT));
+      const clock = `${Math.floor(clockSeconds / 60)}:${String(clockSeconds % 60).padStart(2, '0')}`;
+      this.env.stadium.setScore(match.teams[0].score, match.teams[1].score, match.quarter, clock);
       this.env.field.setLos(world.losZ);
       this.env.field.setFirstDown(match.firstDownZ);
       this.env.field.setMarkersVisible(world.special === null);
       this.env.field.setGoalOcclusion(this.gameCamera.camera.position.z, this.gameCamera.focusZ, dt);
       this.env.lighting.focusOn(this.gameCamera.focusX, this.gameCamera.focusZ);
       this.env.update(dt, this.gameCamera.camera.position);
-      void dir;
     }
 
     // Effects observe the world directly so they can react to cuts, foot-plants and turbo
@@ -572,11 +628,10 @@ export class GameRenderer {
     this.lastDt = dt;
   }
 
-  private syncMarkers(world: World, match: MatchState, alpha: number): void {
+  private syncMarkers(world: World, alpha: number): void {
     const mk = this.markers;
     for (const r of mk.rings) r.visible = false;
     for (const s of this.numberSprites) s.visible = false;
-    let seatIdx = 0;
     for (const a of world.athletes) {
       if (a.controlledBySeat < 0) continue;
       const ring = mk.rings[a.controlledBySeat];
@@ -591,9 +646,7 @@ export class GameRenderer {
         // used to assume a seven-foot athlete; see PROP in athleteRig.ts.
         sp.position.set(lerp(a.prevX, a.x, alpha), 2.62 + a.y, lerp(a.prevZ, a.z, alpha));
       }
-      seatIdx++;
     }
-    void seatIdx;
 
     const car = carrier(world);
     if (car && world.playPhase === 'LIVE') {
@@ -633,7 +686,6 @@ export class GameRenderer {
     } else {
       mk.reticle.visible = false;
     }
-    void match;
   }
 
   /** Put the drawn ball in the cradle the tuck pose makes between that arm's wrist and elbow. */

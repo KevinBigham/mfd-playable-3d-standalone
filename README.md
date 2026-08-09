@@ -101,6 +101,13 @@ npm run preview   # serves dist/ on http://localhost:4173
 
 `dist/` is a static folder. Copy it anywhere that serves files.
 
+### Stadium Visual Studio (development only)
+
+The isolated Pascal Stadium Visual Studio authors constrained semantic venue JSON while the game
+continues to render native Three.js geometry. It is not included in root dependencies or production
+builds. See **[STADIUM_VISUAL_STUDIO.md](STADIUM_VISUAL_STUDIO.md)** for prerequisites, editor use,
+validation, budgets, promotion, rollback, and the pinned Pascal upgrade policy.
+
 ## TEST COMMANDS
 
 ```bash
@@ -130,6 +137,8 @@ npm run anthro       # athlete proportions, asserted rather than eyeballed
 npm run roster       # contact sheet: eight positions, recognisable by silhouette
 npm run artifact     # folds the whole game into ONE self-contained HTML file
 npm run artifact:check  # boots that file in a sandboxed iframe and plays a match in it
+npm run stadium:probe   # authored Saltpan + 17 legacy venues, scoreboards, lights, crowd, lifecycle
+npm run stadium:budget -- --stadium the-saltpan  # native semantic budget receipt at every tier
 npm run qa           # typecheck + tests + scenarios + batch + motion + the artifact build
 ```
 
