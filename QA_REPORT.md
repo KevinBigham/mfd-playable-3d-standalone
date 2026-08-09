@@ -2084,7 +2084,7 @@ Stated as failures rather than omissions:
 10. **Teams switch ends only at halftime**, not every quarter, for camera and local-multiplayer
     orientation stability.
 11. **Instant replay is a transform-buffer clip**, not a general rewind: it re-poses the rigs from a
-    4.5-second ring buffer of render transforms while the simulation is paused. It cannot destabilise
+    6.5-second ring buffer of render transforms while the simulation is paused. It cannot destabilise
     a match — worst case a clip looks wrong — but it is not a full replay system.
 12. **The visual review set in `docs/captures/`** was produced under software rendering at reduced
     frame counts. The images are representative of composition and colour, not of motion.
@@ -2117,3 +2117,16 @@ Stated as failures rather than omissions:
     renders one instant of each. The one-shot poses — dive, tackle, get-up, kick — were checked at a
     single point in their timeline, so their *timing* is unverified even though their shapes are
     now right.
+
+## MFD standalone mission addendum
+
+The current implementation adds native bounded pursuit intercepts, screen/run/pass situational
+intelligence, deterministic replay event routing and three-shot packages, replay-only photo mode
+with stadium-derived static camera proxies, and a render-only planted-foot anchor for hard cuts.
+The acceptance harness now exits nonzero on failures; the final run has no failed rows. Artifact
+validation remains an end-to-end offline gate with zero network requests and no console errors.
+
+Foot-slip is no longer unverified. The default command measures the actual renderer pose/sole path
+for 2,400 fixed ticks and reports repeatable category distributions. Its result is mixed: straight
+running is controlled, but hard cuts retain high p95 outliers. See `reports/final-validation.md`;
+the geometry-only command is explicitly not accepted as equivalent visual evidence.

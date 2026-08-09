@@ -54,6 +54,29 @@ export function topSpeed(a: Athlete): number {
   return turboSpeed(a) * (a.onFire ? OVERDRIVE_SPEED : 1);
 }
 
+/**
+ * Solve a short-horizon intercept without creating an agent or mutating world state.
+ *
+ * This is deliberately a small native equivalent of the useful part of a pursuit steering
+ * behavior: estimate where a moving target will be when the chaser arrives, then clamp the
+ * horizon so a sudden cut cannot make the defender chase an unreachable point.  Callers still
+ * turn the result into PlayerIntent; this helper never moves an athlete directly.
+ */
+export function interceptPoint(
+  chaserX: number, chaserZ: number, chaserSpeed: number,
+  targetX: number, targetZ: number, targetVx: number, targetVz: number,
+  maxSeconds = 1.25,
+): { x: number; z: number; eta: number } {
+  const speed = Math.max(0.1, chaserSpeed);
+  let eta = Math.min(maxSeconds, Math.hypot(targetX - chaserX, targetZ - chaserZ) / speed);
+  for (let i = 0; i < 3; i++) {
+    const px = targetX + targetVx * eta;
+    const pz = targetZ + targetVz * eta;
+    eta = clamp(Math.hypot(px - chaserX, pz - chaserZ) / speed, 0, maxSeconds);
+  }
+  return { x: targetX + targetVx * eta, z: targetZ + targetVz * eta, eta };
+}
+
 export function canAct(a: Athlete): boolean {
   return a.move !== 'DOWN' && a.move !== 'GETUP' && a.move !== 'STUNNED' && a.move !== 'CELEBRATE';
 }

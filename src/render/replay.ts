@@ -1,6 +1,7 @@
-import type { AnimState } from '../core/types.ts';
+import type { AnimState, GameEvent, TeamSide } from '../core/types.ts';
 import type { World } from '../sim/world.ts';
 import { carryArm } from '../sim/ball.ts';
+import { FALLBACK_REPLAY_SHOTS, type MfdReplayShotSetV1, type ReplayEventKind, validateReplayShotSet, type ReplayShotV1 } from './replayShots.ts';
 
 /**
  * Deterministic short-clip replay.
@@ -11,7 +12,7 @@ import { carryArm } from '../sim/ball.ts';
  */
 
 const HZ = 30;
-const SECONDS = 4.5;
+const SECONDS = 6.5;
 const FRAMES = Math.round(HZ * SECONDS);
 const ATHLETES = 14;
 const PER_ATHLETE = 6;   // x, y, z, facing, animPhase, carryArm
@@ -115,15 +116,134 @@ export class ReplayPlayer {
   stop(): void { this.active = false; }
 
   /** Returns the frame index to show, or -1 when the clip has finished. */
-  advance(dt: number): number {
+  advance(dt: number, speedScale = 1): number {
     if (!this.active) return -1;
-    this.t += dt * this.speed * HZ;
+    this.t += dt * this.speed * Math.max(0.1, speedScale) * HZ;
     const i = Math.floor(this.t);
     if (i >= this.frames) { this.active = false; return -1; }
     return i;
   }
 
   get progress(): number { return this.frames ? Math.min(1, this.t / this.frames) : 0; }
+  get currentFrame(): number { return this.active ? Math.min(this.frames - 1, Math.floor(this.t)) : -1; }
+}
+
+/** Presentation-only shot sequencer. It selects bounded authored data; it never reads or writes World. */
+export class ReplayDirector {
+  private set: MfdReplayShotSetV1 = FALLBACK_REPLAY_SHOTS;
+  private shots: ReplayShotV1[] = FALLBACK_REPLAY_SHOTS.shots;
+  private index = 0;
+
+  load(input: unknown): boolean {
+    const result = validateReplayShotSet(input);
+    if (!result.ok || !result.value) { this.set = FALLBACK_REPLAY_SHOTS; this.shots = FALLBACK_REPLAY_SHOTS.shots; this.index = 0; return false; }
+    this.set = result.value; this.shots = result.value.shots; this.index = 0; return true;
+  }
+
+  begin(event: ReplayEventKind, seed: number): ReplayShotV1 {
+    void seed;
+    this.shots = this.set.eventKinds.includes(event) ? this.set.shots : FALLBACK_REPLAY_SHOTS.shots;
+    this.index = 0;
+    return this.current;
+  }
+
+  at(progress: number): ReplayShotV1 {
+    const p = Math.max(0, Math.min(0.999999, progress));
+    let found = this.shots.length - 1;
+    for (let i = 0; i < this.shots.length; i++) {
+      if (p >= this.shots[i].start && p < this.shots[i].end) { found = i; break; }
+    }
+    this.index = Math.max(0, found);
+    return this.current;
+  }
+
+  choose(event: ReplayEventKind, seed: number): ReplayShotV1 { return this.begin(event, seed); }
+  speedAt(progress: number): number { return this.at(progress).slowMotion ?? 1; }
+
+  get current(): ReplayShotV1 { return this.shots[this.index] ?? FALLBACK_REPLAY_SHOTS.shots[0]; }
+  get shotSet(): MfdReplayShotSetV1 { return this.set; }
+}
+
+export function replayTarget(view: ReplayView, role: ReplayShotV1['target']): { x: number; z: number } {
+  if (role === 'BALL') return view.ball;
+  const carrier = view.athletes.find((athlete) => athlete.carry !== 0);
+  if (role === 'CARRIER' || role === 'RECEIVER' || role === 'SCORER') return carrier ?? view.ball;
+  if (role === 'PASSER') return view.athletes[0] ?? view.ball;
+  if (role === 'FORMATION_CENTER') {
+    let x = 0, z = 0;
+    for (const athlete of view.athletes) { x += athlete.x; z += athlete.z; }
+    return view.athletes.length ? { x: x / view.athletes.length, z: z / view.athletes.length } : view.ball;
+  }
+  const subject = carrier ?? view.ball;
+  let best = view.athletes[0] ?? subject;
+  let bestDistance = Infinity;
+  for (const athlete of view.athletes) {
+    if (role === 'DEFENDER' && carrier && athlete.side === carrier.side) continue;
+    const distance = Math.hypot(athlete.x - subject.x, athlete.z - subject.z);
+    if (distance < bestDistance) { bestDistance = distance; best = athlete; }
+  }
+  return best;
+}
+
+const REPLAY_PRIORITY: Record<ReplayEventKind, number> = {
+  TOUCHDOWN: 100, FIELD_GOAL: 100, GAME_WINNING: 110,
+  INTERCEPTION: 90, FUMBLE_RECOVERY: 90, FOURTH_DOWN_STOP: 85,
+  SACK: 80, TACKLE_FOR_LOSS: 45, EXPLOSIVE_PASS: 35, EXPLOSIVE_RUN: 35,
+};
+
+/** Converts actual emitted simulation events into one non-overwritable replay package per play. */
+export class ReplayEventRouter {
+  private current: ReplayEventKind | null = null;
+  private fumbleLive = false;
+  private threwPass = false;
+  private completedPass = false;
+  private lastMoment: { tick: number; side: TeamSide } | null = null;
+
+  observe(event: GameEvent): ReplayEventKind | null {
+    switch (event.type) {
+      case 'play.start':
+        this.fumbleLive = false; this.threwPass = false; this.completedPass = false;
+        break;
+      case 'throw': this.threwPass = true; break;
+      case 'catch': this.completedPass = true; break;
+      case 'fumble': this.fumbleLive = true; break;
+      case 'recover':
+        if (this.fumbleLive) this.offer('FUMBLE_RECOVERY');
+        this.fumbleLive = false;
+        break;
+      case 'interception': this.offer('INTERCEPTION'); break;
+      case 'sack': this.offer('SACK'); break;
+      case 'touchdown':
+        this.offer('TOUCHDOWN'); this.lastMoment = { tick: event.tick, side: event.side };
+        break;
+      case 'fieldGoal.result':
+        if (event.good) { this.offer('FIELD_GOAL'); this.lastMoment = { tick: event.tick, side: event.side }; }
+        break;
+      case 'turnover':
+        if (event.kind === 'DOWNS') { this.offer('FOURTH_DOWN_STOP'); this.lastMoment = { tick: event.tick, side: event.to }; }
+        break;
+      case 'play.end':
+        if (event.yards >= 18) this.offer(this.threwPass && this.completedPass ? 'EXPLOSIVE_PASS' : 'EXPLOSIVE_RUN');
+        else if (event.reason === 'TACKLE' && event.yards <= -1) this.offer('TACKLE_FOR_LOSS');
+        break;
+      case 'match.end':
+        if (event.winner !== 'TIE' && this.lastMoment?.side === event.winner
+            && event.tick - this.lastMoment.tick <= 40 * 60) this.offer('GAME_WINNING');
+        break;
+      default: break;
+    }
+    return this.current;
+  }
+
+  take(): ReplayEventKind | null { const value = this.current; this.current = null; return value; }
+  get pending(): ReplayEventKind | null { return this.current; }
+  reset(): void {
+    this.current = null; this.fumbleLive = false; this.threwPass = false;
+    this.completedPass = false; this.lastMoment = null;
+  }
+  private offer(kind: ReplayEventKind): void {
+    if (!this.current || REPLAY_PRIORITY[kind] > REPLAY_PRIORITY[this.current]) this.current = kind;
+  }
 }
 
 export const REPLAY_HZ = HZ;

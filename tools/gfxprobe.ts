@@ -35,7 +35,13 @@ const MATCH_CONFIG = {
 async function main(): Promise<void> {
   ensureBuild();
   const url = await startServer();
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({
+    args: [
+      '--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox',
+      '--no-sandbox', '--disable-dev-shm-usage', '--ignore-gpu-blocklist',
+      '--enable-webgl', '--use-angle=swiftshader',
+    ],
+  });
 
   // ── phone: 3x display, coarse pointer ──────────────────────────────────
   const phone = await browser.newContext({
@@ -45,8 +51,14 @@ async function main(): Promise<void> {
   const page = await phone.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(url);
-  await page.waitForFunction(() => !!(window as any).GO, undefined, { timeout: 20000 });
+  try {
+    await page.waitForFunction(() => !!(window as any).GO, undefined, { timeout: 20000 });
+  } catch (error) {
+    console.error('gfx bootstrap errors:', JSON.stringify(errors.slice(0, 8)));
+    throw error;
+  }
 
   const base = await page.evaluate(() => {
     const g = (window as any).GO;
@@ -93,7 +105,7 @@ async function main(): Promise<void> {
     }
     return false;
   })()`);
-  check('match reaches PRE_SNAP', booted, '');
+  check('match reaches PRE_SNAP', booted === true, '');
 
   // Promotion ladder, driven synthetically and atomically (one evaluate = no real RAF
   // interleaving). Real frame timing is silenced afterwards via dynamicResolution=false.
@@ -149,8 +161,13 @@ async function main(): Promise<void> {
   // ── desktop: fine pointer, nothing changes ─────────────────────────────
   const desktop = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const dpage = await desktop.newPage();
+  dpage.on('pageerror', (e) => errors.push(`desktop: ${String(e)}`));
+  dpage.on('console', (m) => { if (m.type() === 'error') errors.push(`desktop: ${m.text()}`); });
   await dpage.goto(url);
-  await dpage.waitForFunction(() => !!(window as any).GO, undefined, { timeout: 20000 });
+  // A second software-WebGL context can compile after the phone context has already consumed
+  // Chromium's initial shader budget. Match the shared browser harness's bootstrap allowance;
+  // all desktop rendering assertions below still have to pass once the real app is interactive.
+  await dpage.waitForFunction(() => !!(window as any).GO, undefined, { timeout: 150000 });
   const desk = await dpage.evaluate(() => {
     const g = (window as any).GO;
     const gl = g.renderer.renderer.getContext() as WebGLRenderingContext;
@@ -173,4 +190,4 @@ async function main(): Promise<void> {
   if (passed !== checks.length || errors.length) process.exit(1);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => { console.error(e); stopServer(); process.exit(1); });

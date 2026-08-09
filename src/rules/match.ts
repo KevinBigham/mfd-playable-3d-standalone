@@ -17,6 +17,7 @@ import {
   createMatchState, applyOutcome, blankOutcome, computeFirstDown, kickoffSpot, conversionSpot,
   safetyFreeKickSpot, touchbackSpot, dirOf, goalOf, other, noteCatch, noteSack, breakStreaks,
   extinguish, tickOverdrive, matchShouldEnd, winnerOf, validateMatchState, clampSpot, distanceToGo,
+  isAndGoal,
   type PlayOutcome, type Violation,
 } from './rulesEngine.ts';
 import {
@@ -164,7 +165,7 @@ export class Match {
     this.offensePlays = [...OFFENSE_PLAYS, ...(opts.customOffense ?? [])];
     this.defensePlays = [...DEFENSE_PLAYS];
     this.profile = profileFor(opts.config.difficulty);
-    this.aiCtx = { profile: this.profile, catchUp: [1, 1] };
+    this.aiCtx = { profile: this.profile, catchUp: [1, 1], down: 1, distanceToGo: 30, goalToGo: false };
     this.ai = new AiController(this.aiCtx);
     this.buildControllers();
   }
@@ -346,6 +347,9 @@ export class Match {
     }
     m.phaseTicks++;
     const phaseAtEntry = m.phase;
+    this.aiCtx.down = m.down;
+    this.aiCtx.distanceToGo = distanceToGo(m);
+    this.aiCtx.goalToGo = isAndGoal(m);
 
     switch (m.phase) {
       case 'PREGAME': this.tickPregame(); break;

@@ -319,12 +319,16 @@ test('MOV-001', 'Gate 1', 'Movement', () => {
   if (!toLivePlay(m)) return { ok: false, detail: 'never reached a live play' };
   const id = m.world.athletes.findIndex((a) => a.controlledBySeat === 0);
   const a = m.world.athletes[id];
-  held.moveZ = 1; held.mask = Action.TURBO;
-  for (let i = 0; i < 34 && m.world.playPhase === 'LIVE'; i++) m.tick();
-  const v0 = a.vz;
-  held.moveZ = -1;
+  // Establish the gate's stated precondition before measuring the reversal. Running straight
+  // through a live pocket for a fixed 34 ticks made contact—not locomotion—decide whether the
+  // athlete happened to be above 3 yd/s. A short lateral burst still exercises the complete
+  // match/input/movement seam while clearing the formation instead of colliding with it.
+  held.moveX = 1; held.mask = Action.TURBO;
+  for (let i = 0; i < 60 && m.world.playPhase === 'LIVE' && a.vx <= 3; i++) m.tick();
+  const v0 = a.vx;
+  held.moveX = -1;
   m.tick(); m.tick();
-  const dv = a.vz - v0;
+  const dv = a.vx - v0;
   clearInput();
   return {
     ok: v0 > 3 && dv < -0.6,
@@ -985,7 +989,7 @@ test('REP-001', 'Gate 6', 'Replay', () => {
 });
 
 na('REP-002', 'Gate 6', 'Replay',
-  'instant replay here is a 4.5-second ring buffer of render transforms, not a keyframe-and-input '
+  'instant replay here is a 6.5-second ring buffer of render transforms, not a keyframe-and-input '
   + 'seek. It cannot desynchronise the match because it never drives it — see ARCHITECTURE.md.');
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1082,4 +1086,4 @@ if (fail) {
   for (const r of rows.filter((x) => x.verdict === 'FAIL')) console.log(`  ${r.id}  ${r.detail}`);
 }
 console.log('');
-process.exit(0);
+process.exit(fail ? 1 : 0);

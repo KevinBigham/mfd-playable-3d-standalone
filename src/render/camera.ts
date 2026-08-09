@@ -3,6 +3,7 @@ import type { World } from '../sim/world.ts';
 import { carrier, dirOf, OFF_START, DEF_START } from '../sim/world.ts';
 import { clamp, clamp01, damp, lerp } from '../core/math.ts';
 import { FIELD_HALF_WIDTH } from '../core/constants.ts';
+import type { ReplayShotV1 } from './replayShots.ts';
 
 export type CamMode = 'BROADCAST' | 'DEEP' | 'BREAKAWAY' | 'KICK' | 'CELEBRATE' | 'MENU' | 'REPLAY';
 
@@ -298,11 +299,142 @@ export class GameCamera {
     this.apply(dt);
   }
 
+  /** Apply a bounded authored replay shot while retaining native camera ownership. */
+  replayAuthoredShot(x: number, z: number, dt: number, shot: ReplayShotV1): void {
+    this.mode = 'REPLAY';
+    this.replayT += dt;
+    const ox = shot.cameraOffset.x + shot.fieldOffset.x;
+    const oz = shot.cameraOffset.z + shot.fieldOffset.z;
+    this.posX = damp(this.posX, x + ox, 6, dt);
+    this.posZ = damp(this.posZ, z + oz * this.lastDir, 6, dt);
+    this.posY = damp(this.posY, Math.max(1, shot.cameraOffset.y), 6, dt);
+    this.lookX = damp(this.lookX, x, 8, dt);
+    this.lookY = damp(this.lookY, 1.6, 8, dt);
+    this.lookZ = damp(this.lookZ, z + (shot.lookAhead ?? 0) * this.lastDir, 8, dt);
+    this.fov = damp(this.fov, shot.fov, 8, dt);
+    this.apply(dt);
+  }
+
   resetReplay(): void { this.replayT = 0; }
   private replayT = 0;
 
   get focusX(): number { return this.lookX; }
   get focusZ(): number { return this.lookZ; }
+}
+
+export type ReplayCameraPreset = 'SIDELINE' | 'END_ZONE' | 'OVERHEAD' | 'FIELD_LEVEL';
+export interface ReplayCameraCollider { min: THREE.Vector3; max: THREE.Vector3 }
+
+/**
+ * Replay/photo camera state machine. The controller is intentionally independent of DOM events:
+ * desktop, touch, and gamepad adapters can feed the same bounded deltas, while live gameplay has
+ * no reference to this class and therefore cannot receive replay camera input.
+ */
+export class ReplayFreeCameraController {
+  private active = false;
+  private target = new THREE.Vector3();
+  private savedPosition = new THREE.Vector3();
+  private savedQuaternion = new THREE.Quaternion();
+  private savedUp = new THREE.Vector3();
+  private savedFov = 52;
+  private yaw = 0;
+  private pitch = 0.45;
+  private distance = 18;
+  private colliders: ReplayCameraCollider[] = [];
+
+  constructor(private readonly camera: GameCamera) {}
+
+  enter(targetX: number, targetY: number, targetZ: number): void {
+    const c = this.camera.camera;
+    this.savedPosition.copy(c.position);
+    this.savedQuaternion.copy(c.quaternion);
+    this.savedUp.copy(c.up);
+    this.savedFov = c.fov;
+    this.target.set(targetX, targetY, targetZ);
+    const dx = c.position.x - targetX, dz = c.position.z - targetZ;
+    this.distance = clamp(Math.hypot(dx, dz), 4, 80);
+    this.yaw = Math.atan2(dx, dz);
+    this.pitch = clamp(Math.atan2(c.position.y - targetY, Math.max(1, this.distance)), -0.2, 1.35);
+    this.active = true;
+  }
+
+  exit(): void {
+    if (!this.active) return;
+    const c = this.camera.camera;
+    c.position.copy(this.savedPosition);
+    c.quaternion.copy(this.savedQuaternion);
+    c.up.copy(this.savedUp);
+    c.fov = this.savedFov;
+    c.updateProjectionMatrix();
+    this.active = false;
+  }
+
+  get isActive(): boolean { return this.active; }
+
+  /** Replace static presentation-only proxies when a stadium loads; callers own the source data. */
+  setColliders(colliders: readonly ReplayCameraCollider[]): void {
+    this.colliders = colliders.map((c) => ({ min: c.min.clone(), max: c.max.clone() }));
+  }
+
+  clearColliders(): void { this.colliders.length = 0; }
+
+  get colliderCount(): number { return this.colliders.length; }
+
+  orbit(deltaX: number, deltaY: number): void {
+    if (!this.active) return;
+    this.yaw += clamp(deltaX, -0.35, 0.35);
+    this.pitch = clamp(this.pitch + clamp(deltaY, -0.25, 0.25), -0.2, 1.35);
+  }
+
+  dolly(delta: number): void {
+    if (!this.active) return;
+    this.distance = clamp(this.distance * Math.exp(clamp(delta, -0.35, 0.35)), 4, 80);
+  }
+
+  focus(x: number, y: number, z: number): void {
+    if (!this.active) return;
+    this.target.set(x, y, z);
+  }
+
+  preset(preset: ReplayCameraPreset, x: number, z: number, dir = 1): void {
+    if (!this.active) return;
+    this.target.set(x, preset === 'OVERHEAD' ? 0 : 1.2, z);
+    if (preset === 'SIDELINE') { this.yaw = Math.PI / 2; this.pitch = 0.32; this.distance = 22; }
+    if (preset === 'END_ZONE') { this.yaw = 0; this.pitch = 0.35; this.distance = 20; }
+    if (preset === 'OVERHEAD') { this.yaw = 0; this.pitch = 1.35; this.distance = 34; }
+    if (preset === 'FIELD_LEVEL') { this.yaw = Math.PI * 0.5 * dir; this.pitch = 0.12; this.distance = 12; }
+  }
+
+  update(dt: number): void {
+    if (!this.active) return;
+    const c = this.camera.camera;
+    const horizontal = Math.cos(this.pitch) * this.distance;
+    const wanted = new THREE.Vector3(
+      this.target.x + Math.sin(this.yaw) * horizontal,
+      this.target.y + Math.sin(this.pitch) * this.distance,
+      this.target.z + Math.cos(this.yaw) * horizontal,
+    );
+    c.position.lerp(wanted, 1 - Math.exp(-10 * Math.max(0, dt)));
+    this.resolveCollisions(c.position);
+    c.lookAt(this.target);
+  }
+
+  private resolveCollisions(position: THREE.Vector3): void {
+    // A small sphere around the camera is enough for authored bowl/roof/wall proxies. This is
+    // presentation-only; no athlete, ball, field-rule, or tackle collision calls this function.
+    const radius = 0.45;
+    for (const box of this.colliders) {
+      if (position.x < box.min.x - radius || position.x > box.max.x + radius
+        || position.y < box.min.y - radius || position.y > box.max.y + radius
+        || position.z < box.min.z - radius || position.z > box.max.z + radius) continue;
+      const dx = Math.min(position.x - box.min.x, box.max.x - position.x);
+      const dy = Math.min(position.y - box.min.y, box.max.y - position.y);
+      const dz = Math.min(position.z - box.min.z, box.max.z - position.z);
+      if (dx <= dy && dx <= dz) position.x += position.x < (box.min.x + box.max.x) * 0.5 ? -radius - dx : radius + dx;
+      else if (dy <= dz) position.y += position.y < (box.min.y + box.max.y) * 0.5 ? -radius - dy : radius + dy;
+      else position.z += position.z < (box.min.z + box.max.z) * 0.5 ? -radius - dz : radius + dz;
+    }
+  }
 }
 
 export { clamp01 };

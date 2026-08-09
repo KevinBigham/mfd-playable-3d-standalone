@@ -3,7 +3,7 @@ import { FIXED_DT, MAX_SUBSTEPS } from '../core/constants.ts';
 import { Match, defaultMatchConfig } from '../rules/match.ts';
 import { configFromSnapshot, snapshotMatches, type MatchSnapshot } from '../rules/snapshot.ts';
 import { GameRenderer } from '../render/renderer.ts';
-import { PHONE_DOLLY } from '../render/camera.ts';
+import { PHONE_DOLLY, ReplayFreeCameraController } from '../render/camera.ts';
 import { InputManager } from '../input/manager.ts';
 import { getSave, writeSave, writeSaveDebounced, flushSave, type Settings } from '../persistence/save.ts';
 import { PauseController, type PauseToken } from './pauseController.ts';
@@ -16,7 +16,7 @@ import { el, coarsePointer } from '../ui/uiKit.ts';
 import { Hud } from '../ui/hud.ts';
 import { TouchControls } from '../ui/touchControls.ts';
 import { clamp, clamp01 } from '../core/math.ts';
-import { ReplayBuffer, ReplayPlayer, makeReplayView } from '../render/replay.ts';
+import { ReplayBuffer, ReplayDirector, ReplayEventRouter, ReplayPlayer, makeReplayView } from '../render/replay.ts';
 import { FramePacer } from './framePacer.ts';
 
 export interface PerfSample { p50: number; p95: number; p99: number; worst: number; frames: number }
@@ -63,9 +63,30 @@ export class Game {
   matchStadium: StadiumDef | null = null;
   private replayBuf = new ReplayBuffer();
   private replayPlayer = new ReplayPlayer();
+  private replayDirector = new ReplayDirector();
+  private replayRouter = new ReplayEventRouter();
+  private replayShot = this.replayDirector.current;
+  private replayFreeCamera: ReplayFreeCameraController;
+  private replayPhotoMode = false;
   private replayView = makeReplayView();
   private replayBanner: HTMLDivElement;
-  private replayPending: string | null = null;
+  private readonly replayKey = (event: KeyboardEvent): void => {
+    let handled = false;
+    if (event.code === 'KeyP' && this.replayPlayer.active) {
+      if (this.replayPhotoMode) this.exitReplayPhotoMode();
+      else this.enterReplayPhotoMode();
+      handled = true;
+    } else if (event.code === 'Escape' && this.replayPhotoMode) {
+      this.exitReplayPhotoMode();
+      handled = true;
+    }
+    if (handled) { event.preventDefault(); event.stopImmediatePropagation(); }
+  };
+  private readonly replayWheel = (event: WheelEvent): void => {
+    if (!this.replayPhotoMode) return;
+    this.replayPhotoDolly(event.deltaY * 0.002);
+    event.preventDefault();
+  };
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     this.settings = getSave().settings;
@@ -81,6 +102,7 @@ export class Game {
       // on a desktop has no reason to ever open it.
       dolly: coarsePointer() ? PHONE_DOLLY : 0,
     });
+    this.replayFreeCamera = new ReplayFreeCameraController(this.renderer.gameCamera);
     this.flashEl = el('div');
     this.flashEl.id = 'flash';
     uiRoot.appendChild(this.flashEl);
@@ -102,6 +124,7 @@ export class Game {
     // A touch reset must also neutralize the merged edge history, or the reset itself would
     // manufacture a press or release edge on the next poll.
     this.touch.onReset = () => this.input.neutralizeSeat(0);
+    this.touch.onPhotoOrbit = (dx, dy) => this.replayPhotoOrbit(dx, dy);
     this.touch.onPause = () => {
       if (!this.inMatch || this.pause.has('USER')) return;
       this.go('pause', { returnScreen: 'match' });
@@ -145,6 +168,8 @@ export class Game {
     flushSave();
     this.input.attach(window);
     this.input.autoAssign();
+    window.addEventListener('keydown', this.replayKey, true);
+    window.addEventListener('wheel', this.replayWheel, { passive: false });
     window.addEventListener('resize', () => this.renderer.resize());
     const unlock = () => { this.audio.engine.unlock(); };
     window.addEventListener('pointerdown', unlock, { once: true });
@@ -226,7 +251,7 @@ export class Game {
       this.recoveryOverlay.textContent = '';
       const msg = el('div', '', 'DISPLAY CONTEXT LOST — WAITING FOR THE BROWSER TO RESTORE IT');
       const btn = el('div', 'go-btn', 'RELOAD (PROGRESS IS CHECKPOINTED)');
-      btn.style.cssText = 'pointer-events:auto;cursor:pointer;padding:12px 20px;border:1px solid #fff';
+      btn.style.cssText = 'pointer-events:auto;cursor:pointer;box-sizing:border-box;max-width:100%;white-space:normal;overflow-wrap:anywhere;padding:12px 20px;border:1px solid #fff';
       btn.addEventListener('click', () => { try { location.reload(); } catch { /* headless */ } });
       this.recoveryOverlay.append(msg, btn);
       this.recoveryOverlay.style.display = 'flex';
@@ -310,6 +335,7 @@ export class Game {
     this.matchTeams = [home, away];
     this.matchStadium = stadium;
     this.renderer.loadMatch(home, away, stadium, m.world.conditions);
+    this.replayFreeCamera.setColliders(this.renderer.stadiumPhotoProxies());
     this.renderer.gameCamera.snapTo(0, m.state.losZ, 1);
     this.hud.attachMatch(m, home, away);
     this.audio.director.attach(m.bus);
@@ -388,10 +414,12 @@ export class Game {
   discardSuspendedMatch(): void { writeSave({ suspendedMatch: null }); }
 
   endMatch(): void {
+    this.exitReplayPhotoMode();
     this.replayPlayer.stop();
     this.replayBuf.clear();
+    this.replayRouter.reset();
+    this.replayFreeCamera.clearColliders();
     this.replayBanner.style.display = 'none';
-    this.replayPending = null;
     // Nothing left to pause for; screens holding tokens have either acted or are being torn down.
     this.pause.clearAll();
     this.orientationToken = null;
@@ -409,13 +437,32 @@ export class Game {
     this.hud.detach();
   }
 
+  /** Enter photo mode only while a transform replay owns the frame. */
+  enterReplayPhotoMode(): boolean {
+    if (!this.replayPlayer.active || this.replayPhotoMode) return false;
+    this.replayFreeCamera.enter(this.replayView.ball.x, this.replayView.ball.y, this.replayView.ball.z);
+    this.replayPhotoMode = true;
+    this.touch.setPhotoMode(true);
+    this.replayBanner.textContent = 'PHOTO · ESC TO EXIT';
+    return true;
+  }
+
+  exitReplayPhotoMode(): void {
+    if (!this.replayPhotoMode) return;
+    this.replayFreeCamera.exit();
+    this.touch.setPhotoMode(false);
+    this.replayPhotoMode = false;
+  }
+
+  replayPhotoOrbit(dx: number, dy: number): void { if (this.replayPhotoMode) this.replayFreeCamera.orbit(dx, dy); }
+  replayPhotoDolly(delta: number): void { if (this.replayPhotoMode) this.replayFreeCamera.dolly(delta); }
+  replayPhotoFocus(x: number, y: number, z: number): void { if (this.replayPhotoMode) this.replayFreeCamera.focus(x, y, z); }
+
   private onGameEvent(e: GameEvent): void {
     this.renderer.handleEvent(e);
     this.audio.director.handle(e);
     this.hud.handleEvent(e);
-    if (e.type === 'touchdown') this.replayPending = 'TOUCHDOWN';
-    else if (e.type === 'interception') this.replayPending = 'INTERCEPTION';
-    else if (e.type === 'fumble') this.replayPending = 'FUMBLE';
+    this.replayRouter.observe(e);
     if (e.type === 'match.end') {
       // A finished match is a result: the lifecycle checkpoint must never resurrect it.
       this.preparedCheckpoint = null;
@@ -573,9 +620,13 @@ export class Game {
 
     // Replay playback owns the frame while it runs; the simulation is paused, not touched.
     if (this.replayPlayer.active && m) {
-      const idx = this.replayPlayer.advance(dt);
+      const idx = this.replayPhotoMode
+        ? this.replayPlayer.currentFrame
+        : this.replayPlayer.advance(dt, this.replayDirector.speedAt(this.replayPlayer.progress));
       if (idx >= 0 && this.replayBuf.read(idx, this.replayView)) {
-        this.renderer.syncReplay(this.replayView, dt);
+        this.replayShot = this.replayDirector.at(this.replayPlayer.progress);
+        if (this.replayPhotoMode) this.replayFreeCamera.update(dt);
+        this.renderer.syncReplay(this.replayView, dt, this.replayShot, this.replayPhotoMode);
         this.renderer.render();
         this.touch.projectVisuals(m, this.renderer);
         this.current?.update?.(dt);
@@ -583,6 +634,7 @@ export class Game {
         return;
       }
       this.replayPlayer.stop();
+      this.exitReplayPhotoMode();
       this.replayBanner.style.display = 'none';
     }
 
@@ -601,13 +653,14 @@ export class Game {
       this.renderer.sync(m.world, m.state, alpha, dt, celebrating);
       if (m.world.playPhase === 'LIVE') this.replayBuf.capture(m.world, dt);
       // Fire the clip once the whistle has blown, not mid-play.
-      if (this.replayPending && (m.phase === 'SCORE_RESOLVE' || m.phase === 'PLAY_CALL')
+      if (this.replayRouter.pending && (m.phase === 'SCORE_RESOLVE' || m.phase === 'PLAY_CALL' || m.phase === 'FINAL')
           && this.replayBuf.ready) {
         this.renderer.gameCamera.resetReplay();
-        this.replayPlayer.start(this.replayBuf.length, this.replayPending);
-        this.replayBanner.textContent = `▶ ${this.replayPending}`;
+        const kind = this.replayRouter.take()!;
+        this.replayShot = this.replayDirector.begin(kind, m.world.tick);
+        this.replayPlayer.start(this.replayBuf.length, kind);
+        this.replayBanner.textContent = `▶ ${kind}`;
         this.replayBanner.style.display = 'block';
-        this.replayPending = null;
       }
       this.hud.update(dt);
       this.renderer.render();
@@ -696,5 +749,7 @@ export class Game {
     this.input.dispose();
     this.touch.dispose();
     this.audio.engine.dispose();
+    window.removeEventListener('keydown', this.replayKey, true);
+    window.removeEventListener('wheel', this.replayWheel);
   }
 }

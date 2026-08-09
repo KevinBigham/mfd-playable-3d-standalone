@@ -17,5 +17,6 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "tools", "tests"]
+  "include": ["src", "tools", "tests"],
+  "exclude": ["tools/pascal-stadium-studio"]
 }

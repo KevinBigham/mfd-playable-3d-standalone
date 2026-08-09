@@ -101,6 +101,13 @@ npm run preview   # serves dist/ on http://localhost:4173
 
 `dist/` is a static folder. Copy it anywhere that serves files.
 
+### Stadium Visual Studio (development only)
+
+The isolated Pascal Stadium Visual Studio authors constrained semantic venue JSON while the game
+continues to render native Three.js geometry. It is not included in root dependencies or production
+builds. See **[STADIUM_VISUAL_STUDIO.md](STADIUM_VISUAL_STUDIO.md)** for prerequisites, editor use,
+validation, budgets, promotion, rollback, and the pinned Pascal upgrade policy.
+
 ## TEST COMMANDS
 
 ```bash
@@ -130,6 +137,8 @@ npm run anthro       # athlete proportions, asserted rather than eyeballed
 npm run roster       # contact sheet: eight positions, recognisable by silhouette
 npm run artifact     # folds the whole game into ONE self-contained HTML file
 npm run artifact:check  # boots that file in a sandboxed iframe and plays a match in it
+npm run stadium:probe   # authored Saltpan + 17 legacy venues, scoreboards, lights, crowd, lifecycle
+npm run stadium:budget -- --stadium the-saltpan  # native semantic budget receipt at every tier
 npm run qa           # typecheck + tests + scenarios + batch + motion + the artifact build
 ```
 
@@ -249,6 +258,21 @@ why difficulty tuning is honest: AI athletes and human players both produce the 
 struct, so the CPU has no private physics. Rendering, audio and interface read simulation state and
 consume a typed event stream; they never write back. Full contract in
 **[ARCHITECTURE.md](ARCHITECTURE.md)**; current status in **[PROJECT_STATE.md](PROJECT_STATE.md)**.
+
+## STANDALONE IMPROVEMENT MISSION
+
+The current standalone branch includes native bounded pursuit/intercept intelligence, a strict
+fail-closed replay-shot contract, deterministic authored replay camera framing, and replay-only
+photo mode with orbit, dolly, focus, touch orbit, and static camera-collision proxies. Hard-cut
+foot planting uses a render-only anchor and never writes into simulation state. Research provenance
+and validation receipts live in `docs/THIRD_PARTY_RESEARCH.md` and `reports/`.
+
+The authoritative validation status is currently **YELLOW**: typecheck, 321 unit tests,
+determinism, scenarios, invariants, browser presentation gates, and stadium gates pass. The
+renderer-level foot-slip gate now produces deterministic samples and is the default `footslip`
+command; `footslip:geometry` is only a matrix sanity check. Straight running is controlled, but
+hard cuts still have high slip outliers and require a final visual acceptance decision. Exact
+measurements and command results are in `reports/final-validation.md`.
 
 ## KNOWN LIMITATIONS
 

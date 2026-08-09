@@ -12,3 +12,12 @@ docs/captures/
 *.log
 .DS_Store
 .vite/
+
+# Stadium Visual Studio working state. Only explicitly promoted semantic assets are tracked.
+.stadium-staging/
+tools/pascal-stadium-studio/node_modules/
+tools/pascal-stadium-studio/dist/
+tools/pascal-stadium-studio/.pascal-cache/
+
+# Local agent workflow receipts/context.
+.omx/

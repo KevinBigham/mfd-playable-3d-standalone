@@ -64,7 +64,6 @@ window.__CP = {
       g.input.clearEdges();
     }
   },
-  spin(ms) { const t0 = performance.now(); while (performance.now() - t0 < ms) { /* wait */ } },
   startMatch(seed, quarterSeconds) {
     const g = window.GO;
     g.settings.quality = 'LOW';
@@ -103,7 +102,7 @@ const KICKOFF_ARM = (label: string) => `
 `;
 
 const DRIVER = `
-(() => {
+(async () => {
   const CP = window.__CP;
   const g = window.GO;
   CP.startMatch(24600, 120);
@@ -203,7 +202,9 @@ const DRIVER = `
       unsteer();
       const btn = document.querySelector('.tc-snap');
       if (btn && btn.style.display !== 'none') {
-        CP.spin(170);
+        // The production tap-through guard is wall-clock based. Yield to that real guard instead
+        // of blocking Chromium or pretending fixed simulation steps advance performance.now().
+        await new Promise((resolve) => setTimeout(resolve, 170));
         const r = btn.getBoundingClientRect();
         CP.tap(r.left + r.width / 2, r.top + r.height / 2, 90, btn);
       }

@@ -9,6 +9,7 @@ import { join } from 'node:path';
 const PURE_DIRS = ['src/core', 'src/data', 'src/rules', 'src/plays', 'src/sim', 'src/ai'];
 const BANNED = [
   { re: /\bfrom\s+['"]three['"]/, why: 'imports three.js' },
+  { re: /\bfrom\s+['"][^'"]*(?:^|\/)render(?:\/|['"])/, why: 'imports the presentation renderer' },
   { re: /\bwindow\./, why: 'touches window' },
   { re: /\bdocument\./, why: 'touches document' },
   { re: /\blocalStorage\b/, why: 'touches localStorage' },
@@ -43,6 +44,25 @@ describe('deterministic layer purity', () => {
       expect(problems).toEqual([]);
     });
   }
+});
+
+describe('stadium authoring dependency boundary', () => {
+  it('keeps Pascal and its host frameworks out of root runtime dependencies and production source', () => {
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      dependencies?: Record<string, string>;
+    };
+    const forbidden = /^(?:@pascal-app\/|react$|react-dom$|next$|zustand$|zod$|@react-three\/|@webgpu\/)/;
+    const dependencyProblems = Object.keys(pkg.dependencies ?? {}).filter((name) => forbidden.test(name));
+    const importProblems: string[] = [];
+    for (const file of walk('src')) {
+      const source = readFileSync(file, 'utf8');
+      if (/\bfrom\s+['"](?:@pascal-app\/|react(?:-dom)?['"]|next(?:\/|['"])|zustand['"]|@react-three\/)/.test(source)) {
+        importProblems.push(file);
+      }
+    }
+    expect(dependencyProblems).toEqual([]);
+    expect(importProblems).toEqual([]);
+  });
 });
 
 describe('no binary art assets', () => {

@@ -33,6 +33,8 @@ async function main(): Promise<void> {
 
     // Title → main menu
     await tap(page, 'Space');
+    await page.waitForFunction(() => (window as unknown as { GO: any }).GO.currentScreen === 'mainMenu',
+      undefined, { timeout: 10_000 });
     let p = await probe(page);
     check('title advances to the main menu', p.screen === 'mainMenu', `screen=${p.screen}`);
     await screenshotDom(page, `${OUT}/02-main-menu.png`);
@@ -44,6 +46,8 @@ async function main(): Promise<void> {
 
     // Quick play flow
     await tap(page, 'Space');           // QUICK PLAY
+    await page.waitForFunction(() => (window as unknown as { GO: any }).GO.currentScreen === 'quickPlay',
+      undefined, { timeout: 10_000 });
     p = await probe(page);
     check('quick play opens', p.screen === 'quickPlay', `screen=${p.screen}`);
     await screenshotDom(page, `${OUT}/03-players.png`);
@@ -62,10 +66,14 @@ async function main(): Promise<void> {
     await page.evaluate(() => (window as unknown as { GO: any }).GO.reset('settings'));
     await page.waitForTimeout(350);
     await screenshotDom(page, `${OUT}/06-settings.png`);
-    const persisted = await page.evaluate(() => {
+    // Settings writes are intentionally debounced so slider drags do not serialize the complete
+    // save on every input event. Wait for that public persistence contract before inspecting the
+    // backing store; reading synchronously here only tested the old pre-debounce implementation.
+    const persisted = await page.evaluate(async () => {
       const g = (window as unknown as { GO: any }).GO;
       g.settings.cameraShake = 0.42;
       g.applySettings();
+      await new Promise((resolve) => setTimeout(resolve, 450));
       const raw = localStorage.getItem('go.save.v1');
       return raw ? JSON.parse(raw).settings.cameraShake : null;
     });

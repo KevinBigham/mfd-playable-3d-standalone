@@ -131,14 +131,23 @@ export function buildCrowd(reg: SceneRegistry, o: CrowdOptions): CrowdHandle {
   const loop = layout.loop;
   const rng = new VisualRng((o.seed ?? 0x5eed) ^ (o.stadium.id.length * 2654435761));
 
-  const target = Math.max(900, Math.round(MAX_CROWD * o.quality.crowdDensity));
+  const activeFraction = Math.max(1 / Math.max(1, loop.n), Math.min(1,
+    layout.activeFraction ?? (layout.activeSegments
+      ? layout.activeSegments.reduce((sum, active) => sum + (active ? 1 : 0), 0) / Math.max(1, loop.n)
+      : 1)));
+  // An opening removes both seats and spectators. Scaling the target and the lattice capacity by
+  // the same fraction preserves the tier's fill character without silently trying to stuff a
+  // closed-bowl headline count into the remaining sections.
+  const fullTarget = Math.max(900, Math.round(MAX_CROWD * o.quality.crowdDensity));
+  const target = Math.max(1, Math.round(fullTarget * activeFraction));
 
   // Seat lattice capacity.
   const rowsPerBand = layout.bands.map((b) =>
     Math.max(1, Math.floor(Math.hypot(b.rEnd - b.rStart, b.yEnd - b.yStart) / ROW_DEPTH)));
   const seatsPerRow = Math.max(8, Math.floor(loop.perimeter / SEAT_W));
-  let slots = 0;
-  for (const r of rowsPerBand) slots += r * seatsPerRow;
+  let fullSlots = 0;
+  for (const r of rowsPerBand) fullSlots += r * seatsPerRow;
+  const slots = Math.max(1, Math.round(fullSlots * activeFraction));
   const fill = Math.min(1, target / Math.max(1, slots) / LATTICE_YIELD);
 
   const geo = personGeometry();
@@ -183,6 +192,7 @@ export function buildCrowd(reg: SceneRegistry, o: CrowdOptions): CrowdHandle {
         const t = (s + 0.5) / seatsPerRow;
         const fi = t * loop.n;
         const i0 = Math.floor(fi) % loop.n;
+        if (layout.activeSegments && layout.activeSegments[i0] === 0) continue;
         if (i0 % layout.aisleEvery === 0) continue;      // keep the radial aisles clear
         const i1 = (i0 + 1) % loop.n;
         const f = fi - Math.floor(fi);

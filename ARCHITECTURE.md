@@ -285,6 +285,31 @@ Corollaries that have already caught people:
 - `scene.environment` is rebuilt per match from the finished venue, BEFORE athletes exist. It must
   be disposed in `unloadMatch` or it leaks a render target per match.
 
+## 12c. STADIUM VISUAL AUTHORING BOUNDARY
+
+Pascal is a development tool, never a runtime layer. The only boundary crossing into the game is a
+strict `MfdStadiumVisualV1` semantic JSON asset under `src/render/stadiumVisual/assets/`, selected by
+the existing `StadiumDef.id`. It may describe a rounded bowl/profile, openings, roof, tunnels,
+scoreboards, tower placements, banners, and bounded skyline props. It may not describe meshes,
+textures, shaders, scripts, URLs, field dimensions, collisions, or simulation behavior.
+
+`StadiumDef` remains authoritative for identity, surface, sky, roof category, crowd tint, tier, and
+accent. The renderer validates and compiles a promoted visual, then `env/stadium.ts` constructs it
+through native `GeoBatch`/Three.js roles. `BowlLayout` continues into the one instanced crowd;
+authored tower heads continue into native lighting; authored boards continue through `setScore()`.
+With no promoted asset, `buildStadium()` uses the untouched procedural legacy branch.
+
+The generated registry stores a stable visual hash. The renderer scene key includes that hash plus
+all built environment inputs, and publishes a reusable key only after construction succeeds. All
+environment handles are disposed in reverse build order on failure or unload. Changing a quality
+tier rebuilds presentation geometry only; it never changes or writes simulation state.
+
+The contract, validator, protected field checks, canonical hash, legacy adapter, and budget compiler
+live under `src/render/stadiumVisual/`, which is presentation code and must never be imported by a
+deterministic directory. Promotion tooling is under `tools/stadium/`; Pascal and its independent
+package/lock/cache remain under `tools/pascal-stadium-studio/`. Full workflow and pins are documented
+in `STADIUM_VISUAL_STUDIO.md`.
+
 ## 13. ANIMATION CONTRACT
 
 Athletes are procedurally posed — no imported clips. `athletePose.ts` exposes:

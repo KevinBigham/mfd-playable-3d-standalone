@@ -2,8 +2,15 @@ import * as THREE from 'three';
 import type { StadiumDef, TeamDef } from '../../core/types.ts';
 import type { SceneRegistry, QualitySettings } from '../registry.ts';
 import { concreteTexture, seatTexture, signageTexture, DISPLAY_FONT } from './textures.ts';
-import { GeoBatch, chamferBox, roundedRectLoop, type Loop, type Vec3Like } from './geo.ts';
+import { GeoBatch, boxAt, chamferBox, roundedRectLoop, type Loop, type Vec3Like } from './geo.ts';
 import type { SkyPalette } from './sky.ts';
+import {
+  compileStadiumVisual,
+  nativeRoofElevations,
+  nativeRoofSegmentCovered,
+  type CompiledStadiumVisual,
+  type MfdStadiumVisualV1,
+} from '../stadiumVisual/index.ts';
 
 /**
  * The bowl.
@@ -49,6 +56,10 @@ export interface BowlLayout {
   /** One radial aisle every N loop segments — crowd placement skips these. */
   aisleEvery: number;
   centerZ: number;
+  /** One entry per loop segment. Absent is the fast closed-bowl legacy path. */
+  activeSegments?: Uint8Array;
+  /** Active perimeter share after authored openings. Absent means 1. */
+  activeFraction?: number;
 }
 
 /** How far inside the loop the bowl floor reaches. Must exceed the field apron's outer corner. */
@@ -187,11 +198,19 @@ export interface StadiumOptions {
   stadium: StadiumDef;
   quality: QualitySettings;
   palette: SkyPalette;
+  /** Validated semantic override. Absence preserves the exact legacy construction path. */
+  visual?: MfdStadiumVisualV1;
+  visualHash?: string;
 }
 
 export interface StadiumHandle {
   group: THREE.Group;
   layout: BowlLayout;
+  /** Stable promoted revision, or the explicit legacy sentinel. */
+  readonly visualHash: string;
+  readonly authored: boolean;
+  /** Native semantic compiler receipt for authored venues. */
+  readonly estimate?: CompiledStadiumVisual['estimate'];
   /** Lamp-head world positions; lighting turns up to four of them into real spot lights. */
   towers: THREE.Vector3[];
   setScore(home: number, away: number, quarter: number, clock: string): void;
@@ -200,6 +219,23 @@ export interface StadiumHandle {
 }
 
 export function buildStadium(reg: SceneRegistry, o: StadiumOptions): StadiumHandle {
+  try {
+    if (!o.visual) return buildLegacyStadium(reg, o);
+    const compiled = compileStadiumVisual(o.visual, o.quality.tier);
+    if (o.visualHash && o.visualHash !== compiled.hash) {
+      throw new Error(`Promoted stadium visual hash mismatch: registry ${o.visualHash}, asset ${compiled.hash}`);
+    }
+    return buildAuthoredStadium(reg, o, compiled);
+  } catch (error) {
+    // A failed canvas/material construction happens before a handle can reach buildEnvironment.
+    // Clear whatever made it into the named group so retry cannot append to a partial stadium.
+    reg.clearGroup('env.stadium');
+    throw error;
+  }
+}
+
+/** Received procedural path, intentionally kept intact for all venues without an override. */
+function buildLegacyStadium(reg: SceneRegistry, o: StadiumOptions): StadiumHandle {
   const group = reg.group('env.stadium');
   const q = o.quality;
   const tier = o.stadium.tier;
@@ -525,6 +561,8 @@ export function buildStadium(reg: SceneRegistry, o: StadiumOptions): StadiumHand
   return {
     group,
     layout,
+    visualHash: 'legacy',
+    authored: false,
     towers,
     setScore(home: number, away: number, quarter: number, clock: string): void {
       if (state.home === home && state.away === away && state.quarter === quarter && state.clock === clock) return;
@@ -547,6 +585,433 @@ export function buildStadium(reg: SceneRegistry, o: StadiumOptions): StadiumHand
       for (const g of geos) g.dispose();
       for (const m of mats) m.dispose();
       for (const t of texs) t.dispose();
+      reg.clearGroup('env.stadium');
+    },
+  };
+}
+
+// ───────────────────────────────────────────────────────────── authored build
+
+interface PerimeterPoint { x: number; z: number; nx: number; nz: number; index: number }
+
+function perimeterPoint(loop: Loop, perimeterT: number): PerimeterPoint {
+  const t = ((perimeterT % 1) + 1) % 1;
+  const f = t * loop.n;
+  const i0 = Math.floor(f) % loop.n;
+  const i1 = i0 + 1;
+  const k = f - Math.floor(f);
+  let nx = loop.nx[i0] + (loop.nx[i1] - loop.nx[i0]) * k;
+  let nz = loop.nz[i0] + (loop.nz[i1] - loop.nz[i0]) * k;
+  const nl = Math.hypot(nx, nz) || 1;
+  nx /= nl; nz /= nl;
+  return {
+    x: loop.x[i0] + (loop.x[i1] - loop.x[i0]) * k,
+    z: loop.z[i0] + (loop.z[i1] - loop.z[i0]) * k,
+    nx, nz, index: i0,
+  };
+}
+
+function qualityAllows(min: 'LOW' | 'MEDIUM' | 'HIGH', actual: QualitySettings['tier']): boolean {
+  const rank = { LOW: 0, MEDIUM: 1, HIGH: 2 } as const;
+  return rank[actual] >= rank[min];
+}
+
+function buildAuthoredStadium(
+  reg: SceneRegistry,
+  o: StadiumOptions,
+  compiled: CompiledStadiumVisual,
+): StadiumHandle {
+  const group = reg.group('env.stadium');
+  group.userData.stadiumVisualHash = o.visualHash ?? compiled.hash;
+  const q = o.quality;
+  const visual = compiled.visual;
+  const bowl = visual.bowl;
+  const loop = roundedRectLoop(
+    0, bowl.centerZ, bowl.halfX, bowl.halfZ, bowl.cornerRadius, compiled.segments,
+  );
+  const activeSegments = Uint8Array.from(compiled.activeSegmentMask, (active) => active ? 1 : 0);
+  const layout: BowlLayout = {
+    loop,
+    bands: compiled.seatBands,
+    topR: compiled.topR,
+    topY: compiled.topY,
+    aisleEvery: bowl.aisleEvery,
+    centerZ: bowl.centerZ,
+    activeSegments,
+    activeFraction: compiled.activeFraction,
+  };
+
+  const geos: THREE.BufferGeometry[] = [];
+  const mats: THREE.Material[] = [];
+  const texs: THREE.Texture[] = [];
+  const instanced: THREE.InstancedMesh[] = [];
+
+  const accent = new THREE.Color(o.stadium.accent);
+  const concreteCol = new THREE.Color('#9ba1a9').lerp(accent, 0.10);
+  const concreteDeep = new THREE.Color('#6f757d').lerp(accent, 0.08);
+  const darkCol = new THREE.Color('#2f353d');
+  const outerCol = new THREE.Color('#848a92').lerp(accent, 0.16);
+  const groundCol = new THREE.Color('#3c4a3a').lerp(accent, 0.05);
+
+  const structure = new GeoBatch();
+  const seats = new GeoBatch();
+  const sign = new GeoBatch();
+  const trim = new GeoBatch();
+  const lamps = new GeoBatch();
+  structure.uvScale = 0.16;
+  trim.uvScale = 0.2;
+
+  const P = (i: number, r: number, y: number): Vec3Like => ({
+    x: loop.x[i] + loop.nx[i] * r,
+    y,
+    z: loop.z[i] + loop.nz[i] * r,
+  });
+  const outwardOf = (i: number, dr: number, dy: number): Vec3Like => ({
+    x: -dy * loop.nx[i], y: dr, z: -dy * loop.nz[i],
+  });
+  const seatTintA = new THREE.Color('#ffffff');
+  const seatTintB = new THREE.Color('#c9cfd6');
+  const tmpCol = new THREE.Color();
+
+  const role = (seg: CompiledStadiumVisual['profile'][number]): string => seg.source.role;
+
+  // The authored profile is swept through the exact same material-role batches as the legacy
+  // stadium. Open segments are omitted from every band, and their exposed cross-sections are capped
+  // below so an open end never reveals a one-sided strip of geometry.
+  for (let i = 0; i < loop.n; i++) {
+    if (!activeSegments[i]) continue;
+    const j = i + 1;
+    const isAisle = i % layout.aisleEvery === 0;
+    const s0 = loop.s[i], s1 = loop.s[j];
+    for (const seg of compiled.profile) {
+      const dr = seg.r1 - seg.r0, dy = seg.y1 - seg.y0;
+      const out = outwardOf(i, dr, dy);
+      const p0 = P(i, seg.r0, seg.y0);
+      const p1 = P(j, seg.r0, seg.y0);
+      const p2 = P(j, seg.r1, seg.y1);
+      const p3 = P(i, seg.r1, seg.y1);
+      switch (role(seg)) {
+        case 'signage': {
+          const u0 = (s0 / loop.perimeter) * SIGN_REPEATS;
+          const u1 = (s1 / loop.perimeter) * SIGN_REPEATS;
+          sign.addQuad(p0, p1, p2, p3, seatTintA, out, [u0, 0, u1, 0, u1, 1, u0, 1]);
+          break;
+        }
+        case 'seats': {
+          if (isAisle) structure.addQuad(p0, p1, p2, p3, concreteCol, out);
+          else {
+            const len = Math.hypot(dr, dy);
+            const u0 = s0 / SEAT_TILE_U, u1 = s1 / SEAT_TILE_U;
+            const sect = Math.floor(i / layout.aisleEvery) % 3;
+            tmpCol.copy(sect === 1 ? seatTintB : seatTintA);
+            if (sect === 2) tmpCol.lerp(accent, 0.18);
+            seats.addQuad(p0, p1, p2, p3, tmpCol, out,
+              [u0, 0, u1, 0, u1, len / SEAT_TILE_V, u0, len / SEAT_TILE_V]);
+          }
+          break;
+        }
+        case 'accent': trim.addQuad(p0, p1, p2, p3, accent, out); break;
+        case 'ground': structure.addQuad(p0, p1, p2, p3, groundCol, out); break;
+        case 'dark': structure.addQuad(p0, p1, p2, p3, darkCol, out); break;
+        case 'outer': structure.addQuad(p0, p1, p2, p3, i % 4 === 0 ? concreteDeep : outerCol, out); break;
+        default: structure.addQuad(p0, p1, p2, p3, isAisle ? concreteDeep : concreteCol, out); break;
+      }
+    }
+  }
+
+  const capAt = (i: number, entering: boolean): void => {
+    const points: Vec3Like[] = [];
+    const first = compiled.profile[0];
+    points.push(P(i, first.r0, first.y0));
+    for (const seg of compiled.profile) points.push(P(i, seg.r1, seg.y1));
+    const prev = (i - 1 + loop.n) % loop.n;
+    const next = (i + 1) % loop.n;
+    let tx = loop.x[next] - loop.x[prev], tz = loop.z[next] - loop.z[prev];
+    const tl = Math.hypot(tx, tz) || 1;
+    tx = (tx / tl) * (entering ? -1 : 1);
+    tz = (tz / tl) * (entering ? -1 : 1);
+    const outward = { x: tx, y: 0, z: tz };
+    for (let k = 1; k < points.length - 1; k++) {
+      structure.addTri(points[0], points[k], points[k + 1], concreteDeep, outward);
+    }
+  };
+  if (compiled.activeSegmentCount < compiled.segments) {
+    for (let i = 0; i < loop.n; i++) {
+      if (!activeSegments[i]) continue;
+      const prev = (i - 1 + loop.n) % loop.n;
+      const next = (i + 1) % loop.n;
+      if (!activeSegments[prev]) capAt(i, true);
+      if (!activeSegments[next]) capAt(i + 1, false);
+    }
+  }
+
+  const matrixAt = (
+    base: PerimeterPoint, radial: number, y: number, localX = 0, localY = 0, localZ = 0,
+  ): THREE.Matrix4 => {
+    const yaw = Math.atan2(-base.nx, -base.nz);
+    const m = new THREE.Matrix4().makeRotationY(yaw);
+    m.setPosition(base.x + base.nx * radial, y, base.z + base.nz * radial);
+    if (localX || localY || localZ) m.multiply(new THREE.Matrix4().makeTranslation(localX, localY, localZ));
+    return m;
+  };
+
+  // Tunnel mouths remain batched into the native structure and accent roles.
+  for (const tunnel of compiled.tunnels) {
+    const p = perimeterPoint(loop, tunnel.perimeterT);
+    if (!activeSegments[p.index]) continue;
+    chamferBox(structure, tunnel.widthYd, tunnel.heightYd, 0.30, 0.10, new THREE.Color('#090b0f'),
+      matrixAt(p, -0.12, tunnel.heightYd * 0.5));
+    chamferBox(trim, tunnel.widthYd + 0.6, 0.42, 0.38, 0.08, accent,
+      matrixAt(p, -0.14, tunnel.heightYd + 0.18));
+  }
+
+  // heightYd is the protected underside clearance. The native shell, slope and optional dome
+  // panel are derived upward from it so no generated roof vertex can enter the protected plane.
+  const roof = visual.roof;
+  const roofY = roof ? nativeRoofElevations(roof) : null;
+  if (roof && roofY && roof.coverage > 0) {
+    const innerR = compiled.topR - Math.max(1, compiled.topR * Math.min(1, roof.coverage));
+    const outerR = compiled.topR + roof.radialOverhangYd;
+    const yOuter = roofY.outerTopY;
+    const yInner = roofY.innerTopY;
+    const roofCol = new THREE.Color('#4a5058').lerp(accent, 0.12);
+    for (let i = 0; i < loop.n; i++) {
+      if (!activeSegments[i]) continue;
+      const j = i + 1;
+      const covered = nativeRoofSegmentCovered(bowl, roof.style, i, loop.n);
+      if (!covered) continue;
+      const a0 = P(i, innerR, yInner), a1 = P(j, innerR, yInner);
+      const b0 = P(i, outerR, yOuter), b1 = P(j, outerR, yOuter);
+      structure.addQuad(a0, a1, b1, b0, roofCol, { x: 0, y: 1, z: 0 });
+      const c0 = { x: a0.x, y: roofY.lowestY, z: a0.z };
+      const c1 = { x: a1.x, y: roofY.lowestY, z: a1.z };
+      const d0 = { x: b0.x, y: b0.y - (roofY.innerTopY - roofY.lowestY), z: b0.z };
+      const d1 = { x: b1.x, y: b1.y - (roofY.innerTopY - roofY.lowestY), z: b1.z };
+      structure.addQuad(c0, c1, d1, d0, new THREE.Color('#22272e'), { x: 0, y: -1, z: 0 });
+      trim.addQuad(a0, a1, c1, c0, accent, { x: -loop.nx[i], y: 0, z: -loop.nz[i] });
+    }
+    if (roof.style === 'dome') {
+      const panelY = roofY.panelY!;
+      const gx = bowl.halfX - 2, gz = bowl.halfZ - 2;
+      const panel = new THREE.PlaneGeometry(gx * 2, gz * 2, 1, 1);
+      panel.rotateX(Math.PI / 2);
+      panel.translate(0, panelY, bowl.centerZ);
+      geos.push(panel);
+      const panelMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color('#151a22'), transparent: true, opacity: 0.88,
+        side: THREE.DoubleSide, fog: true,
+      });
+      mats.push(panelMat);
+      const panelMesh = new THREE.Mesh(panel, panelMat);
+      panelMesh.matrixAutoUpdate = false;
+      group.add(panelMesh);
+      for (let k = -3; k <= 3; k++) {
+        const m = new THREE.Matrix4().makeTranslation((k / 3) * gx, panelY - 0.9, bowl.centerZ);
+        chamferBox(structure, 1.1, 1.1, gz * 2, 0.25, roofCol, m);
+      }
+      for (let k = -5; k <= 5; k++) {
+        const m = new THREE.Matrix4().makeTranslation(0, panelY - 2.1, bowl.centerZ + (k / 5) * gz);
+        chamferBox(structure, gx * 2, 0.9, 0.9, 0.22, new THREE.Color('#3a4048'), m);
+      }
+    }
+  }
+
+  const towers: THREE.Vector3[] = [];
+  for (const tower of compiled.lightTowers) {
+    const p = perimeterPoint(loop, tower.perimeterT);
+    if (!activeSegments[p.index]) continue;
+    const radial = tower.outwardOffsetYd;
+    const baseY = compiled.topY;
+    const headRise = tower.heightYd;
+    const mastH = Math.max(1, headRise - 1);
+    for (const sx of [-1.5, 1.5]) {
+      chamferBox(structure, 0.5, mastH, 0.5, 0.12, new THREE.Color('#5c636c'),
+        matrixAt(p, radial, baseY, sx, mastH * 0.5, 0));
+    }
+    for (let k = 0; k < 6; k++) {
+      const brace = matrixAt(p, radial, baseY, 0, (k + 0.5) * (mastH / 6), 0);
+      brace.multiply(new THREE.Matrix4().makeRotationZ(k % 2 === 0 ? 0.9 : -0.9));
+      chamferBox(structure, 0.30, 3.6, 0.30, 0.07, new THREE.Color('#7d858f'), brace);
+    }
+    chamferBox(structure, 7.2, 2.2, 0.7, 0.18, new THREE.Color('#5c636c'),
+      matrixAt(p, radial, baseY, 0, headRise - 0.1, -0.4));
+    for (let c = 0; c < 5; c++) for (let row = 0; row < 2; row++) {
+      chamferBox(lamps, 1.15, 0.9, 0.28, 0.08, new THREE.Color('#ffffff'),
+        matrixAt(p, radial, baseY, -2.8 + c * 1.4, headRise - 0.8 + row * 0.8, -0.85));
+    }
+    towers.push(new THREE.Vector3(
+      p.x + p.nx * radial, baseY + headRise, p.z + p.nz * radial,
+    ));
+  }
+
+  // Static authored decoration stays in merged native batches and is removed at compile/build time
+  // below its declared quality tier.
+  const colorForRole = (r: string): THREE.Color => {
+    switch (r) {
+      case 'accent': return accent.clone();
+      case 'home-primary': return new THREE.Color(o.home.colors.primary);
+      case 'home-secondary': return new THREE.Color(o.home.colors.secondary);
+      case 'dark': return darkCol.clone();
+      case 'structure': return concreteCol.clone();
+      default: return new THREE.Color('#aeb4bc');
+    }
+  };
+  for (const banner of compiled.banners) {
+    if (!qualityAllows(banner.minQuality, q.tier)) continue;
+    const p = perimeterPoint(loop, banner.perimeterT);
+    if (!activeSegments[p.index]) continue;
+    chamferBox(trim, banner.widthYd, banner.heightYd, 0.18, 0.05, colorForRole(banner.colorRole),
+      matrixAt(p, compiled.topR + 0.35, banner.elevationYd + banner.heightYd * 0.5));
+  }
+  for (const prop of compiled.skyline) {
+    if (!qualityAllows(prop.minQuality, q.tier)) continue;
+    const c = colorForRole(prop.colorRole);
+    const p = prop.position, s = prop.size;
+    switch (prop.kind) {
+      case 'stack':
+        boxAt(structure, c, p.x, p.y + s.y * 0.28, p.z, s.x, s.y * 0.56, s.z, 0.25);
+        boxAt(structure, c.clone().offsetHSL(0, 0, 0.08), p.x, p.y + s.y * 0.75, p.z,
+          s.x * 0.68, s.y * 0.38, s.z * 0.68, 0.22);
+        break;
+      case 'spire':
+        boxAt(structure, c, p.x, p.y + s.y * 0.38, p.z, s.x, s.y * 0.76, s.z, 0.24);
+        boxAt(trim, accent, p.x, p.y + s.y * 0.88, p.z, s.x * 0.18, s.y * 0.24, s.z * 0.18, 0.08);
+        break;
+      case 'tank':
+        boxAt(structure, c, p.x, p.y + s.y * 0.62, p.z, s.x, s.y * 0.58, s.z, Math.min(s.x, s.z) * 0.22);
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+          boxAt(structure, darkCol, p.x + sx * s.x * 0.34, p.y + s.y * 0.22,
+            p.z + sz * s.z * 0.34, s.x * 0.09, s.y * 0.44, s.z * 0.09, 0.04);
+        }
+        break;
+      case 'rock':
+        boxAt(structure, c, p.x, p.y + s.y * 0.48, p.z, s.x, s.y * 0.96, s.z, Math.min(s.x, s.z) * 0.18, 0.24);
+        break;
+      default:
+        boxAt(structure, c, p.x, p.y + s.y * 0.5, p.z, s.x, s.y, s.z, 0.22);
+        break;
+    }
+  }
+
+  // Every authored scoreboard shares the same live canvas texture and one instanced surface draw.
+  const boardState: BoardState = { home: 0, away: 0, quarter: 1, clock: '2:00' };
+  let boardCtx: CanvasRenderingContext2D | null = null;
+  let boardTex: THREE.CanvasTexture | null = null;
+  const boards = compiled.scoreboards.filter((board) => {
+    const p = perimeterPoint(loop, board.perimeterT);
+    return activeSegments[p.index] !== 0;
+  });
+  if (boards.length > 0) {
+    const canvas = document.createElement('canvas');
+    canvas.width = BOARD_W; canvas.height = BOARD_H;
+    boardCtx = canvas.getContext('2d');
+    if (!boardCtx) throw new Error('2D canvas context unavailable');
+    drawBoard(boardCtx, boardState, o.home, o.away, o.stadium.accent);
+    boardTex = new THREE.CanvasTexture(canvas);
+    boardTex.colorSpace = THREE.SRGBColorSpace;
+    boardTex.anisotropy = q.anisotropy;
+    texs.push(boardTex);
+    const boardMat = new THREE.MeshBasicMaterial({ map: boardTex, toneMapped: false, fog: true });
+    mats.push(boardMat);
+    const boardGeo = new THREE.PlaneGeometry(1, 1, 1, 1);
+    geos.push(boardGeo);
+    const boardMesh = new THREE.InstancedMesh(boardGeo, boardMat, boards.length);
+    boardMesh.name = 'stadium.scoreboard.live';
+    for (let i = 0; i < boards.length; i++) {
+      const board = boards[i];
+      const p = perimeterPoint(loop, board.perimeterT);
+      const radial = board.outwardOffsetYd;
+      const pos = new THREE.Vector3(
+        p.x + p.nx * radial,
+        board.elevationYd + board.heightYd * 0.5,
+        p.z + p.nz * radial,
+      );
+      const quat = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0), Math.atan2(-p.nx, -p.nz));
+      const m = new THREE.Matrix4().compose(pos, quat,
+        new THREE.Vector3(board.widthYd, board.heightYd, 1));
+      boardMesh.setMatrixAt(i, m);
+      chamferBox(structure, board.widthYd + 2.4, board.heightYd + 2.2, 1.7, 0.45,
+        new THREE.Color('#1b2027'), matrixAt(p, radial + 1.0, pos.y));
+      chamferBox(trim, board.widthYd + 2.6, 0.8, 1.9, 0.2, accent,
+        matrixAt(p, radial + 1.0, board.elevationYd + board.heightYd + 1.5));
+      const legH = Math.max(0.5, board.elevationYd);
+      for (const sx of [-1, 1]) chamferBox(structure, 1.2, legH, 1.2, 0.25, concreteDeep,
+        matrixAt(p, radial + 1.5, 0, sx * board.widthYd * 0.36, legH * 0.5, 0));
+    }
+    boardMesh.instanceMatrix.needsUpdate = true;
+    boardMesh.frustumCulled = false;
+    group.add(boardMesh);
+    instanced.push(boardMesh);
+  }
+
+  const emissive = Math.min(0.85, 0.30 * o.palette.emissiveGain);
+  const bake = (batch: GeoBatch, material: THREE.Material, name: string): void => {
+    if (batch.empty) { material.dispose(); return; }
+    const geo = batch.build();
+    geos.push(geo); mats.push(material);
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.name = name;
+    mesh.receiveShadow = false;
+    mesh.castShadow = false;
+    mesh.matrixAutoUpdate = false;
+    group.add(mesh);
+  };
+  bake(structure, new THREE.MeshPhongMaterial({
+    map: concreteTexture(q), vertexColors: true, shininess: 16,
+    specular: new THREE.Color(0x3a3f46), flatShading: true,
+  }), 'stadium.structure');
+  bake(seats, new THREE.MeshPhongMaterial({
+    map: seatTexture(o.stadium.crowdTint, q), vertexColors: true, shininess: 30,
+    specular: new THREE.Color(0x2c3138),
+  }), 'stadium.seats');
+  const signTex = signageTexture(o.stadium.accent, q);
+  bake(sign, new THREE.MeshPhongMaterial({
+    map: signTex, vertexColors: true, shininess: 60,
+    specular: new THREE.Color(0x565c64), emissive: new THREE.Color('#ffffff'),
+    emissiveIntensity: emissive * 0.5, emissiveMap: signTex,
+  }), 'stadium.signage');
+  bake(trim, new THREE.MeshPhongMaterial({
+    vertexColors: true, shininess: 74, specular: new THREE.Color(0x8a919a),
+    emissive: accent.clone().multiplyScalar(emissive), flatShading: true,
+  }), 'stadium.trim');
+  bake(lamps, new THREE.MeshBasicMaterial({
+    vertexColors: true, color: new THREE.Color('#fff6d8').multiplyScalar(o.palette.towerLights ? 1 : 0.55),
+    toneMapped: false,
+  }), 'stadium.lamps');
+
+  let dirty = false;
+  let since = 0;
+  let disposed = false;
+  return {
+    group,
+    layout,
+    visualHash: o.visualHash ?? compiled.hash,
+    authored: true,
+    estimate: compiled.estimate,
+    towers,
+    setScore(home: number, away: number, quarter: number, clock: string): void {
+      if (boardState.home === home && boardState.away === away
+          && boardState.quarter === quarter && boardState.clock === clock) return;
+      boardState.home = home; boardState.away = away; boardState.quarter = quarter; boardState.clock = clock;
+      dirty = true;
+    },
+    update(dt: number): void {
+      since += dt;
+      if (dirty && since >= 0.5 && boardCtx && boardTex) {
+        since = 0;
+        dirty = false;
+        drawBoard(boardCtx, boardState, o.home, o.away, o.stadium.accent);
+        boardTex.needsUpdate = true;
+      }
+    },
+    dispose(): void {
+      if (disposed) return;
+      disposed = true;
+      for (const mesh of instanced) mesh.dispose();
+      for (const geo of geos) geo.dispose();
+      for (const mat of mats) mat.dispose();
+      for (const tex of texs) tex.dispose();
       reg.clearGroup('env.stadium');
     },
   };
