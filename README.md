@@ -267,7 +267,7 @@ photo mode with orbit, dolly, focus, touch orbit, and static camera-collision pr
 foot planting uses a render-only anchor and never writes into simulation state. Research provenance
 and validation receipts live in `docs/THIRD_PARTY_RESEARCH.md` and `reports/`.
 
-The authoritative validation status is currently **YELLOW**: typecheck, 321 unit tests,
+The authoritative validation status is currently **YELLOW**: typecheck, 324 unit tests,
 determinism, scenarios, invariants, browser presentation gates, and stadium gates pass. The
 renderer-level foot-slip gate now produces deterministic samples and is the default `footslip`
 command; `footslip:geometry` is only a matrix sanity check. Straight running is controlled, but

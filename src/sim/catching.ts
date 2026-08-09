@@ -1,6 +1,7 @@
 import type { Athlete } from '../core/types.ts';
 import {
-  CATCH_RADIUS_BY_KIND, CATCH_HANDS_SCALE, INT_BASE, CONTEST_PENALTY, DROP_PRESSURE,
+  CATCH_RADIUS_BY_KIND, CATCH_HANDS_SCALE, CATCH_TARGET_RADIUS_SCALE,
+  INT_BASE, CONTEST_PENALTY, DROP_PRESSURE,
   OVERDRIVE_CATCH, BOBBLE_CONTESTED, BOBBLE_BULLET, BOBBLE_DIVING, BOBBLE_POP, BOBBLE_SCATTER,
   BOBBLE_GRAB, SWAT_TIP_UP, TIP_SELF_PENALTY, s,
   COVER_TIGHT_YD, COVER_CATCH_PENALTY, COVER_BREAKUP_YD, COVER_BREAKUP_MAX, COVER_FLIGHT_FULL_S,
@@ -96,7 +97,10 @@ export function resolveAirBall(w: World): boolean {
     const kindR = CATCH_RADIUS_BY_KIND[st.passKind] ?? 1.35;
     const r = kindR
       * (1 + (a.def.ratings.hands - 50) * CATCH_HANDS_SCALE)
-      * (isTarget ? 1.32 : 0.92)
+      // Widen only the intended receiver's hands-and-body envelope. Raising the pass-kind base
+      // would also give defenders magnetic interception reach; this keeps their existing radius
+      // while making a well-placed throw within roughly two yards catch-eligible.
+      * (isTarget ? CATCH_TARGET_RADIUS_SCALE : 0.92)
       * (a.onFire ? OVERDRIVE_CATCH : 1)
       * (a.move === 'JUMP' ? 1.15 : 1);
     if (d > r) continue;
