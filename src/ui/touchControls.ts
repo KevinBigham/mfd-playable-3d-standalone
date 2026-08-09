@@ -146,6 +146,8 @@ export class TouchControls implements IntentSource {
   onPause: (() => void) | null = null;
   /** Fired after every hard reset so the input manager can neutralize its edge history. */
   onReset: ((reason: string) => void) | null = null;
+  onPhotoOrbit: ((dx: number, dy: number) => void) | null = null;
+  private photoMode = false;
   /** When the SNAP button last became visible — commits inside the tap-through window are dropped. */
   private snapShownAt = 0;
 
@@ -322,6 +324,12 @@ export class TouchControls implements IntentSource {
     this.gate.remove();
   }
 
+  setPhotoMode(enabled: boolean): void {
+    this.photoMode = enabled;
+    if (enabled) this.setMode('FREE');
+    else { this.setMode('OFF'); this.resetAll('photo-mode-off'); }
+  }
+
   /**
    * The one hard reset. Every interruption — blur, visibility loss, orientation gate, screen
    * transition, pause, pointer cancellation, context loss — must leave zero touch-derived state:
@@ -434,9 +442,15 @@ export class TouchControls implements IntentSource {
   private onMove(e: PointerEvent): void {
     const t = this.touches.get(e.pointerId);
     if (!t) return;
+    const prevX = t.x, prevY = t.y;
     t.x = e.clientX; t.y = e.clientY;
     const dx = t.x - t.x0, dy = t.y - t.y0;
     t.moved = Math.max(t.moved, Math.hypot(dx, dy));
+
+    if (this.photoMode) {
+      if (t.role === 'SURFACE') this.onPhotoOrbit?.((e.clientX - prevX) * 0.006, (e.clientY - prevY) * 0.006);
+      return;
+    }
 
     if (t.role === 'STICK') {
       const R = this.layout.stickRadius;
@@ -501,6 +515,11 @@ export class TouchControls implements IntentSource {
     this.touches.delete(e.pointerId);
     try { this.root.releasePointerCapture(e.pointerId); } catch { /* already gone */ }
     const held = now() - t.t0;
+
+    if (this.photoMode) {
+      this.recognizer.cancel(e.pointerId);
+      return;
+    }
 
     if (t.role === 'STICK') {
       this.moveX = 0; this.moveZ = 0;
@@ -657,7 +676,7 @@ export class TouchControls implements IntentSource {
       this.onGate?.(blocked);
     }
 
-    const mode = this.available && active && match && !blocked ? this.modeFor(match) : 'OFF';
+    const mode = this.photoMode ? 'FREE' : this.available && active && match && !blocked ? this.modeFor(match) : 'OFF';
     if (mode !== this.mode) this.setMode(mode);
     this.enabled = mode !== 'OFF';
   }

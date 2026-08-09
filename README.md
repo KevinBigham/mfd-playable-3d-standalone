@@ -259,6 +259,21 @@ struct, so the CPU has no private physics. Rendering, audio and interface read s
 consume a typed event stream; they never write back. Full contract in
 **[ARCHITECTURE.md](ARCHITECTURE.md)**; current status in **[PROJECT_STATE.md](PROJECT_STATE.md)**.
 
+## STANDALONE IMPROVEMENT MISSION
+
+The current standalone branch includes native bounded pursuit/intercept intelligence, a strict
+fail-closed replay-shot contract, deterministic authored replay camera framing, and replay-only
+photo mode with orbit, dolly, focus, touch orbit, and static camera-collision proxies. Hard-cut
+foot planting uses a render-only anchor and never writes into simulation state. Research provenance
+and validation receipts live in `docs/THIRD_PARTY_RESEARCH.md` and `reports/`.
+
+The authoritative validation status is currently **YELLOW**: typecheck, 321 unit tests,
+determinism, scenarios, invariants, browser presentation gates, and stadium gates pass. The
+renderer-level foot-slip gate now produces deterministic samples and is the default `footslip`
+command; `footslip:geometry` is only a matrix sanity check. Straight running is controlled, but
+hard cuts still have high slip outliers and require a final visual acceptance decision. Exact
+measurements and command results are in `reports/final-validation.md`.
+
 ## KNOWN LIMITATIONS
 
 Recorded honestly here and in QA_REPORT.md:

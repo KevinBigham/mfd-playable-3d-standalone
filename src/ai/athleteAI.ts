@@ -5,7 +5,7 @@ import { FIELD_HALF_WIDTH, s, TURBO_COST } from '../core/constants.ts';
 import type { World } from '../sim/world.ts';
 import { OFF_START, DEF_START, dirOf, goalOf, carrier } from '../sim/world.ts';
 import { routeSteer } from '../sim/playRunner.ts';
-import { baseSpeed, turboSpeed, topSpeed } from '../sim/movement.ts';
+import { baseSpeed, turboSpeed, topSpeed, interceptPoint } from '../sim/movement.ts';
 import { ballLead, ballArrival, kickReturner } from '../sim/catching.ts';
 import type { AiProfile } from './difficulty.ts';
 
@@ -17,6 +17,10 @@ export interface AiContext {
   profile: AiProfile;
   /** Applied to pursuit speed only, bounded. */
   catchUp: [number, number];
+  /** Current football situation, derived from MatchState rather than authored play ratings. */
+  down: number;
+  distanceToGo: number;
+  goalToGo: boolean;
 }
 
 export class AiController {
@@ -231,6 +235,7 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
   const primaryTick = play ? play.timing.primary : s(1.0);
   const secondaryTick = play ? play.timing.secondary : s(1.8);
   const readyTick = Math.max(s(0.35), primaryTick - p.reactionTicks);
+  const screenReady = screenThrowReady(play, t, pressure);
 
   // THE HOT READ. Immediate pressure overrides the timing landmark, because a quarterback whose
   // protection has already failed does not stand and wait for his primary read to come open.
@@ -243,8 +248,8 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
   //
   // The bar is low but not absent: he throws to the best man available even in a bad window, and
   // if there is genuinely nobody he still has to deal with the rush the hard way below.
-  if (pressure < HOT_PRESSURE && t > s(0.28)) {
-    const hot = bestReceiver(w, a, 2, p);
+  if (pressure < HOT_PRESSURE && t > s(0.28) && screenReady) {
+    const hot = bestReceiver(w, a, 2, p, ctx.goalToGo);
     if (hot.id >= 0 && hot.open > HOT_FLOOR) {
       out.held |= Action.ACTION;
       const idx = w.passTargets.indexOf(hot.id);
@@ -255,8 +260,8 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
     }
   }
 
-  if (t > readyTick) {
-    const cand = bestReceiver(w, a, t >= secondaryTick ? 2 : 1, p);
+  if (t > readyTick && screenReady) {
+    const cand = bestReceiver(w, a, t >= secondaryTick ? 2 : 1, p, ctx.goalToGo);
     // Under pressure or late in the down, take what is there.
     const desperation = clamp01((t - secondaryTick) / s(1.4)) * 1.6 + (pressure < 3.4 ? 0.9 : 0);
     // Arcade passing: throw into windows a simulation would call covered.
@@ -276,8 +281,8 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
 
   // Under real pressure, get rid of it. A quarterback who scrambles into a sack costs the drive
   // three yards and a down; an incompletion costs the down only.
-  if (pressure < 3.4 && t > readyTick) {
-    const bail = bestReceiver(w, a, 2, p);
+  if (pressure < 3.4 && t > readyTick && screenReady) {
+    const bail = bestReceiver(w, a, 2, p, ctx.goalToGo);
     if (bail.id >= 0 && bail.open > -0.6) {
       out.held |= Action.ACTION;
       const idx = w.passTargets.indexOf(bail.id);
@@ -320,7 +325,37 @@ function quarterbackAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
 
 interface ReadResult { id: AthleteId; open: number; deep: number; tight: boolean }
 
-function bestReceiver(w: World, qb: Athlete, depth: number, p: AiProfile): ReadResult {
+/** A screen must sell protection, but pressure can shorten the sell without making the QB psychic. */
+export function screenThrowReady(play: OffensePlay | null, ticks: number, pressure: number): boolean {
+  if (!play?.tags.includes('SCREEN')) return true;
+  const normal = Math.max(s(0.85), play.timing.primary - s(0.25));
+  const pressured = Math.max(s(0.65), normal - s(0.30));
+  return ticks >= (pressure < 2.6 ? pressured : normal);
+}
+
+/** Deterministic distinction between a receiver existing and being ready for the concept. */
+export function routeReadiness(a: Athlete): number {
+  if (!a.route || a.route.length === 0) return 0.5;
+  if (a.routeIdx >= a.route.length) return 1;
+  const action = a.route[a.routeIdx].action;
+  if (action === 'BLOCK' || action === 'LEAK') return 0.15;
+  if (action === 'SETTLE' || action === 'DRIFT') return a.routeHold > 0 ? 0.75 : 0.95;
+  // A route that has just left its stance is not fully developed, but it is still a legal
+  // quick/screen read. Reserve the strong penalty for explicit protection or leak phases.
+  return a.routeIdx > 0 ? 0.72 : 0.5;
+}
+
+/** Red-zone route geometry penalty for two targets collapsing into the same throwing lane. */
+export function compressedLanePenalty(a: Athlete, b: Athlete, qb: Athlete, dir: number): number {
+  const aDepth = (a.z - qb.z) * dir;
+  const bDepth = (b.z - qb.z) * dir;
+  if (aDepth < 0 || bDepth < 0 || aDepth > 14 || bDepth > 14) return 0;
+  const sameDepth = Math.abs(aDepth - bDepth) < 4.5;
+  const sameLane = Math.abs(a.x - b.x) < 2.8;
+  return sameDepth && sameLane ? 1.4 : 0;
+}
+
+function bestReceiver(w: World, qb: Athlete, depth: number, p: AiProfile, goalToGo: boolean): ReadResult {
   const dir = dirOf(qb.side);
   const play = w.offensePlay;
   const order = play ? [play.reads[0], play.reads[1]] : [1, 2];
@@ -356,10 +391,36 @@ function bestReceiver(w: World, qb: Athlete, depth: number, p: AiProfile): ReadR
     const hot = id === w.hotReceiver ? 0.55 + w.hotStreak * 0.45 : 0;
     // Push the ball downfield. Weighting openness alone made the quarterback take the shortest
     // available completion every snap, which is correct simulation and terrible arcade football.
-    const open = nearest - inLane + noise + hot + clamp(dz, -4, 34) * 0.105;
+    const readiness = routeReadiness(r);
+    let compressed = 0;
+    if (goalToGo && !play?.tags.includes('SCREEN') && (goalOf(qb.side) - qb.z) * dir < 16) {
+      for (const otherId of w.passTargets) {
+        if (otherId >= 0 && otherId !== r.id) compressed = Math.max(compressed, compressedLanePenalty(r, w.athletes[otherId], qb, dir));
+      }
+    }
+    const open = nearest - inLane + noise + hot + clamp(dz, -4, 34) * 0.105
+      + (readiness - 0.5) * 2.0 - compressed;
     if (open > res.open) { res.id = id; res.open = open; res.deep = dz; res.tight = nearest < 3.4; }
   }
   return res;
+}
+
+export function laneTrafficPenalty(
+  a: Pick<Athlete, 'id' | 'x' | 'z' | 'side'>,
+  teammates: readonly Pick<Athlete, 'id' | 'x' | 'z' | 'side' | 'move'>[],
+  hx: number,
+  hz: number,
+): number {
+  let penalty = 0;
+  for (const mate of teammates) {
+    if (mate.id === a.id || mate.side !== a.side || mate.move === 'DOWN') continue;
+    // Immediate traffic matters more than an athlete near the seven-yard lookahead point.
+    const near = dist(a.x + hx * 2.2, a.z + hz * 2.2, mate.x, mate.z);
+    const far = dist(a.x + hx * 5.0, a.z + hz * 5.0, mate.x, mate.z);
+    if (near < 1.45) penalty += (1.45 - near) * 4.2;
+    if (far < 1.8) penalty += (1.8 - far) * 1.5;
+  }
+  return penalty;
 }
 
 function bestLane(w: World, a: Athlete, dir: number): { x: number; z: number } {
@@ -378,26 +439,102 @@ function bestLane(w: World, a: Athlete, dir: number): { x: number; z: number } {
       nearest = Math.min(nearest, dist(px, pz, d.x, d.z));
     }
     const progress = (pz - a.z) * dir;
+    const traffic = w.offensePlay?.tags.includes('SCREEN')
+      ? 0 : laneTrafficPenalty(a, w.athletes.slice(OFF_START, OFF_START + 7), hx, hz);
     // Forward progress is the point; open space only matters if it is downhill.
-    const score = nearest * 1.15 + progress * 2.0 - Math.abs(px) * 0.05
+    const score = nearest * 1.15 + progress * 2.0 - traffic - Math.abs(px) * 0.05
       + (progress < 0 ? progress * 2.5 : 0);
     if (score > bestScore) { bestScore = score; bestX = hx; bestZ = hz; }
   }
   return { x: bestX, z: bestZ };
 }
 
+export function screenCarrierSteer(w: World, a: Athlete, out: { moveX: number; moveZ: number }): boolean {
+  if (!w.offensePlay?.tags.includes('SCREEN') || !w.passThrown || !a.hasBall || a.id === w.qbId) return false;
+  const dir = dirOf(a.side);
+  let convoyX = 0;
+  let convoyWeight = 0;
+  let immediate: Athlete | null = null;
+  for (let i = OFF_START; i < OFF_START + 7; i++) {
+    const mate = w.athletes[i];
+    if (mate.id === a.id || mate.side !== a.side || mate.move === 'DOWN') continue;
+    const route = mate.route;
+    const convoy = mate.role === 'LINE'
+      || !!route?.slice(mate.routeIdx).find((node) => node.action === 'BLOCK');
+    if (!convoy || mate.routeIdx === 0) continue;
+    const dx = mate.x - a.x, forward = (mate.z - a.z) * dir;
+    if (forward <= 0.15 || forward > 9) continue;
+    const weight = 1 / Math.max(1, forward);
+    convoyX += mate.x * weight;
+    convoyWeight += weight;
+    if (forward < 3.2 && Math.abs(dx) < 1.1
+        && (!immediate || forward < (immediate.z - a.z) * dir)) immediate = mate;
+  }
+  if (convoyWeight === 0) return false;
+
+  const targetX = convoyX / convoyWeight;
+  let tx = targetX;
+  let tz = a.z + dir * 4.5;
+  if (immediate) {
+    const leftX = a.x - 1.5;
+    const rightX = a.x + 1.5;
+    const probeZ = a.z + dir * 2.4;
+    let leftClear = FIELD_HALF_WIDTH - Math.abs(leftX);
+    let rightClear = FIELD_HALF_WIDTH - Math.abs(rightX);
+    for (let i = DEF_START; i < DEF_START + 7; i++) {
+      const defender = w.athletes[i];
+      if (defender.move === 'DOWN') continue;
+      leftClear = Math.min(leftClear, dist(leftX, probeZ, defender.x, defender.z));
+      rightClear = Math.min(rightClear, dist(rightX, probeZ, defender.x, defender.z));
+    }
+    const preferRight = rightClear > leftClear + 0.05
+      || (Math.abs(rightClear - leftClear) <= 0.05 && targetX >= a.x);
+    tx = preferRight ? rightX : leftX;
+    tz = probeZ;
+  }
+  const dx = tx - a.x;
+  const dz = tz - a.z;
+  const mag = Math.max(0.001, Math.hypot(dx, dz));
+  out.moveX = dx / mag;
+  out.moveZ = dz / mag;
+  return true;
+}
+
+/** Authored short-yardage plays prefer a narrow downhill crease over a wider bounce. */
+export function shortYardageCarrierBias(
+  play: { shortYardage: number }, x: number, z: number, dir: number, distanceToGo: number,
+): { x: number; z: number } {
+  if (distanceToGo > 3 || distanceToGo < 0.1) return { x, z };
+  const urgency = clamp01((play.shortYardage - 0.75) / 0.25);
+  if (urgency <= 0) return { x, z };
+  const mag = Math.max(0.001, Math.hypot(x, z));
+  const lateral = x / mag;
+  const forward = z / mag;
+  return { x: lateral * (1 - urgency * 0.65), z: forward * (1 - urgency * 0.65) + dir * urgency * 0.65 };
+}
+
 function runToDaylight(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
   const dir = dirOf(a.side);
   const lane = bestLane(w, a, dir);
   out.moveX = lane.x; out.moveZ = lane.z;
+  const designedRun = w.offensePlay?.tags.includes('RUN') ?? false;
+  if (w.offensePlay && designedRun) {
+    const biased = shortYardageCarrierBias(w.offensePlay, out.moveX, out.moveZ, dir, ctx.distanceToGo);
+    out.moveX = biased.x; out.moveZ = biased.z;
+  }
+  // Screen carriers press behind the convoy.  If a teammate is directly in the projected lane,
+  // take the nearest deterministic crease instead of steering through his back.
+  screenCarrierSteer(w, a, out);
   void 0;
   // Early in a designed run, honour the called hole before improvising.
-  if (a.route && a.routeIdx < a.route.length && w.playTicks < s(1.1) && w.handedOff) {
+  const designedWindow = designedRun ? 1.45 : 1.1;
+  const designedMix = designedRun ? 0.75 : 0.6;
+  if (a.route && a.routeIdx < a.route.length && w.playTicks < s(designedWindow) && w.handedOff) {
     routeSteer(w, a, steer);
     const m = Math.hypot(steer.x, steer.z);
     if (m > 0.05) {
-      out.moveX = out.moveX * 0.4 + steer.x * 0.6;
-      out.moveZ = out.moveZ * 0.4 + steer.z * 0.6;
+      out.moveX = out.moveX * (1 - designedMix) + steer.x * designedMix;
+      out.moveZ = out.moveZ * (1 - designedMix) + steer.z * designedMix;
     }
   }
   // Nearest threat → decide on a move.
@@ -601,15 +738,25 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
 function pursueCarrier(w: World, a: Athlete, car: Athlete, out: PlayerIntent, ctx: AiContext): void {
   const p = ctx.profile;
   const mySpeed = turboSpeed(a) * ctx.catchUp[a.side];
-  // Iterate an intercept point.
-  let t = dist(a.x, a.z, car.x, car.z) / Math.max(1, mySpeed);
-  for (let i = 0; i < 2; i++) {
-    const px = car.x + car.vx * t, pz = car.z + car.vz * t;
-    t = dist(a.x, a.z, px, pz) / Math.max(1, mySpeed);
+  const hit = interceptPoint(a.x, a.z, mySpeed, car.x, car.z, car.vx, car.vz);
+  const dir = dirOf(car.side);
+  // A contain defender owns the outside shoulder.  The intercept remains predictive, but is
+  // projected back inside the shoulder when the target is still short of the line to prevent
+  // oscillating around the runner after a hard cut.
+  const contain = a.assign?.kind === 'CONTAIN';
+  const shoulder = a.assign?.kind === 'CONTAIN' ? a.assign.side : 0;
+  const maxOutside = FIELD_HALF_WIDTH - 1.5;
+  let tx = hit.x;
+  let tz = hit.z;
+  if (contain) tx = clamp(tx, -maxOutside, maxOutside);
+  if (contain && shoulder !== 0 && (car.z - w.losZ) * dir < 8) {
+    const inside = shoulder * dir;
+    if ((tx - car.x) * inside < 0) tx = car.x + shoulder * 1.4;
   }
   const err = p.pursuitAngleError;
-  const tx = car.x + car.vx * t + w.rng.spread(err * 3.2);
-  const tz = car.z + car.vz * t + w.rng.spread(err * 3.2);
+  const miss = pursuitAngleMiss(a.id, w.snapTick, w.playTicks, err * 1.8);
+  tx += Math.cos(a.facing) * miss;
+  tz += Math.sin(a.facing) * miss;
   pursue(w, a, tx, tz, out, ctx, 1);
 
   const d = dist(a.x, a.z, car.x, car.z);
@@ -618,6 +765,14 @@ function pursueCarrier(w: World, a: Athlete, car: Athlete, out: PlayerIntent, ct
     if (a.turbo > 40 && roll < 0.10 * p.moveTiming) out.held |= Action.TURBO | Action.SPECIAL; // power tackle
     else if (roll < 0.22 * p.moveTiming) out.held |= Action.DIVE;
   }
+}
+
+/** Stable for a quarter-second decision window and independent of simulation RNG consumption. */
+export function pursuitAngleMiss(id: number, snapTick: number, playTicks: number, amplitude: number): number {
+  const bucket = Math.floor(playTicks / Math.max(1, s(0.25)));
+  let h = Math.imul((id + 1) ^ snapTick, 0x45d9f3b) ^ Math.imul(bucket + 1, 0x27d4eb2d);
+  h ^= h >>> 16;
+  return (((h >>> 0) / 0xffffffff) * 2 - 1) * amplitude;
 }
 
 /**

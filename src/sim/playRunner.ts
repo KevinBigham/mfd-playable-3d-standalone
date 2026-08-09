@@ -526,6 +526,11 @@ export function routeSteer(w: World, a: Athlete, out: { x: number; z: number; tu
  */
 function blockMark(w: World, a: Athlete, tx: number, tz: number): Athlete | null {
   if (a.engagedWith >= 0) return w.athletes[a.engagedWith];
+  if (w.offensePlay?.tags.includes('SCREEN') && a.routeIdx > 0) {
+    const assigned = screenBlockAssignments(w).get(a.id);
+    if (assigned !== undefined) return w.athletes[assigned] ?? null;
+  }
+  const dir = dirOf(a.side);
   const car = carrier(w);
   const px = car && car.side === a.side ? car.x : w.athletes[w.qbId].x;
   const pz = car && car.side === a.side ? car.z : w.athletes[w.qbId].z;
@@ -540,13 +545,72 @@ function blockMark(w: World, a: Athlete, tx: number, tz: number): Athlete | null
     // other six.
     const fromMark = dist(d.x, d.z, tx, tz);
     if (fromMark > BLOCK_SEARCH) continue;
-    const score = fromMark * 0.85 + dist(d.x, d.z, px, pz) * 0.7;
+    let score = fromMark * 0.85 + dist(d.x, d.z, px, pz) * 0.7;
     if (score < bestScore) { bestScore = score; best = d; }
   }
   return best;
 }
 /** How far from his landmark a blocker will go looking for work. */
 const BLOCK_SEARCH = 7.5;
+
+function segmentDistance(px: number, pz: number, ax: number, az: number, bx: number, bz: number): number {
+  const dx = bx - ax, dz = bz - az;
+  const t = clamp01(((px - ax) * dx + (pz - az) * dz) / Math.max(0.001, dx * dx + dz * dz));
+  return dist(px, pz, ax + dx * t, az + dz * t);
+}
+
+/**
+ * Stable greedy screen assignment. It is recomputed from authoritative state, so steering and
+ * contact see the same reservations without adding a second ownership table to World.
+ */
+export function screenBlockAssignments(w: World): Map<AthleteId, AthleteId> {
+  const out = new Map<AthleteId, AthleteId>();
+  if (!w.offensePlay?.tags.includes('SCREEN')) return out;
+  const dir = dirOf(w.possession);
+  const liveCarrier = carrier(w);
+  const primary = w.athletes[OFF_START + w.offensePlay.reads[0]];
+  const receiver = liveCarrier && liveCarrier.side === w.possession && liveCarrier.id !== w.qbId
+    ? liveCarrier : primary;
+  if (!receiver) return out;
+
+  const laneX = receiver.x + receiver.vx * 0.45;
+  const laneZ = receiver.z + receiver.vz * 0.45 + dir * 4;
+  const blockers = w.athletes.slice(OFF_START, OFF_START + 7)
+    .filter((blocker) => blocker.side === w.possession && !blocker.hasBall && blocker.routeIdx > 0
+      && blocker.route?.[blocker.routeIdx]?.action === 'BLOCK')
+    .sort((a, b) => a.id - b.id);
+  const defenders = w.athletes.slice(DEF_START, DEF_START + 7)
+    .filter((defender) => defender.side !== w.possession
+      && defender.move !== 'DOWN' && defender.move !== 'GETUP')
+    .sort((a, b) => a.id - b.id);
+  const claimed = new Set<AthleteId>();
+
+  for (const blocker of blockers) {
+    let best: Athlete | null = null;
+    let bestScore = Infinity;
+    for (const defender of defenders) {
+      if (defender.blockedBy >= 0 && defender.blockedBy !== blocker.id) continue;
+      const immediate = dist(defender.x, defender.z, receiver.x, receiver.z) < 2.25;
+      if (claimed.has(defender.id) && !immediate) continue;
+      const laneThreat = segmentDistance(defender.x, defender.z, receiver.x, receiver.z, laneX, laneZ);
+      const ahead = (defender.z - receiver.z) * dir;
+      if (ahead < -4 || ahead > 22) continue;
+      const reach = dist(blocker.x, blocker.z, defender.x, defender.z);
+      if (reach > 14 && !immediate) continue;
+      const score = laneThreat * 1.6 + reach * 0.48 + Math.abs(defender.x - laneX) * 0.18
+        + (ahead < 0 ? Math.abs(ahead) * 0.8 : 0) + (claimed.has(defender.id) ? 20 : 0);
+      if (score < bestScore - 1e-6 || (Math.abs(score - bestScore) <= 1e-6 && defender.id < (best?.id ?? Infinity))) {
+        best = defender;
+        bestScore = score;
+      }
+    }
+    if (best) {
+      out.set(blocker.id, best.id);
+      claimed.add(best.id);
+    }
+  }
+  return out;
+}
 
 /**
  * Forward progress. Sampled every tick a carrier holds the ball, and only ever moving downfield.

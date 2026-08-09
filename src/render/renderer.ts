@@ -16,12 +16,62 @@ import { buildBall, buildMarkers, makeNumberSprite, type Markers } from './props
 import { resolveKits } from './kits.ts';
 import { buildEnvironment, type Environment } from './env/index.ts';
 import { resolveStadiumVisual } from './stadiumVisual/generatedRegistry.ts';
-import type { ReplayView } from './replay.ts';
+import { replayTarget, type ReplayView } from './replay.ts';
+import type { ReplayShotV1 } from './replayShots.ts';
 import type { World } from '../sim/world.ts';
 import { carrier } from '../sim/world.ts';
 import { strideLengthFor } from '../sim/movement.ts';
 import { clamp, clamp01, lerp, angLerp, angDelta, damp, smoothstep } from '../core/math.ts';
 import { FIXED_DT } from '../core/constants.ts';
+import { lowestSolePoint, PLANT_CONTACT_Z, solePointAt } from './footSlip.ts';
+
+export function collectPhotoProxies(root: THREE.Object3D): Array<{ min: THREE.Vector3; max: THREE.Vector3 }> {
+  const out: Array<{ min: THREE.Vector3; max: THREE.Vector3 }> = [];
+  root.updateWorldMatrix(true, true);
+  const accept = (box: THREE.Box3, name: string): void => {
+    if (box.isEmpty() || /stadium\.(seats|signage|trim|structure)/.test(name)) return;
+    const size = box.getSize(new THREE.Vector3());
+    // Reject merged whole-venue batches: their AABB contains the playable field and would eject
+    // a camera that is correctly inside the bowl. Thin roofs and boards remain valid.
+    if (size.x > 45 && size.z > 65 && size.y > 5) return;
+    if (Math.max(size.x, size.y, size.z) < 0.4) return;
+    box.expandByScalar(0.18);
+    out.push({ min: box.min.clone(), max: box.max.clone() });
+  };
+  root.traverse((object) => {
+    if (!(object as THREE.Mesh).isMesh || !object.visible) return;
+    const mesh = object as THREE.Mesh;
+    if ((mesh as THREE.InstancedMesh).isInstancedMesh) {
+      const instanced = mesh as THREE.InstancedMesh;
+      instanced.geometry.computeBoundingBox();
+      const local = instanced.geometry.boundingBox;
+      if (!local) return;
+      const instance = new THREE.Matrix4();
+      const world = new THREE.Matrix4();
+      for (let i = 0; i < instanced.count; i++) {
+        instanced.getMatrixAt(i, instance);
+        world.multiplyMatrices(instanced.matrixWorld, instance);
+        accept(local.clone().applyMatrix4(world), instanced.name);
+      }
+      return;
+    }
+    accept(new THREE.Box3().setFromObject(mesh), mesh.name);
+  });
+  return out;
+}
+
+export function bowlPhotoProxies(layout: Environment['stadium']['layout']): Array<{ min: THREE.Vector3; max: THREE.Vector3 }> {
+  const out: Array<{ min: THREE.Vector3; max: THREE.Vector3 }> = [];
+  const loop = layout.loop;
+  for (let i = 0; i < loop.n; i++) {
+    const j = (i + 1) % loop.n;
+    out.push({
+      min: new THREE.Vector3(Math.min(loop.x[i], loop.x[j]) - 0.7, 0, Math.min(loop.z[i], loop.z[j]) - 0.7),
+      max: new THREE.Vector3(Math.max(loop.x[i], loop.x[j]) + 0.7, layout.topY + 2, Math.max(loop.z[i], loop.z[j]) + 0.7),
+    });
+  }
+  return out;
+}
 
 export interface RendererOptions {
   quality: QualityTier;
@@ -70,11 +120,16 @@ interface RigMotion {
   visible: boolean;     // was it drawn last frame? if not, snap instead of easing
   /** side*1000 + jersey. A slot can change hands between plays; that is a different body. */
   rigKey: number;
+  /** Presentation-only hard-cut foot anchor; never serialized or fed into simulation. */
+  plantAnchor: THREE.Vector3 | null;
+  plantFoot: 0 | 1;
+  plantOffset: THREE.Vector3;
 }
 function makeMotion(): RigMotion {
   return {
     fadeFrom: new Float32Array(POSE_FLOATS), fadeT: 0, fadeDur: 0,
     yaw: 0, prevYaw: 0, turn: 0, bank: 0, visible: false, rigKey: -1,
+    plantAnchor: null, plantFoot: 0, plantOffset: new THREE.Vector3(),
   };
 }
 
@@ -83,6 +138,7 @@ function makeMotion(): RigMotion {
 const PROJ = new THREE.Vector3();
 const HAND = new THREE.Vector3();
 const ELBOW = new THREE.Vector3();
+const PLANT_POINTS = [new THREE.Vector3(), new THREE.Vector3()];
 
 const YAW_LAMBDA = 26;
 /** Beyond this the heading changed because the athlete was moved, not because he turned. */
@@ -327,7 +383,10 @@ export class GameRenderer {
         this.registry.group('markers').add(sp);
         this.numberSprites.push(sp);
       }
-      for (const m of this.motion) { m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1; }
+      for (const m of this.motion) {
+        m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1;
+        m.plantAnchor = null; m.plantOffset.set(0, 0, 0);
+      }
       for (let i = 0; i < this.lastAnimState.length; i++) { this.lastAnimState[i] = ''; this.animT[i] = 0; }
       this.prewarm();
       // Publish the key only after the complete scene is reusable. A failed construction must never
@@ -339,11 +398,20 @@ export class GameRenderer {
     }
   }
 
+  /** Presentation-only collision boxes sourced from the loaded stadium structure. */
+  stadiumPhotoProxies(): Array<{ min: THREE.Vector3; max: THREE.Vector3 }> {
+    if (!this.env) return [];
+    return [...bowlPhotoProxies(this.env.stadium.layout), ...collectPhotoProxies(this.env.stadium.group)];
+  }
+
   /** Same-configuration retry: hide and neutralize everything dynamic, dispose nothing. */
   private resetMatchScene(): void {
     for (const m of this.rigs) for (const r of m.values()) r.root.visible = false;
     for (const sp of this.numberSprites) sp.visible = false;
-    for (const m of this.motion) { m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1; }
+    for (const m of this.motion) {
+      m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1;
+      m.plantAnchor = null; m.plantOffset.set(0, 0, 0);
+    }
     for (let i = 0; i < this.lastAnimState.length; i++) { this.lastAnimState[i] = ''; this.animT[i] = 0; }
   }
 
@@ -420,7 +488,10 @@ export class GameRenderer {
     this.scene.environment = null;
     this.envRT?.dispose();
     this.envRT = null;
-    for (const m of this.motion) { m.visible = false; m.fadeDur = 0; m.rigKey = -1; }
+    for (const m of this.motion) {
+      m.visible = false; m.fadeDur = 0; m.rigKey = -1;
+      m.plantAnchor = null; m.plantOffset.set(0, 0, 0);
+    }
     for (const m of this.rigs) { for (const r of m.values()) r.dispose(); m.clear(); }
     this.numberSprites.length = 0;
     if (this.env) { this.env.dispose(); this.env = null; }
@@ -482,7 +553,10 @@ export class GameRenderer {
       rig.root.visible = true;
       const mo = this.motion[i];
       const key = a.side * 1000 + a.def.number;
-      if (mo.rigKey !== key) { mo.rigKey = key; mo.visible = false; mo.fadeDur = 0; }
+      if (mo.rigKey !== key) {
+        mo.rigKey = key; mo.visible = false; mo.fadeDur = 0;
+        mo.plantAnchor = null; mo.plantOffset.set(0, 0, 0);
+      }
       const x = lerp(a.prevX, a.x, alpha);
       const y = lerp(a.prevY, a.y, alpha);
       const z = lerp(a.prevZ, a.z, alpha);
@@ -567,6 +641,52 @@ export class GameRenderer {
         if (k >= 1) mo.fadeDur = 0;
         else blendPose(rig, mo.fadeFrom, 1 - smoothstep(k));
       }
+
+      // Anchor the exact sole point the end-to-end foot-slip gate measures. The correction runs
+      // after cross-fading so it follows the pose that is actually drawn, not an intermediate
+      // pose. It is presentation-only and releases before the leg can be stretched too far.
+      const turningRun = Math.abs(sample.drift) > 0.12 && spd > 3.5 && (st === 'RUN' || st === 'SPRINT');
+      if (turningRun) {
+        rig.root.updateMatrixWorld(true);
+        const feet = [rig.bones.footL, rig.bones.footR];
+        const rootY = rig.root.position.y;
+        for (let f = 0; f < 2; f++) {
+          lowestSolePoint(feet[f].matrixWorld.elements, PLANT_POINTS[f]);
+        }
+        let foot = mo.plantAnchor ? mo.plantFoot : (PLANT_POINTS[0].y <= PLANT_POINTS[1].y ? 0 : 1);
+        let sole = PLANT_POINTS[foot];
+        let grounded = sole.y - rootY <= 0.018;
+        if (!grounded) {
+          const other = foot === 0 ? 1 : 0;
+          if (PLANT_POINTS[other].y - rootY <= 0.018) {
+            foot = other; sole = PLANT_POINTS[other]; grounded = true; mo.plantAnchor = null;
+          } else {
+            mo.plantAnchor = null;
+          }
+        }
+        if (grounded) {
+          // Lowest-sole selection determines whether the foot is down; the anchor itself stays on
+          // the fixed ball-of-foot contact used by poseAthlete, so heel/toe pitch cannot migrate it.
+          solePointAt(feet[foot].matrixWorld.elements, PLANT_CONTACT_Z, sole);
+          if (!mo.plantAnchor) {
+            mo.plantFoot = foot as 0 | 1;
+            mo.plantAnchor = new THREE.Vector3(
+              sole.x + mo.plantOffset.x, sole.y, sole.z + mo.plantOffset.z,
+            );
+          }
+          const dx = mo.plantAnchor.x - sole.x;
+          const dz = mo.plantAnchor.z - sole.z;
+          const reach = Math.hypot(dx, dz);
+          if (reach <= 0.24) mo.plantOffset.set(dx, 0, dz);
+          else mo.plantAnchor = null;
+        }
+      } else {
+        mo.plantAnchor = null;
+      }
+      if (!mo.plantAnchor) mo.plantOffset.multiplyScalar(Math.exp(-18 * Math.max(0, dt)));
+      rig.root.position.x += mo.plantOffset.x;
+      rig.root.position.z += mo.plantOffset.z;
+      if (mo.plantOffset.lengthSq() > 1e-8) rig.root.updateMatrixWorld(true);
     }
     for (const side of [0, 1] as TeamSide[]) {
       for (const rig of this.rigs[side].values()) if (!shown.has(rig)) rig.root.visible = false;
@@ -706,7 +826,7 @@ export class GameRenderer {
   }
 
   /** Pose everything from a recorded replay frame. Never touches simulation state. */
-  syncReplay(view: ReplayView, dt: number): void {
+  syncReplay(view: ReplayView, dt: number, shot?: ReplayShotV1, cameraOverride = false): void {
     if (this.disposed || !this.effects) return;
     const shown = new Set<AthleteRig>();
     for (let i = 0; i < view.athletes.length; i++) {
@@ -769,7 +889,13 @@ export class GameRenderer {
     for (const t of this.markers.targets) t.visible = false;
     this.markers.reticle.visible = false;
     // Slow orbit around the action for the clip.
-    this.gameCamera.replayShot(view.ball.x, view.ball.z, dt);
+    if (!cameraOverride) {
+      if (shot) {
+        const target = replayTarget(view, shot.target);
+        this.gameCamera.replayAuthoredShot(target.x, target.z, dt, shot);
+      }
+      else this.gameCamera.replayShot(view.ball.x, view.ball.z, dt);
+    }
     this.env?.update(dt, this.gameCamera.camera.position);
     this.effects.update(dt);
   }

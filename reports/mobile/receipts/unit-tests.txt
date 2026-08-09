@@ -1,47 +1,53 @@
 
  RUN  v2.1.9 /Users/kevin/Downloads/3D FB_mfd-playable-3d-standalone-main
 
- ✓ tests/controlLayout.test.ts (8 tests) 33ms
- ✓ src/audio/audio.test.ts (14 tests) 9ms
- ✓ src/data/league.test.ts (36 tests) 105ms
- ✓ src/plays/plays.test.ts (52 tests) 59ms
- ✓ src/modes/playEditor.test.ts (38 tests) 39ms
- ✓ tests/rules.test.ts (16 tests) 6ms
- ✓ tests/stadiumVisualContract.test.ts (19 tests) 182ms
- ✓ tests/throwLedger.test.ts (3 tests) 4ms
- ✓ tests/purity.test.ts (8 tests) 33ms
- ✓ tests/framePacer.test.ts (8 tests) 53ms
- ✓ tests/pauseController.test.ts (7 tests) 4ms
- ✓ tests/feedback.test.ts (9 tests) 4ms
+ ✓ tests/controlLayout.test.ts (8 tests) 53ms
+ ✓ src/audio/audio.test.ts (14 tests) 23ms
+ ✓ src/data/league.test.ts (36 tests) 138ms
+ ✓ src/plays/plays.test.ts (52 tests) 97ms
+ ✓ src/modes/playEditor.test.ts (38 tests) 54ms
+ ✓ tests/stadiumVisualContract.test.ts (19 tests) 258ms
+ ✓ tests/rules.test.ts (16 tests) 9ms
+ ✓ tests/throwLedger.test.ts (3 tests) 3ms
+ ✓ tests/screenIntelligence.test.ts (7 tests) 8ms
+ ✓ tests/replayShots.test.ts (10 tests) 15ms
+ ✓ tests/purity.test.ts (8 tests) 165ms
+ ✓ tests/framePacer.test.ts (8 tests) 149ms
+ ✓ tests/pauseController.test.ts (7 tests) 7ms
+ ✓ tests/feedback.test.ts (9 tests) 5ms
  ✓ tests/progression.test.ts (4 tests) 5ms
- ✓ tests/stadiumPresentationBoundary.test.ts (3 tests) 1386ms
-   ✓ authored stadiums stay presentation-only > keeps a fixed-seed replay, event log and hash identical with the override present or absent 1379ms
- ✓ tests/stadiumNativeSeams.test.ts (2 tests) 5ms
+ ✓ tests/stadiumNativeSeams.test.ts (2 tests) 4ms
+ ✓ tests/stadiumPresentationBoundary.test.ts (3 tests) 2412ms
+   ✓ authored stadiums stay presentation-only > keeps a fixed-seed replay, event log and hash identical with the override present or absent 2405ms
  ✓ tests/saveDebounce.test.ts (2 tests) 5ms
  ✓ tests/persistenceV2.test.ts (3 tests) 5ms
- ✓ tests/snapshot.test.ts (8 tests) 2180ms
-   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 1500 and continues identically 559ms
-   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 4000 and continues identically 481ms
-   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 7000 and continues identically 397ms
-   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 11000 and continues identically 440ms
- ✓ tests/kickoffChoice.test.ts (4 tests) 2043ms
-   ✓ human kickoff choice > CPU-vs-CPU games are byte-identical to the pre-change behavior window 1931ms
- ✓ tests/playGrade.test.ts (3 tests) 1678ms
-   ✓ play grade facts > produces one fact per resolved throw, with evidence, deterministically 1654ms
- ✓ src/modes/tournament.test.ts (21 tests) 2507ms
-   ✓ CPU games come from the real engine > plays a whole four-team ladder headlessly and crowns a champion 1920ms
-   ✓ CPU games come from the real engine > is deterministic for a given seed and resolves byes without simulating 480ms
- ✓ tests/driveRush.test.ts (3 tests) 2124ms
-   ✓ Drive Rush ruleset > every attempt over 60 seeds ends in a declared way, and all end kinds occur 1918ms
- ✓ tests/stadiumPromotion.test.ts (4 tests) 4726ms
-   ✓ stadium promotion lifecycle > leaves promoted assets and registry byte-identical when validation fails 1009ms
-   ✓ stadium promotion lifecycle > restores both tracked surfaces when promotion fails after the asset write 723ms
-   ✓ stadium promotion lifecycle > rejects traversal and encoded/path-like rollback targets before touching promoted files 2982ms
- ✓ src/modes/season.test.ts (22 tests) 14652ms
-   ✓ playoffs > crowns exactly one champion through the real match simulator 14307ms
+ ✓ tests/movementIntelligence.test.ts (4 tests) 4ms
+ ✓ tests/footSlip.test.ts (3 tests) 4ms
+ ✓ tests/kickoffChoice.test.ts (4 tests) 3729ms
+   ✓ human kickoff choice > CPU-vs-CPU games are byte-identical to the pre-change behavior window 3533ms
+ ✓ tests/snapshot.test.ts (8 tests) 3974ms
+   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 1500 and continues identically 855ms
+   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 4000 and continues identically 1064ms
+   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 7000 and continues identically 887ms
+   ✓ mid-match snapshot > round-trips a live match snapshotted at tick 11000 and continues identically 833ms
+ ✓ tests/playGrade.test.ts (3 tests) 2643ms
+   ✓ play grade facts > produces one fact per resolved throw, with evidence, deterministically 2615ms
+ ✓ src/modes/tournament.test.ts (21 tests) 4370ms
+   ✓ CPU games come from the real engine > plays a whole four-team ladder headlessly and crowns a champion 3521ms
+   ✓ CPU games come from the real engine > is deterministic for a given seed and resolves byes without simulating 699ms
+ ✓ tests/driveRush.test.ts (3 tests) 4049ms
+   ✓ Drive Rush ruleset > starts at the opponent 40 with the 30-yard chain and plays offense-only 527ms
+   ✓ Drive Rush ruleset > every attempt over 60 seeds ends in a declared way, and all end kinds occur 3483ms
+ ✓ tests/stadiumPromotion.test.ts (4 tests) 8323ms
+   ✓ stadium promotion lifecycle > leaves promoted assets and registry byte-identical when validation fails 1646ms
+   ✓ stadium promotion lifecycle > restores both tracked surfaces when promotion fails after the asset write 1133ms
+   ✓ stadium promotion lifecycle > rejects traversal and encoded/path-like rollback targets before touching promoted files 5523ms
+ ✓ src/modes/season.test.ts (22 tests) 26036ms
+   ✓ playoffs > crowns exactly one champion through the real match simulator 25505ms
+   ✓ playoffs > runs a single fixture through the real simulator 369ms
 
- Test Files  24 passed (24)
-      Tests  297 passed (297)
-   Start at  13:34:03
-   Duration  15.27s (transform 1.16s, setup 0ms, collect 3.19s, tests 31.85s, environment 3ms, prepare 1.77s)
+ Test Files  28 passed (28)
+      Tests  321 passed (321)
+   Start at  16:09:16
+   Duration  27.00s (transform 2.26s, setup 0ms, collect 5.95s, tests 56.55s, environment 10ms, prepare 3.20s)
 

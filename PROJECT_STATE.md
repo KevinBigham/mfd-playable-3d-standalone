@@ -448,3 +448,12 @@ npm run acceptance npm run driveprobe npm run runprobe   npm run passprobe
 npm run human      npm run fieldpos   npm run footslip   npm run poses
 npm run gait       npm run touch      npm run anthro     npm run roster
 ```
+
+## Current standalone mission status
+
+Native movement intelligence, replay director, replay photo mode, and bounded hard-cut foot
+anchoring are implemented. See `reports/final-validation.md` for the authoritative YELLOW receipt:
+the deterministic, acceptance, browser, artifact, stadium, and performance gates pass. The
+renderer-level foot-slip gate is now valid and repeatable, but hard-cut p95 slip remains high
+enough to require visual acceptance or a deeper pose/stance correction before an unconditional
+GREEN release claim.

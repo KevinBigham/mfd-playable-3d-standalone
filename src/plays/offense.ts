@@ -107,6 +107,7 @@ const stalk = (dx: number, dz: number): RouteNode[] =>
   [n(dx * 0.4, dz * 0.5, 'RUN'), n(dx, dz, 'BLOCK', s(2.2))];
 /** Lineman who pulls out in front of a screen. */
 const pull = (dir: Side): RouteNode[] => [
+  // Sell protection for a bounded window before releasing into the convoy lane.
   n(dir * 1.1, 0.4, 'BLOCK', s(0.3)),
   n(dir * 5.0, 0.1, 'RUN'),
   n(dir * 9.0, 2.0, 'BLOCK', s(1.5)),

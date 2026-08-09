@@ -30,6 +30,27 @@ async function measure(
     });
   }, { t: tier, stadiumId: stadium });
   await page.waitForTimeout(2500);            // let it settle and warm shaders
+  const ready = await page.evaluate(() => {
+    const g = (window as unknown as { GO: any }).GO;
+    // SwiftShader at 1600x900 can render setup slowly enough that a wall-clock warmup never
+    // reaches moving football. Advance only the pre-live setup with the same fixed simulation
+    // tick and renderer sync used by Game.frame, then return control to the normal rAF loop for
+    // the actual measurement window.
+    g.stop();
+    let ticks = 0;
+    while (ticks++ < 12000 && g.match
+      && g.match.state.phase !== 'LIVE' && g.match.state.phase !== 'KICKOFF_LIVE') {
+      g.match.tick();
+      g.renderer.sync(g.match.world, g.match.state, 1, 1 / 60, false);
+    }
+    const phase = g.match?.state.phase ?? 'NONE';
+    g.start();
+    return { phase, ticks };
+  });
+  if (ready.phase !== 'LIVE' && ready.phase !== 'KICKOFF_LIVE') {
+    throw new Error(`${tier} could not reach live play during deterministic warmup (${ready.phase}, ${ready.ticks} ticks)`);
+  }
+  await page.waitForTimeout(300);
   await page.evaluate(() => { (window as unknown as { GO: any }).GO.perfReset?.(); });
 
   // Sample only while the ball is actually live.
