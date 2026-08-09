@@ -55,7 +55,19 @@ interface Report {
   hardCutMax: number;
   hardCutAnchored: number;
   hardCutAnchoredMean: number;
+  hardCutPending: number;
+  hardCutReleasing: number;
   anchorErrorMean: number;
+}
+
+interface MotionReport {
+  name: string;
+  samples: number;
+  mean: number;
+  p95: number;
+  max: number;
+  rootError: number;
+  hash: string;
 }
 
 async function main(): Promise<void> {
@@ -83,9 +95,98 @@ async function main(): Promise<void> {
     });
     await page.waitForTimeout(2600);
 
+    // Acceptance evidence uses deliberate, repeatable motions through the real renderer seam.
+    // The match-wide distribution below remains as a stress diagnostic, but it also contains
+    // collisions and animation-state changes that are not a controlled test of planted-leg IK.
+    const motions = await page.evaluate(`(function(){
+      var g=window.GO,m=g.match,w=m.world,R=g.renderer,a=null;
+      for(var warm=0;warm<20000;warm++){
+        for(var ready=0;ready<w.athletes.length;ready++){
+          var p=w.athletes[ready];
+          if(R.rigs[p.side]&&R.rigs[p.side].has(p.def.number)){a=p;break;}
+        }
+        if(a)break;
+        m.tick();
+      }
+      if(!a)throw new Error('controlled foot-slip drill has no loaded athlete rig');
+      for(var hide=0;hide<w.athletes.length;hide++){
+        var other=w.athletes[hide];
+        if(other!==a){other.x=40+hide;other.z=80+hide;other.prevX=other.x;other.prevZ=other.z;
+          other.y=0;other.prevY=0;other.vx=0;other.vz=0;other.anim.state='IDLE';other.anim.ground=0;}
+      }
+      w.passThrown=false;w.lastCatcher=-1;w.playPhase='LIVE';
+      w.ball.x=50;w.ball.y=1;w.ball.z=90;w.ball.prevX=50;w.ball.prevY=1;w.ball.prevZ=90;
+      w.ball.state={kind:'loose',lastTouch:-1,deadTicks:0};
+      var SAMPLES=[-0.1325,-0.05,0.06,0.16,0.2525],DROP=-0.108,TOL=.012;
+      function xf(e,z,out){out.x=e[4]*DROP+e[8]*z+e[12];out.y=e[5]*DROP+e[9]*z+e[13];out.z=e[6]*DROP+e[10]*z+e[14];}
+      var A={x:0,y:0,z:0},B={x:0,y:0,z:0};
+      function hash(values){var h=2166136261>>>0;for(var i=0;i<values.length;i++){var v=Math.round(values[i]*1e6)|0;
+        h=Math.imul(h^(v&255),16777619);h=Math.imul(h^((v>>>8)&255),16777619);h=Math.imul(h^((v>>>16)&255),16777619);h=Math.imul(h^((v>>>24)&255),16777619);}return (h>>>0).toString(16).padStart(8,'0');}
+      function run(name,angle){
+        var mo=R.motion[a.id];mo.visible=false;mo.rigKey=-1;mo.fadeDur=0;mo.basePoseValid=false;
+        mo.footLock.foot=-1;mo.footLock.holding=false;mo.footLock.weight=0;mo.footLock.pendingFoot=-1;mo.footLock.groundedFrames=0;
+        mo.catch.mode='NONE';mo.catch.weight=0;mo.catch.hadBall=false;
+        R.lastAnimState[a.id]='';R.animT[a.id]=0;
+        var speed=6.9,dx=Math.sin(angle)*speed/60,dz=Math.cos(angle)*speed/60,phase=.07,phaseStep=speed/3.1/60;
+        a.x=0;a.y=0;a.z=50;a.prevX=0;a.prevY=0;a.prevZ=50;a.facing=0;a.prevFacing=0;
+        a.vx=Math.sin(angle)*speed;a.vz=Math.cos(angle)*speed;a.hasBall=false;a.move='NORMAL';
+        a.anim.state='RUN';a.anim.speed01=.72;a.anim.ground=speed;a.anim.accelFwd=0;a.anim.accelLat=0;
+        var prev=null,slips=[],rootError=0;
+        for(var frame=0;frame<360;frame++){
+          a.prevX=a.x;a.prevY=a.y;a.prevZ=a.z;a.prevFacing=a.facing;
+          a.x+=dx;a.z+=dz;a.anim.prevPhase=phase;phase=(phase+phaseStep)%1;a.anim.phase=phase;
+          R.sync(w,m.state,1,1/60,false);
+          var rig=R.rigs[a.side].get(a.def.number);rig.root.updateMatrixWorld(true);
+          rootError=Math.max(rootError,Math.hypot(rig.root.position.x-a.x,rig.root.position.z-a.z));
+          var feet=[rig.bones.footL.matrixWorld.elements,rig.bones.footR.matrixWorld.elements];
+          var current={m:[feet[0].slice(),feet[1].slice()],low:[0,0]};
+          for(var f=0;f<2;f++){var low=Infinity,lowZ=0;for(var k=0;k<SAMPLES.length;k++){xf(feet[f],SAMPLES[k],A);if(A.y<low){low=A.y;lowZ=SAMPLES[k];}}
+            current.low[f]=low-a.y;if(frame>=20&&prev&&current.low[f]<=TOL&&prev.low[f]<=TOL){xf(feet[f],lowZ,A);xf(prev.m[f],lowZ,B);slips.push(Math.hypot(A.x-B.x,A.z-B.z)*60);}}
+          prev=current;
+        }
+        slips.sort(function(x,y){return x-y;});var sum=0;for(var i=0;i<slips.length;i++)sum+=slips[i];
+        return {name:name,samples:slips.length,mean:slips.length?sum/slips.length:0,
+          p95:slips.length?slips[Math.floor(slips.length*.95)]:0,max:slips.length?slips[slips.length-1]:0,
+          rootError:rootError,hash:hash(slips.concat([rootError]))};
+      }
+      var specs=[['straight',0],['moderate',.24],['hard-cut',.55]],out=[];
+      for(var s=0;s<specs.length;s++){var first=run(specs[s][0],specs[s][1]),second=run(specs[s][0],specs[s][1]);
+        if(first.hash!==second.hash)throw new Error(specs[s][0]+' foot motion is nondeterministic: '+first.hash+' != '+second.hash);out.push(first);}
+      return out;
+    })()`) as MotionReport[];
+
+    console.log('\nGRIDIRON OVERDRIVE — deterministic planted-foot motions');
+    console.log('──────────────────────────────────────────────────────────────');
+    for (const motion of motions) {
+      console.log(`${motion.name.padEnd(18)} n=${String(motion.samples).padEnd(4)} mean=${motion.mean.toFixed(3)} p95=${motion.p95.toFixed(3)} max=${motion.max.toFixed(3)} rootErr=${motion.rootError.toExponential(1)} hash=${motion.hash}`);
+    }
+    console.log('──────────────────────────────────────────────────────────────');
+    const [straightMotion, moderateMotion, hardMotion] = motions;
+    if (motions.some((motion) => motion.samples < 50)
+      || straightMotion.p95 > 1.55 || moderateMotion.p95 > 5.5
+      || hardMotion.mean > 2.5 || hardMotion.p95 > 6 || hardMotion.max > 12
+      || motions.some((motion) => motion.rootError > 1e-8)) {
+      throw new Error(`controlled foot-slip gate failed: ${JSON.stringify(motions)}`);
+    }
+
+    // Restore an authoritative fixed-seed match before collecting the broad stress distribution.
+    await page.evaluate(() => {
+      const g = (window as any).GO;
+      g.reset('match', {
+        config: {
+          seed: 4242, quarterSeconds: 300, difficulty: 'PRO',
+          seats: [{ side: 0, active: false }, { side: 1, active: false },
+            { side: 0, active: false }, { side: 1, active: false }],
+        },
+        returnScreen: 'mainMenu',
+      });
+      g.stop();
+    });
+    await page.waitForTimeout(500);
+
     const rep = await page.evaluate(`(function(ticks){
       var g = window.GO, m = g.match, R = g.renderer;
-      var slips = [], grounds = [], straight = [], moderate = [], hardCut = [], hardAnchorSlip = [], planted = 0, floating = 0, hardAnchored = 0, anchorErr = 0, anchorErrN = 0;
+      var slips = [], grounds = [], straight = [], moderate = [], hardCut = [], hardAnchorSlip = [], planted = 0, floating = 0, hardAnchored = 0, hardPending = 0, hardReleasing = 0, anchorErr = 0, anchorErrN = 0;
       var prev = {};                          // athleteId -> {m:[matrixWorld], low:[y,y]}
       // A standing athlete's sole rests here, and it is the same for every athlete: the rig
       // puts the ankle at exactly the sole thickness, so the cleat sits ON the turf and this
@@ -124,9 +225,9 @@ async function main(): Promise<void> {
           var feet = [rig.bones.footL.matrixWorld.elements,
                       rig.bones.footR.matrixWorld.elements];
           var motion = R.motion[at.id];
-          if (motion && motion.plantAnchor) {
-            xf(feet[motion.plantFoot], 0.2525 * 0.67, A);
-            anchorErr += Math.hypot(A.x - motion.plantAnchor.x, A.z - motion.plantAnchor.z) * 60;
+          if (motion && motion.footLock && motion.footLock.holding) {
+            xf(feet[motion.footLock.foot], 0.2525 * 0.67, A);
+            anchorErr += Math.hypot(A.x - motion.footLock.anchor.x, A.z - motion.footLock.anchor.z) * 60;
             anchorErrN++;
           }
           var p = prev[at.id];
@@ -174,7 +275,10 @@ async function main(): Promise<void> {
           if (prevDrift >= 0.12 && prevDrift <= 0.34 && currDrift >= 0.12 && currDrift <= 0.34) moderate.push(bestSlip);
           if (prevDrift > 0.34 && currDrift > 0.34) {
             hardCut.push(bestSlip);
-            if (R.motion[at.id] && R.motion[at.id].plantAnchor) { hardAnchored++; hardAnchorSlip.push(bestSlip); }
+            var fl = R.motion[at.id] && R.motion[at.id].footLock;
+            if (fl && fl.holding) { hardAnchored++; hardAnchorSlip.push(bestSlip); }
+            else if (fl && fl.foot !== -1) hardReleasing++;
+            else if (fl && fl.groundedFrames > 0) hardPending++;
           }
         }
       }
@@ -217,6 +321,8 @@ async function main(): Promise<void> {
         hardCutMax: hardCut.length ? hardCut[hardCut.length - 1] : 0,
         hardCutAnchored: hardAnchored,
         hardCutAnchoredMean: hardAnchorSlip.length ? hasum / hardAnchorSlip.length : 0,
+        hardCutPending: hardPending,
+        hardCutReleasing: hardReleasing,
         anchorErrorMean: anchorErrN ? anchorErr / anchorErrN : 0,
       };
     })(${TICKS})`) as Report;
@@ -231,7 +337,7 @@ async function main(): Promise<void> {
       + ` of ground speed;  over 1 yd/s on ${(100 * rep.overOne).toFixed(1)}% of samples`);
     console.log(`straight           n=${rep.straightN} mean=${rep.straightMean.toFixed(3)} p95=${rep.straightP95.toFixed(3)} max=${rep.straightMax.toFixed(3)}`);
     console.log(`moderate turn      n=${rep.moderateN} mean=${rep.moderateMean.toFixed(3)} p95=${rep.moderateP95.toFixed(3)} max=${rep.moderateMax.toFixed(3)}`);
-    console.log(`hard cut           n=${rep.hardCutN} mean=${rep.hardCutMean.toFixed(3)} p95=${rep.hardCutP95.toFixed(3)} max=${rep.hardCutMax.toFixed(3)} anchored=${rep.hardCutAnchored} anchorMean=${rep.hardCutAnchoredMean.toFixed(3)}`);
+    console.log(`hard cut           n=${rep.hardCutN} mean=${rep.hardCutMean.toFixed(3)} p95=${rep.hardCutP95.toFixed(3)} max=${rep.hardCutMax.toFixed(3)} anchored=${rep.hardCutAnchored} pending=${rep.hardCutPending} releasing=${rep.hardCutReleasing} anchorMean=${rep.hardCutAnchoredMean.toFixed(3)}`);
     console.log(`anchor error       ${rep.anchorErrorMean.toFixed(3)} yd/s-equivalent mean`);
     console.log(`grounded           ${(100 * rep.contactShare).toFixed(1)}% of running ticks have a foot on the turf`);
     console.log('──────────────────────────────────────────────────────────────');

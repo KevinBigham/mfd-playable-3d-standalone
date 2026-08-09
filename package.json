@@ -42,6 +42,7 @@
     "footslip": "tsx tools/footslip.ts --browser",
     "footslip:browser": "tsx tools/footslip.ts --browser",
     "footslip:geometry": "tsx tools/footslip.ts --geometry",
+    "catchlab": "tsx tools/catchlab.ts",
     "fieldpos": "tsx tools/fieldpos.ts",
     "acceptance": "tsx tools/acceptance.ts",
     "passprobe": "tsx tools/passprobe.ts",
