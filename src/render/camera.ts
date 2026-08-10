@@ -131,12 +131,12 @@ export class GameCamera {
     const b = w.ball;
     const car = carrier(w);
     // Which way the camera faces is decided by whoever is CARRYING the ball, not by whose down it
-    // is. Those are the same thing on a scrimmage play and opposites on every return: `possession`
+    // is. Those are the same thing on a scrimmage play and opposites on every return: `snapSide`
     // names the kicking team for the whole of a kickoff, so the camera sat downfield of the
     // returner and filmed him running at the lens with his own end zone behind him. Same defect on
     // a pick-six and a fumble return. The swing is damped like every other framing parameter, so a
     // turnover pans around rather than cutting.
-    const dir = dirOf(car ? car.side : w.possession);
+    const dir = dirOf(car ? car.side : w.snapSide);
     this.lastDir = dir;
 
     // Focus point: ball, biased toward the carrier and the action ahead of it.

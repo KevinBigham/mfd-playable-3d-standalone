@@ -99,7 +99,7 @@ console.log('\nGRIDIRON OVERDRIVE — scripted human\n'
     Boolean(car) && car!.id === w.qbId,
     `ball=${car ? `${car.id} (${car.def.pos})` : 'none'}`);
   const qb = w.athletes[w.qbId];
-  const dir = w.possession === 0 ? 1 : -1;
+  const dir = w.snapSide === 0 ? 1 : -1;
   check('the quarterback starts behind the line of scrimmage',
     (qb.z - w.losZ) * dir < -0.5,
     `qb is ${((qb.z - w.losZ) * dir).toFixed(1)} yd relative to the line`);

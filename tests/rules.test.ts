@@ -138,11 +138,11 @@ describe('endgame', () => {
     expect(winnerOf(m)).toBe(0);
   });
 
-  it('sudden death always resolves', () => {
+  it('a tied third overtime advances to sudden death', () => {
     const m = createMatchState(Q);
     m.quarter = 7; m.overtimePeriod = 3;
     m.teams[0].score = 30; m.teams[1].score = 30;
-    expect(matchShouldEnd(m)).toBe(true);
+    expect(matchShouldEnd(m)).toBe(false);
   });
 });
 

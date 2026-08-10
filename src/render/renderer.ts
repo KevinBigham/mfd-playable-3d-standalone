@@ -748,13 +748,13 @@ export class GameRenderer {
         mo.pendingBallCue = null;
       }
       const caught = !cueStarted && a.hasBall && !mo.catch.hadBall && world.passThrown
-        && world.lastCatcher === a.id && a.side === world.possession;
+        && world.lastCatcher === a.id && a.side === world.snapSide;
       if (caught) {
         rig.root.updateMatrixWorld(true);
         CATCH_WORLD.set(b.prevX, b.prevY, b.prevZ);
         CATCH_LOCAL.copy(CATCH_WORLD); rig.root.worldToLocal(CATCH_LOCAL);
         catchTarget = CATCH_LOCAL;
-      } else if (b.state.kind === 'inAir' && b.state.intended === a.id && a.side === world.possession) {
+      } else if (b.state.kind === 'inAir' && b.state.intended === a.id && a.side === world.snapSide) {
         const remaining = b.state.flightTime - b.state.t;
         anticipating = remaining <= 0.30 && remaining >= -FIXED_DT
           && Math.hypot(bx - x, bz - z) <= 2.4;
@@ -764,7 +764,7 @@ export class GameRenderer {
           CATCH_LOCAL.copy(CATCH_WORLD); rig.root.worldToLocal(CATCH_LOCAL);
           catchTarget = CATCH_LOCAL;
         }
-      } else if (b.state.kind === 'inAir' && a.side !== world.possession
+      } else if (b.state.kind === 'inAir' && a.side !== world.snapSide
           && (a.ballPlayTechnique === 'PLAY_BALL' || a.ballPlayTechnique === 'SWAT')
           && a.ballPlayUntilTick >= world.tick) {
         const remaining = b.state.flightTime - b.state.t;

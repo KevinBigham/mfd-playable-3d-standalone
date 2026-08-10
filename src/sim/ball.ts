@@ -1,10 +1,13 @@
-import type { Athlete, AthleteId, BallState, PassKind, KickKind, TeamSide } from '../core/types.ts';
+import type {
+  Athlete, AthleteId, BallState, PassKind, KickKind, TeamSide,
+  KickProvenance, PossessionChangeKind, ReturnKickKind,
+} from '../core/types.ts';
 import {
   FIXED_DT, PASS_SPEED, PASS_ARC, PASS_MAX_YARDS, FIELD_HALF_WIDTH,
 } from '../core/constants.ts';
 import { clamp, clamp01, lerp } from '../core/math.ts';
 import type { World } from './world.ts';
-import { other } from './world.ts';
+import { other, livePossessionSide } from './world.ts';
 
 /**
  * THE ONLY module allowed to mutate `world.ball.state`. ARCHITECTURE.md §10.
@@ -29,8 +32,36 @@ export function normalizeBallAttempts(state: BallState): void {
 }
 
 export function giveBall(w: World, id: AthleteId): void {
+  const priorState = w.ball.state;
+  const priorSide = livePossessionSide(w);
   for (const a of w.athletes) a.hasBall = false;
   const a = w.athletes[id];
+  if (priorSide !== a.side) {
+    const kind = possessionChangeKind(w, priorState);
+    const change = { from: priorSide, to: a.side, kind, tick: w.tick, x: w.ball.x, z: w.ball.z };
+    w.possessionHistory.count++;
+    if (w.possessionHistory.first === null) w.possessionHistory.first = change;
+    w.possessionHistory.last = change;
+  }
+  if (w.kickProvenance !== null) {
+    const kick = w.kickProvenance;
+    const receiving = a.side !== kick.kickingSide;
+    if (priorState.kind === 'loose' && priorState.lastTouch >= 0
+      && w.athletes[priorState.lastTouch].side !== kick.kickingSide) {
+      kick.receivingTouched = true;
+    }
+    if (receiving) {
+      kick.receivingTouched = true;
+      kick.receivingPossessed = true;
+    }
+    kick.recovery = {
+      kind: receiving ? 'RECEIVING_RECOVERY' : 'KICKING_RECOVERY',
+      actor: a.id,
+      side: a.side,
+      x: w.ball.x,
+      z: w.ball.z,
+    };
+  }
   a.hasBall = true;
   w.ball.state = { kind: 'held', carrier: id };
   w.ball.possession = a.side;
@@ -45,10 +76,32 @@ export function giveBall(w: World, id: AthleteId): void {
   syncHeldBall(w);
 }
 
+function possessionChangeKind(w: World, state: BallState): PossessionChangeKind {
+  if (w.kickProvenance !== null || state.kind === 'kicked') return 'KICK';
+  if ((state.kind === 'loose' && (state.fromFumble || state.fromLateral))
+    || (state.kind === 'inAir' && state.passKind === 'LATERAL')) return 'FUMBLE';
+  return 'INTERCEPTION';
+}
+
 export function killBall(w: World): void {
   for (const a of w.athletes) a.hasBall = false;
   w.ball.state = { kind: 'dead' };
   w.ball.vx = 0; w.ball.vy = 0; w.ball.vz = 0;
+}
+
+/**
+ * End a return-kick recovery at its contact spot. Kicking-team recoveries and downed punts are
+ * never live returns: the provenance records both the touching athlete and the side awarded the
+ * next snap without briefly handing a runner the ball.
+ */
+export function deadKickRecovery(
+  w: World, actor: AthleteId, side: TeamSide, kind: 'PUNT_DOWNED' | 'KICKING_RECOVERY',
+): void {
+  const kick = w.kickProvenance;
+  if (kick === null) return;
+  kick.recovery = { kind, actor, side, x: w.ball.x, z: w.ball.z };
+  w.ball.possession = side;
+  killBall(w);
 }
 
 export function releasePass(
@@ -97,6 +150,13 @@ export function dropLoose(w: World, from: AthleteId, vx: number, vy: number, vz:
   const st = w.ball.state;
   const a = w.athletes[from];
   if (st.kind === 'held') { w.ball.x = a.x; w.ball.y = 1.2; w.ball.z = a.z; }
+  if (fromFumble) {
+    w.fumbleOrigin = { carrier: from, side: a.side, tick: w.tick, x: w.ball.x, z: w.ball.z };
+    // Once the receiving team establishes a return, a later fumble is ordinary football rather
+    // than a continuing kick. A kicking-team recovery is still a kick until its resolver deadens
+    // it, so keep provenance for that downstream rule.
+    if (w.kickProvenance?.receivingPossessed) w.kickProvenance = null;
+  }
   w.ball.vx = vx; w.ball.vy = vy; w.ball.vz = vz;
   w.ball.state = { kind: 'loose', lastTouch: from, ticks: 0, fromFumble };
 }
@@ -126,6 +186,20 @@ export function launchKick(
   w.ball.spin = 26;
   w.ball.state = { kind: 'kicked', from, kickKind, t: 0, landed: false, goodThroughUprights: null };
   w.ball.possession = a.side;
+  w.kickProvenance = isReturnKick(kickKind) ? {
+    kind: kickKind,
+    kickingSide: a.side,
+    launchX: w.ball.x,
+    launchZ: w.ball.z,
+    maxDownfieldTravel: 0,
+    receivingTouched: false,
+    receivingPossessed: false,
+    recovery: null,
+  } : null;
+}
+
+function isReturnKick(kind: KickKind): kind is ReturnKickKind {
+  return kind === 'PUNT' || kind === 'KICKOFF' || kind === 'ONSIDE';
 }
 
 /**
@@ -167,7 +241,7 @@ export function stepBall(w: World): boolean {
       if (u >= 1) {
         // Uncaught: lateral stays live, forward pass is incomplete (handled by rules).
         if (st.passKind === 'LATERAL') {
-          b.state = { kind: 'loose', lastTouch: st.from, ticks: 0, fromFumble: false };
+          b.state = { kind: 'loose', lastTouch: st.from, ticks: 0, fromFumble: false, fromLateral: true };
           b.vx = (st.tx - st.sx) * 0.25; b.vz = (st.tz - st.sz) * 0.25; b.vy = -2;
         }
         return true;
@@ -178,6 +252,7 @@ export function stepBall(w: World): boolean {
       st.ticks++;
       b.vy -= 32 * FIXED_DT;
       b.x += b.vx * FIXED_DT; b.y += b.vy * FIXED_DT; b.z += b.vz * FIXED_DT;
+      updateKickTravel(w);
       if (b.y <= 0.12) {
         b.y = 0.12;
         // A tipped forward pass does not bounce back into play. It is down where it landed and
@@ -199,6 +274,7 @@ export function stepBall(w: World): boolean {
       b.vx += w.conditions.windX * 0.08 * FIXED_DT * 6;
       b.vz += w.conditions.windZ * 0.08 * FIXED_DT * 6;
       b.x += b.vx * FIXED_DT; b.y += b.vy * FIXED_DT; b.z += b.vz * FIXED_DT;
+      updateKickTravel(w);
       b.spin = 20;
       if (b.y <= 0.12 && !st.landed) {
         b.y = 0.12; st.landed = true;
@@ -215,16 +291,21 @@ export function stepBall(w: World): boolean {
   }
 }
 
+/** Latch signed free-kick travel so a legal ten-yard crossing survives a later bounce backward. */
+function updateKickTravel(w: World): void {
+  const kick = w.kickProvenance;
+  if (kick === null || kick.receivingPossessed) return;
+  const dir = kick.kickingSide === 0 ? 1 : -1;
+  const signed = (w.ball.z - kick.launchZ) * dir;
+  kick.maxDownfieldTravel = Math.max(kick.maxDownfieldTravel ?? 0, signed);
+}
+
 export function ballOutOfBounds(w: World): boolean {
   const b = w.ball;
   return Math.abs(b.x) > FIELD_HALF_WIDTH || b.z < -11 || b.z > 111;
 }
 
-export function possessionSideOf(w: World): TeamSide {
-  const st = w.ball.state;
-  if (st.kind === 'held') return w.athletes[st.carrier].side;
-  return w.ball.possession;
-}
+export const possessionSideOf = livePossessionSide;
 
 /** Dev/test invariant. Throws when the ball authority is violated. */
 export function assertBallInvariant(w: World): void {
@@ -234,11 +315,49 @@ export function assertBallInvariant(w: World): void {
   if (st.kind === 'held') {
     if (owners !== 1) throw new Error(`ball held but ${owners} athletes claim it`);
     if (!w.athletes[st.carrier].hasBall) throw new Error('carrier does not have hasBall');
+    if (w.athletes[st.carrier].side !== w.ball.possession) throw new Error('held carrier side disagrees with ball possession');
   } else if (owners !== 0) {
     throw new Error(`ball ${st.kind} but ${owners} athletes claim it`);
   }
   if (!Number.isFinite(w.ball.x) || !Number.isFinite(w.ball.y) || !Number.isFinite(w.ball.z)) {
     throw new Error('ball transform is NaN');
+  }
+  if (w.ball.possession !== 0 && w.ball.possession !== 1) throw new Error('live ball possession is invalid');
+  if (w.snapSide !== 0 && w.snapSide !== 1) throw new Error('snap side is invalid');
+  const history = w.possessionHistory;
+  if (!Number.isInteger(history.count) || history.count < 0) throw new Error('possession history count is invalid');
+  if ((history.count === 0 && (history.first !== null || history.last !== null))
+    || (history.count > 0 && (history.first === null || history.last === null))) {
+    throw new Error('possession history shape is invalid');
+  }
+  for (const change of [history.first, history.last]) {
+    if (change === null) continue;
+    if ((change.from !== 0 && change.from !== 1) || (change.to !== 0 && change.to !== 1)
+      || (change.kind !== 'INTERCEPTION' && change.kind !== 'FUMBLE' && change.kind !== 'KICK')
+      || !Number.isFinite(change.x) || !Number.isFinite(change.z) || !Number.isInteger(change.tick) || change.tick < 0) {
+      throw new Error('possession change is invalid');
+    }
+  }
+  const fumble = w.fumbleOrigin;
+  if (fumble && ((fumble.side !== 0 && fumble.side !== 1) || !Number.isInteger(fumble.carrier)
+    || fumble.carrier < 0 || fumble.carrier >= w.athletes.length || !Number.isInteger(fumble.tick) || fumble.tick < 0
+    || !Number.isFinite(fumble.x) || !Number.isFinite(fumble.z))) {
+    throw new Error('fumble origin is invalid');
+  }
+  const kick: KickProvenance | null = w.kickProvenance;
+  if (kick && ((kick.kind !== 'PUNT' && kick.kind !== 'KICKOFF' && kick.kind !== 'ONSIDE')
+    || (kick.kickingSide !== 0 && kick.kickingSide !== 1)
+    || !Number.isFinite(kick.launchX) || !Number.isFinite(kick.launchZ)
+    || (kick.maxDownfieldTravel !== undefined
+      && (!Number.isFinite(kick.maxDownfieldTravel) || kick.maxDownfieldTravel < 0))
+    || (kick.receivingPossessed && !kick.receivingTouched)
+    || (kick.recovery !== null && ((kick.recovery.kind !== 'PUNT_DOWNED' && kick.recovery.kind !== 'KICKING_RECOVERY' && kick.recovery.kind !== 'RECEIVING_RECOVERY')
+      || (kick.recovery.side !== 0 && kick.recovery.side !== 1)
+      || !Number.isInteger(kick.recovery.actor) || kick.recovery.actor < 0 || kick.recovery.actor >= w.athletes.length
+      || (kick.recovery.kind !== 'PUNT_DOWNED' && w.athletes[kick.recovery.actor].side !== kick.recovery.side)
+      || (kick.recovery.kind === 'PUNT_DOWNED' && w.athletes[kick.recovery.actor].side !== kick.kickingSide)
+      || !Number.isFinite(kick.recovery.x) || !Number.isFinite(kick.recovery.z))))) {
+    throw new Error('kick provenance is invalid');
   }
 }
 

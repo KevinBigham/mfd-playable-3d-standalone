@@ -52,7 +52,7 @@ describe('authoritative ball-play geometry', () => {
     ] });
     const match = new Match({ config, home: getTeam(config.home!), away: getTeam(config.away!),
       seatIntent: () => ({ moveX: 0, moveZ: 0, aimX: 0, aimZ: 0, held, pressed: 0, released: 0 }) });
-    match.state.phase = 'LIVE'; match.world.playPhase = 'LIVE'; match.world.possession = 0;
+    match.state.phase = 'LIVE'; match.world.playPhase = 'LIVE'; match.world.snapSide = 0;
     match.world.passThrown = true;
     const target = match.world.athletes[1]; target.x = 20; target.z = 20;
     match.world.ball.state = { kind: 'inAir', from: 0, intended: target.id, passKind: 'NORMAL',

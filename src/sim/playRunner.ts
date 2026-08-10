@@ -6,12 +6,12 @@ import { Action, has } from '../input/actions.ts';
 import {
   FIELD_HALF_WIDTH, MOVE_TICKS, TURBO_COST, LEAD_TIME_SCALE, PASS_SPEED,
   OVERDRIVE_ACCURACY, PASS_ERROR_NEAR, PASS_ERROR_PER_YARD,
-  PLACE_NEAR, PLACE_PER_YARD, PLACE_MAX, s, FIXED_DT, MOMENTUM_YARDS,
+  PLACE_NEAR, PLACE_PER_YARD, PLACE_MAX, s, FIXED_DT, MOMENTUM_YARDS, BODY_RADIUS,
   BALL_PLAY_LATCH_TICKS,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist, heading, angDelta } from '../core/math.ts';
 import type { World } from './world.ts';
-import { OFF_START, DEF_START, dirOf, goalOf, ownGoalOf, other, carrier, savePrev } from './world.ts';
+import { OFF_START, DEF_START, dirOf, goalOf, ownGoalOf, other, carrier, livePossessionSide, savePrev } from './world.ts';
 import {
   locomote, tickMoveState, syncAnim, resetGait, startSpin, startHurdle, startDive, startStiffArm,
   startJump, startDiveTackle, startPowerTackle, spendTurbo, canAct, isCommitted, isLineman,
@@ -80,7 +80,14 @@ export function setupPlay(w: World, setup: PlaySetup): void {
   const mir = setup.mirrored ? -1 : 1;
   w.losZ = setup.losZ;
   w.spotX = setup.spotX;
-  w.possession = setup.possession;
+  w.snapSide = setup.possession;
+  w.possessionHistory = { count: 0, first: null, last: null };
+  w.crossedLos = false;
+  w.fumbleOrigin = null;
+  w.kickProvenance = null;
+  // Seed live ownership before the opening handoff so it cannot count as a turnover.
+  w.ball.possession = setup.possession;
+  w.ball.state = { kind: 'dead' };
   w.offensePlay = setup.offense;
   w.defensePlay = setup.defense;
   w.playPhase = 'SETUP';
@@ -174,7 +181,7 @@ export function snap(w: World): void {
   w.playPhase = 'LIVE';
   w.snapTick = w.tick;
   w.playTicks = 0;
-  w.bus.emit({ type: 'snap', tick: w.tick, side: w.possession });
+  w.bus.emit({ type: 'snap', tick: w.tick, side: w.snapSide });
   for (const a of w.athletes) { a.anim.state = 'RUN'; }
 }
 
@@ -266,13 +273,16 @@ export function throwAway(w: World, qb: Athlete): void {
 /** Lateral: only legal backwards. Returns true when a pitch was made. */
 export function tryLateral(w: World, car: Athlete): boolean {
   const dir = dirOf(car.side);
+  const releaseZ = car.z + Math.cos(car.facing) * 0.6;
   let best: Athlete | null = null; let bestD = 12;
   for (let i = 0; i < 7; i++) {
     const t = w.athletes[OFF_START + i];
     if (t.side !== car.side || t.id === car.id) continue;
     if (t.move === 'DOWN') continue;
-    const behind = (t.z - car.z) * dir;
-    if (behind > -0.4) continue;
+    const targetZ = t.z + t.vz * 0.25;
+    // The ball leaves from the passer's hand, not his torso. A receiver can be behind the
+    // carrier yet ahead of the actual release point when he turns or drifts across the face.
+    if ((targetZ - releaseZ) * dir > 0) continue;
     const d = dist(car.x, car.z, t.x, t.z);
     if (d < bestD) { bestD = d; best = t; }
   }
@@ -300,9 +310,10 @@ export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
   // receiver's, which is exactly what it looks like from the player's chair.
   const isCarrier = a.hasBall && w.playPhase === 'LIVE';
   const dir = dirOf(a.side);
-  const offenseSide = w.possession;
+  const offenseSide = w.snapSide;
   const onOffense = a.side === offenseSide;
-  const pastLos = (a.z - w.losZ) * dir > 0.8;
+  updateCrossedLos(w);
+  const pastLos = (a.z - w.losZ) * dir > BODY_RADIUS;
   const turbo = has(it.held, Action.TURBO);
   if (a.ballPlayUntilTick < w.tick) {
     a.ballPlayTechnique = onOffense ? 'BALANCED' : 'AUTO';
@@ -313,7 +324,14 @@ export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
     // that is where pre-snap movement comes from — and without this the quarterback would throw
     // on the same press that snapped it, resolving in the same tick, before the play had run a
     // single frame. From the player's chair the ball simply appeared in a receiver's hands.
-    const isQb = a.id === w.qbId && !pastLos && !w.passThrown && w.playPhase === 'LIVE';
+    const isQb = a.id === w.qbId
+      && a.side === w.snapSide
+      && livePossessionSide(w) === w.snapSide
+      && w.possessionHistory.count === 0
+      && !w.crossedLos
+      && !pastLos
+      && !w.passThrown
+      && w.playPhase === 'LIVE';
 
     // Icon passing — bound to snap alignment, does not follow crossing routes.
     if (isQb) {
@@ -587,21 +605,21 @@ function segmentDistance(px: number, pz: number, ax: number, az: number, bx: num
 export function screenBlockAssignments(w: World): Map<AthleteId, AthleteId> {
   const out = new Map<AthleteId, AthleteId>();
   if (!w.offensePlay?.tags.includes('SCREEN')) return out;
-  const dir = dirOf(w.possession);
+  const dir = dirOf(w.snapSide);
   const liveCarrier = carrier(w);
   const primary = w.athletes[OFF_START + w.offensePlay.reads[0]];
-  const receiver = liveCarrier && liveCarrier.side === w.possession && liveCarrier.id !== w.qbId
+  const receiver = liveCarrier && liveCarrier.side === w.snapSide && liveCarrier.id !== w.qbId
     ? liveCarrier : primary;
   if (!receiver) return out;
 
   const laneX = receiver.x + receiver.vx * 0.45;
   const laneZ = receiver.z + receiver.vz * 0.45 + dir * 4;
   const blockers = w.athletes.slice(OFF_START, OFF_START + 7)
-    .filter((blocker) => blocker.side === w.possession && !blocker.hasBall && blocker.routeIdx > 0
+    .filter((blocker) => blocker.side === w.snapSide && !blocker.hasBall && blocker.routeIdx > 0
       && blocker.route?.[blocker.routeIdx]?.action === 'BLOCK')
     .sort((a, b) => a.id - b.id);
   const defenders = w.athletes.slice(DEF_START, DEF_START + 7)
-    .filter((defender) => defender.side !== w.possession
+    .filter((defender) => defender.side !== w.snapSide
       && defender.move !== 'DOWN' && defender.move !== 'GETUP')
     .sort((a, b) => a.id - b.id);
   const claimed = new Set<AthleteId>();
@@ -665,22 +683,28 @@ function trackForwardProgress(w: World): void {
 /** How close a defender has to be to count as having a hand on the carrier. */
 const PROGRESS_CONTACT = 1.5;
 
+/**
+ * A forward pass is gone once the snap-side ball carrier's whole body clears the line. This is
+ * deliberately latched: retreating does not restore a passing right, and a turnover carrier can
+ * never create one for the original offense.
+ */
+export function updateCrossedLos(w: World): void {
+  if (w.crossedLos) return;
+  const st = w.ball.state;
+  if (st.kind !== 'held') return;
+  const a = w.athletes[st.carrier];
+  if (a.side !== w.snapSide || livePossessionSide(w) !== w.snapSide) return;
+  if ((a.z - w.losZ) * dirOf(w.snapSide) > BODY_RADIUS) w.crossedLos = true;
+}
+
 // ── dead-ball detection ────────────────────────────────────────────────────
 
 export function detectDead(w: World): DeadReason | null {
   const b = w.ball;
   const st = b.state;
 
-  // A kick play cannot legitimately run forever: without a cap a returner who gets boxed in and
-  // oscillates holds the play open until the phase watchdog fires. The limit is generous enough
-  // for a full-length return (hang time plus 100 yards at top speed is about 12 s).
-  const kickCap = (w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT') ? s(17) : s(9);
-  if (w.special !== null && w.playPhase === 'LIVE' && w.playTicks > kickCap) {
-    if (st.kind === 'held') return 'TACKLE';
-    if (st.kind === 'loose' || st.kind === 'kicked') return 'FUMBLE_DEAD';
-    return 'KICK_RESULT';
-  }
-
+  // 1. A score always wins the ordering race with a watchdog. This matters most on long return
+  // plays: an actual return TD/safety must never quietly become a cap-induced tackle.
   if (st.kind === 'held') {
     const a = w.athletes[st.carrier];
     const attackGoal = goalOf(a.side);
@@ -689,27 +713,17 @@ export function detectDead(w: World): DeadReason | null {
 
     const inOwnEndZone = a.side === 0 ? a.z <= ownGoal : a.z >= ownGoal;
     const oob = Math.abs(a.x) > FIELD_HALF_WIDTH;
-    // Standing in your own end zone is not a safety — being DOWN there is. And a player who
-    // GAINED possession in his own end zone (a returner fielding a kick, a defender picking off
-    // a goal-line throw) takes a touchback, not two points against his own team.
-    if (inOwnEndZone && (a.move === 'DOWN' || oob)) {
-      // The momentum rule. A man who did not choose to be back here does not hand over two
-      // points: if he took possession of somebody else's ball inside his own ten — fielding a
-      // kick, picking off a goal-line throw — and got driven back over the line, it is a
-      // touchback. Only a team that already had the ball, or one that retreats into its own end
-      // zone from real field position, concedes a safety.
-      //
-      // The window used to be five yards, which sounds close enough and is not: kicks were being
-      // fielded around the six, so the overwhelming majority of returns fell a yard outside the
-      // exception and paid two points for it.
-      const ownGoalZ = a.side === 0 ? 0 : 100;
-      const gainedAt = Math.abs(w.gainOriginZ - ownGoalZ);
-      if (a.side !== w.possession && gainedAt <= MOMENTUM_YARDS) return 'TOUCHBACK';
+    const crossedOwnBackLine = a.side === 0 ? a.z < -10.5 : a.z > 110.5;
+    // An upright carrier may stand in his own end zone, but he cannot run out its back. A real
+    // turnover gained in the end zone earns a touchback; a voluntary retreat does not.
+    if (crossedOwnBackLine || (inOwnEndZone && (a.move === 'DOWN' || oob))) {
+      if (qualifiesForTouchback(w, a)) return 'TOUCHBACK';
       return 'SAFETY';
     }
+
+    // 2. Sideline/down only after the own-goal ruling above.
     if (oob) return 'OUT_OF_BOUNDS';
     if (a.move === 'DOWN') return 'TACKLE';
-    return null;
   }
 
   if (st.kind === 'loose') {
@@ -722,15 +736,17 @@ export function detectDead(w: World): DeadReason | null {
       if (st.ticks > s(2.5)) return 'INCOMPLETE';
       return null;
     }
-    // Kick plays route through resolveKickPlay, which already knows what a ball in an end zone
-    // means for a return. Only scrimmage fumbles get the touchback/safety treatment here.
-    if (w.special !== null) {
+    // Kick provenance, not the play's original special-team label, controls kick treatment. A
+    // fumble after an established return intentionally cleared provenance in dropLoose and now
+    // follows ordinary fumble rules.
+    if (w.kickProvenance !== null) {
       if (Math.abs(b.x) > FIELD_HALF_WIDTH || b.z < -10.5 || b.z > 110.5) return 'OUT_OF_BOUNDS';
       if (st.ticks > s(4.5)) return 'FUMBLE_DEAD';
       return null;
     }
-    const offGoal = goalOf(w.possession);
-    const ownGoal = ownGoalOf(w.possession);
+    const fumblerSide = w.fumbleOrigin?.side ?? b.possession;
+    const offGoal = goalOf(fumblerSide);
+    const ownGoal = ownGoalOf(fumblerSide);
     const pastAttackLine = offGoal === 100 ? b.z > 110.5 : b.z < -10.5;
     const pastOwnLine = ownGoal === 100 ? b.z > 110.5 : b.z < -10.5;
     if (pastAttackLine) return 'TOUCHBACK';
@@ -756,6 +772,9 @@ export function detectDead(w: World): DeadReason | null {
     return null;
   }
 
+  // A dead return-kick recovery is a kick result, not an incomplete pass.
+  if (st.kind === 'dead' && w.kickProvenance?.recovery !== null) return 'KICK_RESULT';
+
   // A forward pass that was dropped or batted down kills the ball outright.
   if (st.kind === 'dead' && w.playPhase === 'LIVE') return 'INCOMPLETE';
 
@@ -767,9 +786,32 @@ export function detectDead(w: World): DeadReason | null {
       return null;
     }
     if (Math.abs(b.x) > FIELD_HALF_WIDTH) return 'OUT_OF_BOUNDS';
-    return null;
+  }
+
+  // 6. The watchdog is intentionally last. It remains a fallback for stalled plays only after
+  // all concrete score, boundary, loose-ball and kick outcomes have had a chance to resolve.
+  const kickCap = (w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT') ? s(17) : s(9);
+  if (w.special !== null && w.playPhase === 'LIVE' && w.playTicks > kickCap) {
+    // Read again rather than reusing the narrowed discriminated union above: every state is a
+    // valid watchdog fallback even if this control path happened to prove some cases absent.
+    const current = w.ball.state;
+    if (current.kind === 'held') return 'TACKLE';
+    if (current.kind === 'loose' || current.kind === 'kicked') return 'FUMBLE_DEAD';
+    return 'KICK_RESULT';
   }
   return null;
+}
+
+/** Whether a returner has the narrow, actual momentum protection from a safety. */
+function qualifiesForTouchback(w: World, a: Athlete): boolean {
+  const change = w.possessionHistory.last;
+  if (change === null || change.to !== a.side) return false;
+  const ownGoal = ownGoalOf(a.side);
+  const gainedInOwnEndZone = a.side === 0 ? w.gainOriginZ <= ownGoal : w.gainOriginZ >= ownGoal;
+  if (gainedInOwnEndZone) return true;
+  const gainedNearOwnGoal = Math.abs(w.gainOriginZ - ownGoal) <= MOMENTUM_YARDS;
+  const progressOutside = (w.progressZ - ownGoal) * dirOf(a.side) > 0;
+  return gainedNearOwnGoal && w.progressArmed && progressOutside;
 }
 
 // ── main step ──────────────────────────────────────────────────────────────
@@ -813,11 +855,11 @@ const steerScratch = { x: 0, z: 0, turbo: false };
 const NEUTRAL_ZONE = 0.35;
 
 function holdTheLine(w: World): void {
-  const dir = dirOf(w.possession);
+  const dir = dirOf(w.snapSide);
   for (let i = 0; i < w.athletes.length; i++) {
     const a = w.athletes[i];
     // `own` points from the line toward the athlete's own half of the field.
-    const own = a.side === w.possession ? dir : -dir;
+    const own = a.side === w.snapSide ? dir : -dir;
     if ((a.z - w.losZ) * own > -NEUTRAL_ZONE) {
       a.z = w.losZ - own * NEUTRAL_ZONE;
       if (a.vz * own > 0) a.vz = 0;
@@ -827,11 +869,11 @@ function holdTheLine(w: World): void {
 
 export function idleStep(w: World, celebrateSide: TeamSide | null = null): void {
   savePrev(w);
-  // The camera's orientation comes from `dirOf(w.possession)`, and possession still holds the
+  // The camera's orientation comes from `dirOf(w.snapSide)`, and snap ownership still holds the
   // side that SNAPPED the ball, which is not the side that scored on a pick-six, a fumble
   // return, a kick return or a safety. Keying the turn to the scoring side pointed 40 % of
   // celebrations away from the camera — the exact defect this is here to fix.
-  const faceCamera = dirOf(w.possession) > 0 ? Math.PI : 0;
+  const faceCamera = dirOf(w.snapSide) > 0 ? Math.PI : 0;
   for (let i = 0; i < w.athletes.length; i++) {
     const a = w.athletes[i];
     if (celebrateSide !== null) {
@@ -867,6 +909,9 @@ export function stepPlay(w: World, controllers: (Controller | null)[]): DeadReas
   }
 
   if (w.playPhase === 'LIVE' || w.playPhase === 'PRESNAP') {
+    // Latch before action legality so a quarterback cannot cross and throw on the same fixed
+    // tick. `applyActions` repeats this cheaply for direct/test callers.
+    if (w.playPhase === 'LIVE') updateCrossedLos(w);
     for (let i = 0; i < w.athletes.length; i++) applyActions(w, w.athletes[i], w.intents[i]);
   }
 
@@ -875,7 +920,7 @@ export function stepPlay(w: World, controllers: (Controller | null)[]): DeadReas
   for (let i = 0; i < w.athletes.length; i++) {
     const a = w.athletes[i];
     const it = w.intents[i];
-    if (w.freezeDefense && a.side !== w.possession) { locomote(w, a, 0, 0, false); tickMoveState(a); syncAnim(a, 0); continue; }
+    if (w.freezeDefense && a.side !== w.snapSide) { locomote(w, a, 0, 0, false); tickMoveState(a); syncAnim(a, 0); continue; }
     const sp = locomote(w, a, it.moveX, it.moveZ, has(it.held, Action.TURBO));
     tickMoveState(a);
     syncAnim(a, sp);
@@ -901,6 +946,7 @@ export function stepPlay(w: World, controllers: (Controller | null)[]): DeadReas
     if (w.ball.state.kind === 'inAir') resolveAirBall(w);
     if (w.ball.state.kind === 'loose') resolveLooseBall(w);
     if (w.ball.state.kind === 'held') syncHeldBall(w);
+    updateCrossedLos(w);
     trackForwardProgress(w);
   }
 

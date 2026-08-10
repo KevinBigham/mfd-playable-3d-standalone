@@ -38,7 +38,9 @@ export class AiController {
     // eleven — seven — cover men were being handed pass-protection and route-running logic while
     // a kickoff sailed over their heads. Only the man actually holding the ball is exempt; he is
     // either the punter or the returner, and both want the carrier's brain, not a cover man's.
-    const kick = w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT';
+    const returnKick = w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT';
+    const ordinaryReturnFumble = w.kickProvenance === null && w.fumbleOrigin !== null;
+    const kick = returnKick && !ordinaryReturnFumble;
     if (kick && !a.hasBall) {
       const st = w.ball.state;
       // The punting team protects until the ball is gone; a kickoff has nothing to protect.
@@ -46,11 +48,26 @@ export class AiController {
       // Gunners. The two widest men on a punt team do not block anybody — they release on the
       // snap and race the ball. Without them the whole coverage starts a second and a half late,
       // arrives after the catch, and every punt return is a footrace the returner wins.
-      const gunner = w.special === 'PUNT' && a.side === w.possession && isGunner(w, a);
+      const gunner = w.special === 'PUNT' && a.side === w.snapSide && isGunner(w, a);
       if (w.special !== 'PUNT' || away || gunner) { kickTeamAI(w, a, out, this.ctx); return; }
     }
 
-    const onOffense = a.side === w.possession;
+    // A scrimmage turnover reverses the jobs on the field, but not the authored roster slots:
+    // the interception team is still stored in the defensive half of `athletes`, and the former
+    // offense still has routes and pass-protection assignments attached to it.  Those authored
+    // jobs are correct only until live possession changes.  Once a carrier is established after
+    // an ordinary turnover, derive everybody's role from the live carrier instead.  This lives
+    // after the dedicated kick branch so kickoff/punt coverage and return formations retain their
+    // own, more specialised behavior.
+    const liveCarrier = carrier(w);
+    if ((w.special === null || ordinaryReturnFumble) && liveCarrier !== null && w.possessionHistory.count > 0) {
+      if (a.id === liveCarrier.id) { carrierAI(w, a, out, this.ctx); return; }
+      if (a.side === liveCarrier.side) { turnoverEscortAI(w, a, liveCarrier, out, this.ctx); return; }
+      turnoverPursuitAI(w, a, liveCarrier, out, this.ctx);
+      return;
+    }
+
+    const onOffense = a.side === w.snapSide;
     if (a.hasBall) { carrierAI(w, a, out, this.ctx); return; }
     if (onOffense) { offenseAI(w, a, out, this.ctx); return; }
     defenseAI(w, a, out, this.ctx);
@@ -581,7 +598,7 @@ function runToDaylight(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext):
 
 function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): void {
   const p = ctx.profile;
-  const offSide = w.possession;
+  const offSide = w.snapSide;
   const dir = dirOf(offSide);
   const car = carrier(w);
   const st = w.ball.state;
@@ -788,6 +805,84 @@ function pursueCarrier(w: World, a: Athlete, car: Athlete, out: PlayerIntent, ct
   }
 }
 
+/**
+ * Pursuit during an ordinary turnover return deliberately has no coverage recognition delay and
+ * no tackle-roll RNG.  The ball has changed hands; a former receiver no longer has a route to
+ * finish and a former blocker no longer has somebody to protect.  Predictive steering is enough
+ * here: contact remains the normal movement/contact system's job.
+ */
+function turnoverPursuitAI(w: World, a: Athlete, car: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  const speed = topSpeed(a) * ctx.catchUp[a.side];
+  const hit = interceptPoint(a.x, a.z, speed, car.x, car.z, car.vx, car.vz);
+  const miss = pursuitAngleMiss(a.id, w.snapTick, w.playTicks, ctx.profile.pursuitAngleError * 1.2);
+  pursue(w, a, hit.x + Math.cos(a.facing) * miss, hit.z + Math.sin(a.facing) * miss, out, ctx, 1);
+}
+
+interface ReturnEscortTarget {
+  x: number;
+  z: number;
+}
+
+/**
+ * Choose a return escort's target without storing an assignment on the world.  Every AI call
+ * derives the same ordered allocation, so the result is independent of which athlete is asked
+ * for an intent first and cannot leak across replay/snapshot boundaries.
+ */
+function turnoverEscortTarget(w: World, escort: Athlete, car: Athlete): ReturnEscortTarget {
+  const dir = dirOf(car.side);
+  const escorts = w.athletes
+    .filter((a) => a.side === car.side && a.id !== car.id && a.move !== 'DOWN' && a.move !== 'STUNNED')
+    .sort((a, b) => a.id - b.id);
+  const escortIndex = Math.max(0, escorts.findIndex((a) => a.id === escort.id));
+  const laneOffset = (escortIndex - (escorts.length - 1) * 0.5) * 2.1;
+  const laneX = clamp(car.x + laneOffset, -FIELD_HALF_WIDTH + 1.4, FIELD_HALF_WIDTH - 1.4);
+  const laneZ = car.z + dir * (2.6 + Math.min(1.2, escortIndex * 0.22));
+  const threats = w.athletes
+    .filter((a) => a.side !== car.side && a.move !== 'DOWN' && a.move !== 'STUNNED')
+    .sort((left, right) => returnThreatScore(left, car, dir) - returnThreatScore(right, car, dir) || left.id - right.id);
+
+  const claimed = new Set<AthleteId>();
+  let mine: Athlete | null = null;
+  for (const candidateEscort of escorts) {
+    const ranked = threats.slice().sort((left, right) => {
+      const leftCost = returnThreatScore(left, car, dir) + dist(candidateEscort.x, candidateEscort.z, left.x, left.z) * 0.28;
+      const rightCost = returnThreatScore(right, car, dir) + dist(candidateEscort.x, candidateEscort.z, right.x, right.z) * 0.28;
+      return leftCost - rightCost || left.id - right.id;
+    });
+    // A threat is claimed once, except when it is already at the carrier.  Doubling an immediate
+    // danger is sensible; sending every blocker across the field to the same distant pursuer is
+    // not.
+    const selected = ranked.find((threat) => !claimed.has(threat.id))
+      ?? ranked.find((threat) => dist(threat.x, threat.z, car.x, car.z) < 2.1)
+      ?? null;
+    if (selected !== null) claimed.add(selected.id);
+    if (candidateEscort.id === escort.id) { mine = selected; break; }
+  }
+  if (mine === null) return { x: laneX, z: laneZ };
+
+  // Meet the threat on the carrier side, then blend back toward the escort's allocated convoy
+  // lane.  This creates useful leverage without granting a synthetic engagement or block reach.
+  const guardX = mine.x + (car.x - mine.x) * 0.22;
+  const guardZ = mine.z + (car.z - mine.z) * 0.22;
+  return { x: lerp(laneX, guardX, 0.72), z: lerp(laneZ, guardZ, 0.72) };
+}
+
+/** Lower scores are more urgent return threats; ties always resolve by athlete id. */
+function returnThreatScore(threat: Athlete, car: Athlete, dir: number): number {
+  const forward = (threat.z - car.z) * dir;
+  // Defenders already in the return lane and close to the carrier are urgent.  A man far behind
+  // the ball is discounted but remains eligible when the closer threats have been reserved.
+  return dist(threat.x, threat.z, car.x, car.z) * 1.15
+    + Math.abs(threat.x - car.x) * 0.35
+    + Math.max(0, -forward) * 0.45;
+}
+
+function turnoverEscortAI(w: World, a: Athlete, car: Athlete, out: PlayerIntent, ctx: AiContext): void {
+  const target = turnoverEscortTarget(w, a, car);
+  pursue(w, a, target.x, target.z, out, ctx, 1);
+  if (a.turbo > 18) out.held |= Action.TURBO;
+}
+
 /** Stable for a quarter-second decision window and independent of simulation RNG consumption. */
 export function pursuitAngleMiss(id: number, snapTick: number, playTicks: number, amplitude: number): number {
   const bucket = Math.floor(playTicks / Math.max(1, s(0.25)));
@@ -956,7 +1051,7 @@ function kickTeamAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): vo
   const b = w.ball;
   const st = b.state;
   const car = carrier(w);
-  const receiving = a.side !== w.possession ? a.side : null;
+  const receiving = a.side !== w.snapSide ? a.side : null;
 
   // Until it is struck the ball is in the kicker's hands, which makes him a CARRIER — so for the
   // half second before every kickoff both teams treated him as a live runner and set off, one
