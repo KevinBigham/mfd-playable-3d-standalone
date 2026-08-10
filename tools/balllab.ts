@@ -43,7 +43,7 @@ function baseWorld(seed: number): World {
   const world = createWorld(getTeam(TEAM_IDS[0]), getTeam(TEAM_IDS[1]),
     { weather: 'CLEAR', surface: 'GRASS', windX: 0, windZ: 0, traction: 1 }, new Rng(seed), bus);
   assignUnits(world, 0);
-  world.playPhase = 'LIVE'; world.possession = 0; world.passThrown = true; world.losZ = -10;
+  world.playPhase = 'LIVE'; world.snapSide = 0; world.ball.possession = 0; world.passThrown = true; world.losZ = -10;
   for (const athlete of world.athletes) {
     athlete.x = 40 + athlete.id; athlete.z = 40; athlete.y = 0; athlete.facing = 0;
     athlete.vx = 0; athlete.vz = 0; athlete.move = 'NORMAL'; athlete.moveTicks = 0;
@@ -251,10 +251,10 @@ async function browserEvidence(): Promise<void> {
         for(var i=0;i<w.athletes.length;i++){var p=w.athletes[i];p.x=40+i;p.z=80+i;p.prevX=p.x;p.prevZ=p.z;p.y=0;p.prevY=0;p.hasBall=false;}
         a.x=0;a.z=50;a.prevX=0;a.prevZ=50;a.facing=0;a.prevFacing=0;a.vx=0;a.vz=7;
         a.anim.state='RUN';a.anim.phase=.16;a.anim.prevPhase=.16;a.anim.speed01=.72;a.anim.ground=7;a.move=drill.technique==='EXTEND'?'DIVE':'NORMAL';
-        a.ballPlayTechnique=drill.technique;a.ballPlayUntilTick=w.tick+40;w.possession=drill.actor==='RECEIVER'?a.side:1-a.side;
+        a.ballPlayTechnique=drill.technique;a.ballPlayUntilTick=w.tick+40;w.snapSide=drill.actor==='RECEIVER'?a.side:1-a.side;
         w.passThrown=true;w.playPhase='LIVE';var at={x:drill.target[0],y:drill.target[1],z:50+drill.target[2]};
         w.ball.x=at.x;w.ball.y=at.y;w.ball.z=at.z;w.ball.prevX=at.x;w.ball.prevY=at.y;w.ball.prevZ=at.z;
-        var success=drill.expected==='INTERCEPTION'||(drill.actor==='RECEIVER'&&drill.expected==='CATCH');a.hasBall=success;
+        var success=drill.expected==='INTERCEPTION'||(drill.actor==='RECEIVER'&&drill.expected==='CATCH');a.hasBall=success;w.ball.possession=success?a.side:w.snapSide;
         var hasEvent=drill.expected!=='NO_PLAY'&&!(drill.actor==='DEFENDER'&&drill.expected==='CATCH');
         w.ball.state=success?{kind:'held',carrier:a.id}:{kind:'inAir',from:0,intended:drill.actor==='RECEIVER'?a.id:1,passKind:'NORMAL',t:.8,flightTime:1,sx:0,sy:1.85,sz:42,tx:at.x,ty:at.y,tz:at.z,arc:1,contested:false,attemptMask:0};
         var type=drill.expected==='NO_PLAY'?'swat':drill.expected.toLowerCase();

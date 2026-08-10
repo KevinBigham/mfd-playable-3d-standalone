@@ -1,6 +1,7 @@
 import type {
   Athlete, Ball, Conditions, DeadReason, PlayerDef, TeamDef, TeamSide,
   OffensePlay, DefensePlay, PlayerIntent, AthleteId, SurfaceKind, WeatherKind,
+  FumbleOrigin, KickProvenance, PossessionHistory,
 } from '../core/types.ts';
 import { Rng } from '../core/rng.ts';
 import { EventBus } from '../core/events.ts';
@@ -22,7 +23,16 @@ export interface World {
   conditions: Conditions;
   teams: [TeamDef, TeamDef];
 
-  possession: TeamSide;
+  /** Side that began this play. It never changes until `setupPlay` starts the next play. */
+  snapSide: TeamSide;
+  /** Cross-team transfers accumulated during this play; never cleared by a return turnover. */
+  possessionHistory: PossessionHistory;
+  /** Latched when the snap-side carrier takes the whole ball/body beyond the line. */
+  crossedLos: boolean;
+  /** Authoritative point where the current live fumble began. */
+  fumbleOrigin: FumbleOrigin | null;
+  /** Return-kick provenance that survives the landed-kick → loose-ball transition. */
+  kickProvenance: KickProvenance | null;
   losZ: number;
   playPhase: PlayPhase;
   playTicks: number;
@@ -91,6 +101,12 @@ export function goalOf(side: TeamSide): number { return side === 0 ? 100 : 0; }
 export function ownGoalOf(side: TeamSide): number { return side === 0 ? 0 : 100; }
 export function other(side: TeamSide): TeamSide { return side === 0 ? 1 : 0; }
 
+/** The held carrier is authoritative when available; otherwise the ball owns live possession. */
+export function livePossessionSide(w: World): TeamSide {
+  const st = w.ball.state;
+  return st.kind === 'held' ? w.athletes[st.carrier].side : w.ball.possession;
+}
+
 export function makeConditions(weather: WeatherKind, surface: SurfaceKind, rng: Rng): Conditions {
   const strength = weather === 'WIND' ? 4.2 : weather === 'SNOW' ? 1.5 : weather === 'RAIN' ? 1.9 : 0.5;
   const ang = rng.range(0, Math.PI * 2);
@@ -144,7 +160,10 @@ export function createWorld(
       state: { kind: 'dead' }, possession: 0,
     },
     conditions, teams: [home, away],
-    possession: 0, losZ: 25, playPhase: 'SETUP', playTicks: 0, snapTick: 0,
+    snapSide: 0,
+    possessionHistory: { count: 0, first: null, last: null },
+    crossedLos: false, fumbleOrigin: null, kickProvenance: null,
+    losZ: 25, playPhase: 'SETUP', playTicks: 0, snapTick: 0,
     deadReason: null, spotZ: 25, spotX: 0, gainOriginZ: 25, progressZ: 25, progressArmed: false, lastCarrier: -1,
     special: null, offensePlay: null, defensePlay: null,
     qbId: 0, passThrown: false, handedOff: false, lastPassAirYards: 0,

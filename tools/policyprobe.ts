@@ -48,7 +48,7 @@ interface TargetView {
 
 /** Everything a policy is allowed to know: what is visible on screen at this moment. */
 function viewTargets(w: World): TargetView[] {
-  const dir = w.possession === 0 ? 1 : -1;
+  const dir = w.snapSide === 0 ? 1 : -1;
   const out: TargetView[] = [];
   for (let slot = 0; slot < 3; slot++) {
     const id = w.passTargets[slot];

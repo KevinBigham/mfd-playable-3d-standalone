@@ -2,7 +2,8 @@ import type { TeamSide } from '../core/types.ts';
 import { Match, defaultMatchConfig } from '../rules/match.ts';
 import { getTeam, TEAM_IDS } from '../data/index.ts';
 import { giveBall, dropLoose, killBall } from '../sim/ball.ts';
-import { OFF_START, DEF_START, carrier } from '../sim/world.ts';
+import { detectDead } from '../sim/playRunner.ts';
+import { OFF_START, DEF_START, carrier, type World } from '../sim/world.ts';
 import { kickReturner } from '../sim/catching.ts';
 import { baseSpeed } from '../sim/movement.ts';
 import { computeFirstDown, dirOf, goalOf, noteCatch, breakStreaks } from '../rules/rulesEngine.ts';
@@ -33,10 +34,17 @@ function countEvent(m: Match, type: string): number {
   return (m.bus.log ?? []).filter((e) => e.type === type).length;
 }
 
+/** Pin the immutable snap side for a scenario without changing match-level possession. */
+function setSnapSide(world: World, side: TeamSide): void {
+  world.snapSide = side;
+  world.ball.possession = side;
+}
+
 /** Park the match on a clean 1st-and-30 for `side` at `losZ`, with a snapshot for deltas. */
 function toScrimmage(m: Match, side: TeamSide, losZ: number, down = 1): void {
   runUntil(m, (x) => x.phase === 'PLAY_CALL', s(120));
   m.state.possession = side;
+  setSnapSide(m.world, side);
   m.state.down = down;
   m.state.losZ = losZ;
   m.state.firstDownZ = computeFirstDown(losZ, side);
@@ -114,7 +122,7 @@ export const SCENARIOS: Scenario[] = [
       if (!ret || w.special === 'ONSIDE') { runUntil(m, (x) => x.phase !== 'KICKOFF_LIVE', s(30)); continue; }
       kicks++;
       // He must start in his own end zone: the run-up is the whole design.
-      if ((ret.homeZ - goalOf(w.possession)) * dirOf(w.possession) >= 3) deep++;
+      if ((ret.homeZ - goalOf(w.snapSide)) * dirOf(w.snapSide) >= 3) deep++;
       const id = ret.id;
       runUntil(m, (x) => x.world.athletes[id].hasBall || x.phase !== 'KICKOFF_LIVE', s(30));
       const a = w.athletes[id];
@@ -420,6 +428,37 @@ export const SCENARIOS: Scenario[] = [
     const before = m.world.tick;
     runUntil(m, (x) => x.state.quarter > 1 || x.state.finished, s(60 * 60 * 6));
     return { pass: m.world.tick > before && (m.state.quarter > 1 || m.state.finished), detail: `q=${m.state.quarter} watchdogs=${m.watchdogCount}` };
+  }),
+
+  scenario('turnover truth: an upright ball carrier cannot escape through their own back line', (m) => {
+    toScrimmage(m, 0, 50);
+    runUntil(m, (x) => x.phase === 'LIVE', s(30));
+    const car = m.world.athletes[OFF_START];
+    giveBall(m.world, car.id);
+    car.z = -10.6;
+    const reason = detectDead(m.world);
+    return { pass: reason === 'SAFETY', detail: `reason=${String(reason)}` };
+  }),
+
+  scenario('turnover truth: interception, fumble, and original-offense recovery resets the series', (m) => {
+    toScrimmage(m, 0, 50, 3);
+    m.state.firstDownZ = 90;
+    runUntil(m, (x) => x.phase === 'LIVE', s(30));
+    const interceptor = m.world.athletes[DEF_START];
+    const recovery = m.world.athletes[OFF_START + 1];
+    interceptor.z = 60; recovery.z = 57;
+    m.world.passThrown = true;
+    giveBall(m.world, interceptor.id);
+    dropLoose(m.world, interceptor.id, 0, 0, 0, true);
+    giveBall(m.world, recovery.id);
+    downCarrier(m);
+    m.world.playPhase = 'DEAD';
+    m.world.deadReason = 'TACKLE';
+    m.state.phase = 'DEAD_BALL';
+    m.state.phaseTicks = 999;
+    m.tick();
+    return { pass: m.state.possession === 0 && m.state.down === 1,
+      detail: `poss=${m.state.possession} down=${m.state.down}` };
   }),
 ];
 

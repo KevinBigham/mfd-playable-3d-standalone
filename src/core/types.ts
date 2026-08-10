@@ -303,6 +303,59 @@ export interface Athlete {
 
 export type PassKind = 'TOUCH' | 'NORMAL' | 'BULLET' | 'LATERAL' | 'PUMP';
 export type KickKind = 'KICKOFF' | 'ONSIDE' | 'PUNT' | 'FIELD_GOAL' | 'EXTRA_POINT';
+export type PossessionChangeKind = 'INTERCEPTION' | 'FUMBLE' | 'KICK';
+
+/** Immutable evidence of a real cross-team change during the current play. */
+export interface PossessionChange {
+  from: TeamSide;
+  to: TeamSide;
+  kind: PossessionChangeKind;
+  tick: number;
+  x: number;
+  z: number;
+}
+
+export interface PossessionHistory {
+  count: number;
+  first: PossessionChange | null;
+  last: PossessionChange | null;
+}
+
+export interface FumbleOrigin {
+  carrier: AthleteId;
+  side: TeamSide;
+  tick: number;
+  x: number;
+  z: number;
+}
+
+export type ReturnKickKind = 'PUNT' | 'KICKOFF' | 'ONSIDE';
+/**
+ * A punt downed by the kicking side awards the ball to the receiving side, so it is the one
+ * deliberately exceptional recovery whose actor and awarded side differ.
+ */
+export type KickRecoveryKind = 'PUNT_DOWNED' | 'KICKING_RECOVERY' | 'RECEIVING_RECOVERY';
+
+export interface KickRecovery {
+  kind: KickRecoveryKind;
+  actor: AthleteId;
+  side: TeamSide;
+  x: number;
+  z: number;
+}
+
+/** Provenance retained after a return kick becomes a loose ball. */
+export interface KickProvenance {
+  kind: ReturnKickKind;
+  kickingSide: TeamSide;
+  launchX: number;
+  launchZ: number;
+  /** Furthest signed downfield travel reached before receiving possession. */
+  maxDownfieldTravel?: number;
+  receivingTouched: boolean;
+  receivingPossessed: boolean;
+  recovery: KickRecovery | null;
+}
 
 export type BallState =
   | { kind: 'held'; carrier: AthleteId }
@@ -326,7 +379,8 @@ export type BallState =
   // flag a tipped ball would bounce as a live fumble and hand the defence free possession on
   // every contested throw.
   | { kind: 'loose'; lastTouch: AthleteId | -1; ticks: number; fromFumble: boolean;
-      tipped?: boolean; attemptMask?: number }
+      /** A grounded lateral remains a live backwards-pass recovery, never an interception. */
+      fromLateral?: boolean; tipped?: boolean; attemptMask?: number }
   | {
       kind: 'kicked';
       from: AthleteId;

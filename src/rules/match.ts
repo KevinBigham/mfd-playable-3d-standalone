@@ -1,5 +1,5 @@
 import type {
-  AthleteId, DeadReason, DefensePlay, MatchConfig, MatchPhase, MatchResult, MatchState,
+  AthleteId, DeadReason, DefensePlay, KickProvenance, MatchConfig, MatchPhase, MatchResult, MatchState,
   OffensePlay, PlayerDef, PlayerIntent, SurfaceKind, TeamDef, TeamSide,
 } from '../core/types.ts';
 import { Rng } from '../core/rng.ts';
@@ -67,6 +67,50 @@ export interface MatchOptions {
 
 const BLANK: PlayerIntent = { moveX: 0, moveZ: 0, aimX: 0, aimZ: 0, held: 0, pressed: 0, released: 0 };
 const CATCH_ACTION_MASK = Action.ACTION | Action.PROTECT | Action.JUMP | Action.DIVE;
+
+function legacyFumbleOrigin(s: MatchSnapshot['world'], w: World): World['fumbleOrigin'] {
+  const st = s.ball.state;
+  if (st.kind !== 'loose' || !st.fromFumble) return null;
+  const toucher = st.lastTouch >= 0 ? w.athletes[st.lastTouch] : null;
+  if (!toucher) return null;
+  return {
+    carrier: st.lastTouch,
+    side: toucher.side,
+    tick: s.tick,
+    x: s.ball.x,
+    z: s.ball.z,
+  };
+}
+
+function legacyKickProvenance(s: MatchSnapshot['world'], w: World, snapSide: TeamSide): KickProvenance | null {
+  const kind = s.special;
+  if (kind !== 'PUNT' && kind !== 'KICKOFF' && kind !== 'ONSIDE') return null;
+  const provenance: KickProvenance = {
+    kind,
+    kickingSide: snapSide,
+    launchX: s.spotX,
+    launchZ: s.losZ,
+    maxDownfieldTravel: Math.max(0, (s.ball.z - s.losZ) * dirOf(snapSide)),
+    receivingTouched: false,
+    receivingPossessed: false,
+    recovery: null,
+  };
+  const state = s.ball.state;
+  // A true fumble by a receiving-side returner proves possession was already established.
+  // Restoring it as an unresolved kick would turn the next recovery into a muff/downed kick.
+  if (state.kind === 'loose' && state.fromFumble && state.lastTouch >= 0
+    && w.athletes[state.lastTouch]?.side !== snapSide) return null;
+  if (state.kind !== 'held') return provenance;
+  const carrier = w.athletes[state.carrier];
+  if (!carrier || carrier.side === snapSide) return provenance;
+  provenance.receivingTouched = true;
+  provenance.receivingPossessed = true;
+  provenance.recovery = {
+    kind: 'RECEIVING_RECOVERY', actor: carrier.id, side: carrier.side,
+    x: s.ball.x, z: s.ball.z,
+  };
+  return provenance;
+}
 
 export function receiverAssistWeight(stickMagnitude: number): number {
   if (stickMagnitude <= RECEIVER_ASSIST_FULL) return 1;
@@ -246,7 +290,7 @@ export class Match {
    * Reassign which athlete each seat drives. Called every tick while a play is live.
    *
    * Control follows WHO HAS THE BALL, not whose down it nominally is. Those are the same thing on
-   * a scrimmage play and different on every kick: `w.possession` names the kicking team for the
+   * a scrimmage play and different on every kick: `w.snapSide` names the kicking team for the
    * whole of a kickoff, so keying off it handed the receiving player a coverage defender and left
    * him there — the returner ran himself, and a human on the receiving team could not touch a
    * kick return at all.
@@ -334,7 +378,7 @@ export class Match {
     for (const seat of w.switchRequests) {
       if (seat < 0) continue;
       const side = this.config.seats[seat]?.side;
-      if (side === undefined || side === w.possession) continue;
+      if (side === undefined || side === w.snapSide) continue;
       const used = new Set<number>();
       for (let i = 0; i < this.seatDefender.length; i++) if (i !== seat && this.seatDefender[i] >= 0) used.add(this.seatDefender[i]);
       const cur = this.seatDefender[seat];
@@ -762,7 +806,12 @@ export class Match {
           spin: w.ball.spin, possession: w.ball.possession,
           state: JSON.parse(JSON.stringify(w.ball.state)),
         },
-        possession: w.possession, losZ: w.losZ, spotZ: w.spotZ, spotX: w.spotX,
+        possession: w.snapSide, snapSide: w.snapSide,
+        possessionHistory: JSON.parse(JSON.stringify(w.possessionHistory)),
+        crossedLos: w.crossedLos,
+        fumbleOrigin: w.fumbleOrigin ? { ...w.fumbleOrigin } : null,
+        kickProvenance: w.kickProvenance ? JSON.parse(JSON.stringify(w.kickProvenance)) : null,
+        losZ: w.losZ, spotZ: w.spotZ, spotX: w.spotX,
         playPhase: w.playPhase, playTicks: w.playTicks, snapTick: w.snapTick,
         deadReason: w.deadReason,
         gainOriginZ: w.gainOriginZ, progressZ: w.progressZ, progressArmed: w.progressArmed,
@@ -863,7 +912,18 @@ export class Match {
     w.ball.state = JSON.parse(JSON.stringify(s.ball.state));
     normalizeBallAttempts(w.ball.state);
 
-    w.possession = s.possession; w.losZ = s.losZ; w.spotZ = s.spotZ; w.spotX = s.spotX;
+    w.snapSide = s.snapSide ?? s.possession;
+    w.possessionHistory = s.possessionHistory ? JSON.parse(JSON.stringify(s.possessionHistory))
+      : { count: 0, first: null, last: null };
+    w.crossedLos = s.crossedLos ?? false;
+    w.fumbleOrigin = s.fumbleOrigin ? { ...s.fumbleOrigin } : legacyFumbleOrigin(s, w);
+    w.kickProvenance = s.kickProvenance ? JSON.parse(JSON.stringify(s.kickProvenance))
+      : legacyKickProvenance(s, w, w.snapSide);
+    if (w.kickProvenance && w.kickProvenance.maxDownfieldTravel === undefined) {
+      w.kickProvenance.maxDownfieldTravel = Math.max(0,
+        (w.ball.z - w.kickProvenance.launchZ) * dirOf(w.kickProvenance.kickingSide));
+    }
+    w.losZ = s.losZ; w.spotZ = s.spotZ; w.spotX = s.spotX;
     w.playPhase = s.playPhase as typeof w.playPhase;
     w.playTicks = s.playTicks; w.snapTick = s.snapTick;
     w.deadReason = s.deadReason;
@@ -956,7 +1016,7 @@ export class Match {
     // Coverage defenders need longer to diagnose a run than to react to a throw;
     // that difference is what makes designed runs viable at all.
     for (const a of w.athletes) {
-      const cover = a.side !== w.possession
+      const cover = a.side !== w.snapSide
         && a.assign !== null && a.assign.kind !== 'RUSH' && a.assign.kind !== 'CONTAIN';
       a.reactionQueue = this.profile.reactionTicks + (cover ? s(0.50) : 0);
     }
@@ -1044,6 +1104,17 @@ export class Match {
     }
   }
 
+  /** Resolve an event actor to its on-field side without consulting match possession. */
+  private eventActorSide(id: number): TeamSide | null {
+    const a = this.world.athletes[id];
+    if (!a) return null;
+    // The normal match path always assigns roster identities before events exist.
+    // The slot fallback keeps a fresh, deliberately unassigned test world honest:
+    // ids 0..6 are the snap offense, 7..13 its defense.
+    if (a.def.name) return a.side;
+    return id >= 7 ? other(this.world.snapSide) : this.world.snapSide;
+  }
+
   /** Translate sim events into rules-side bookkeeping (streaks, stats). */
   private consumeEvents(): void {
     const m = this.state; const w = this.world;
@@ -1051,8 +1122,11 @@ export class Match {
       switch (e.type) {
         case 'catch': {
           const a = w.athletes[e.by];
-          if (a.side === m.possession) {
-            m.teams[m.possession].stats.passComp++;
+          // Completion accounting belongs to the snap-side forward pass, not whoever
+          // happens to own the ball later in a chained turnover.  A defender who takes
+          // an interception back is never a pass completion.
+          if (w.passThrown && a.side === w.snapSide) {
+            m.teams[w.snapSide].stats.passComp++;
             // Track the streak by JERSEY NUMBER: athlete ids are play slots and get
             // rebound to different people every snap.
             // Skill-charge experiment: an earned catch (real separation) charges Overdrive
@@ -1068,22 +1142,41 @@ export class Match {
               odWeight = near >= 3.5 ? 1.5 : near >= 2 ? 1 : 0.5;
               if (m.teams[m.possession].catchStreakReceiver === a.def.number) odWeight *= 0.75;
             }
-            const res = noteCatch(m, m.possession, a.def.number, odWeight);
+            const res = noteCatch(m, w.snapSide, a.def.number, odWeight);
             this.applyOverdriveFlags();
             if (res.started) {
-              this.bus.emit({ type: 'overdrive.start', tick: w.tick, side: m.possession, cause: 'CATCH' });
-            } else if (m.teams[m.possession].catchStreak > 0) {
-              this.bus.emit({ type: 'overdrive.charge', tick: w.tick, side: m.possession, progress: m.teams[m.possession].catchStreak / 3 });
+              this.bus.emit({ type: 'overdrive.start', tick: w.tick, side: w.snapSide, cause: 'CATCH' });
+            } else if (m.teams[w.snapSide].catchStreak > 0) {
+              this.bus.emit({ type: 'overdrive.charge', tick: w.tick, side: w.snapSide, progress: m.teams[w.snapSide].catchStreak / 3 });
             }
           }
           break;
         }
-        case 'throw': m.teams[m.possession].stats.passAtt++; break;
+        case 'throw': m.teams[w.snapSide].stats.passAtt++; break;
         case 'drop': case 'interception':
-          breakStreaks(m, m.possession); break;
-        case 'tackle': m.teams[other(m.possession)].stats.tackles++; break;
-        case 'bigHit': m.teams[other(m.possession)].stats.bigHits++; break;
-        case 'fumble': m.teams[other(m.possession)].stats.forcedFumbles++; break;
+          breakStreaks(m, w.snapSide);
+          if (e.type === 'interception') {
+            const side = this.eventActorSide(e.by);
+            if (side !== null) m.teams[side].stats.ints++;
+          }
+          break;
+        case 'tackle': {
+          const side = this.eventActorSide(e.by);
+          if (side !== null) m.teams[side].stats.tackles++;
+          break;
+        }
+        case 'bigHit': {
+          const side = this.eventActorSide(e.by);
+          if (side !== null) m.teams[side].stats.bigHits++;
+          break;
+        }
+        case 'fumble': {
+          if (e.forcedBy >= 0) {
+            const side = this.eventActorSide(e.forcedBy);
+            if (side !== null) m.teams[side].stats.forcedFumbles++;
+          }
+          break;
+        }
         default: break;
       }
     }
@@ -1146,6 +1239,16 @@ export class Match {
     let spotZ = b.z;
     let spotX = b.x;
     if (car) { spotZ = car.z; spotX = car.x; }
+    // A forward fumble out of bounds returns to the release point; a backward
+    // fumble stays at the exit.  The fumbler provenance is authoritative even
+    // when this began as an interception return.
+    if (reason === 'OUT_OF_BOUNDS' && b.state.kind === 'loose' && b.state.fromFumble && w.fumbleOrigin) {
+      const origin = w.fumbleOrigin;
+      if ((b.z - origin.z) * dirOf(origin.side) > 0) {
+        spotZ = origin.z;
+        spotX = origin.x;
+      }
+    }
     // FORWARD PROGRESS. The ball belongs at the furthest point the runner advanced it, not at
     // whatever spot his body finally came to rest on — and a tackle in this game blends the
     // tackler's momentum into the carrier, so a runner met head-on is actively driven backwards
@@ -1153,13 +1256,22 @@ export class Match {
     // the real rule, and it is what makes third and one a down you can convert rather than a
     // coin flip on which direction the pile falls.
     //
-    // Only for the team that actually had the ball, and only forwards: a defender who intercepts
-    // and runs it back has his own progress, tracked from the moment he took possession.
-    if (car && car.side === w.possession && w.progressArmed && (w.progressZ - spotZ) * dir > 0) spotZ = w.progressZ;
+    // Progress belongs to the current carrier's direction, never to immutable snap ownership.
+    // `trackForwardProgress` advances this value only in `dirOf(car.side)` and
+    // `giveBall` resets it on every new carrier.  Once armed it is therefore
+    // already the current carrier's protected point; don't re-interpret it in
+    // snap-side coordinates at settlement time.
+    if (car && w.progressArmed) spotZ = w.progressZ;
     o.possessionAfter = m.possession;
 
     const ballSide: TeamSide = car ? car.side : b.possession;
     const changed = ballSide !== m.possession;
+    const changedThisPlay = changed || w.possessionHistory.count > 0;
+    const lastChange = w.possessionHistory.last;
+    const turnoverKind = lastChange?.kind === 'FUMBLE' ? 'FUMBLE'
+      : lastChange?.kind === 'KICK' ? null : 'INT';
+    const scrimmageCatch = w.passThrown && w.lastCatcher >= 0
+      && w.athletes[w.lastCatcher]?.side === w.snapSide;
 
     switch (reason) {
       case 'INCOMPLETE':
@@ -1169,12 +1281,12 @@ export class Match {
         o.scoringSide = ballSide;
         o.scoreKind = 'TD';
         o.spotZ = goalOf(ballSide); o.spotX = spotX;
-        o.yards = changed ? 0 : (spotZ - m.losZ) * dir;
+        o.yards = changedThisPlay ? 0 : (spotZ - m.losZ) * dir;
         if (car) {
           const st = m.teams[ballSide].stats;
           if (w.special !== null) { /* return TD — not a scrimmage stat */ }
-          else if (w.passThrown && !changed) st.passTd++;
-          else st.rushTd++;
+          else if (scrimmageCatch && ballSide === w.snapSide) st.passTd++;
+          else if (!changedThisPlay && ballSide === w.snapSide) st.rushTd++;
           this.bus.emit({ type: 'touchdown', tick: w.tick, side: ballSide, by: car.id, yards: Math.round(o.yards) });
         }
         break;
@@ -1202,30 +1314,38 @@ export class Match {
       }
       default: {
         o.spotZ = spotZ; o.spotX = spotX;
-        o.yards = changed ? 0 : (spotZ - m.losZ) * dir;
+        o.yards = changedThisPlay ? 0 : (spotZ - m.losZ) * dir;
         break;
       }
     }
 
-    // Kick plays hand the ball to the receiving team.
-    if (w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT') {
+    // Kick provenance is authoritative.  Once a returner has possessed the ball,
+    // a later fumble clears it and is resolved as ordinary football despite the
+    // presentation phase still being labelled special teams.
+    const ordinaryReturnFumble = b.state.kind === 'loose' && b.state.fromFumble && w.kickProvenance === null;
+    if (!ordinaryReturnFumble && (w.special === 'KICKOFF' || w.special === 'ONSIDE' || w.special === 'PUNT')) {
       this.resolveKickPlay(o, reason, ballSide, spotZ, spotX);
     } else if (reason === 'TOUCHBACK') {
       // Either a turnover taken inside the recovering team's own end zone, or a loose ball out
       // through the end zone the offence was attacking. Either way the DEFENCE takes over on 20.
-      const to: TeamSide = car ? car.side : other(m.possession);
+      // A loose fumble's attacking end line belongs to its actual fumbler.  That
+      // can differ from snap ownership after an interception or return, whereas a
+      // held takeaway still belongs to the current carrier as before.
+      const fumbleOrigin = b.state.kind === 'loose' && b.state.fromFumble ? w.fumbleOrigin : null;
+      const to: TeamSide = fumbleOrigin ? other(fumbleOrigin.side)
+        : car ? car.side : other(m.possession);
       o.turnover = true;
       o.touchback = true;
       o.possessionAfter = to;
-      o.turnoverKind = w.passThrown && !w.handedOff ? 'INT' : 'FUMBLE';
+      o.turnoverKind = turnoverKind ?? 'FUMBLE';
       o.spotZ = touchbackSpot(to);
       o.spotX = 0;
       this.bus.emit({ type: 'turnover', tick: w.tick, to, kind: o.turnoverKind });
       this.bus.emit({ type: 'touchback', tick: w.tick });
-    } else if (changed && o.scoreKind === null) {
+    } else if (changedThisPlay && o.scoreKind === null) {
       o.turnover = true;
       o.possessionAfter = ballSide;
-      o.turnoverKind = w.passThrown && !w.handedOff ? 'INT' : 'FUMBLE';
+      o.turnoverKind = turnoverKind ?? 'FUMBLE';
       o.spotZ = clampSpot(spotZ);
       // Touchback if the change happened in the recovering team's own end zone.
       const ownGoal = ballSide === 0 ? 0 : 100;
@@ -1245,7 +1365,7 @@ export class Match {
       && (reason === 'TACKLE' || reason === 'SAFETY');
     if (!o.turnover && o.scoreKind !== 'SAFETY' && reason !== 'INCOMPLETE' && !wasSack) {
       const st = m.teams[m.possession].stats;
-      if (w.passThrown) st.passYds += Math.round(o.yards);
+      if (scrimmageCatch) st.passYds += Math.round(o.yards);
       else if (w.special === null) { st.rushAtt++; st.rushYds += Math.round(o.yards); }
     }
 
@@ -1279,6 +1399,13 @@ export class Match {
     }
 
     this.pendingNext = applyOutcome(m, o);
+    // OT4+ ends on the score itself.  The scoring mutation above is retained,
+    // but sudden death never opens a conversion or kickoff sequence.
+    if (this.suddenDeath && o.scoreKind !== null) {
+      m.pendingScore = null;
+      this.finish();
+      return;
+    }
     if (o.firstDown) {
       this.bus.emit({ type: 'firstDown', tick: w.tick, side: m.possession });
       if (extinguish(m, other(m.possession))) {
@@ -1296,7 +1423,8 @@ export class Match {
 
   private resolveKickPlay(o: PlayOutcome, reason: DeadReason, ballSide: TeamSide, spotZ: number, spotX: number): void {
     const m = this.state; const w = this.world;
-    const kicking = m.possession;
+    const kick = w.kickProvenance;
+    const kicking = kick?.kickingSide ?? m.possession;
     const receiving = other(kicking);
     o.scoreKind = o.scoreKind === 'TD' ? 'TD' : null;
     o.turnover = false;
@@ -1318,15 +1446,55 @@ export class Match {
       return;
     }
 
-    // Only an actual carrier can claim a kicked ball. An untouched ball belongs to the
-    // receiving team wherever it stopped — otherwise a punt that nobody fields would
-    // silently stay with the kicking team.
     const car = carrier(w);
-    const recovered: TeamSide = car ? car.side : receiving;
     const isOnside = w.special === 'ONSIDE';
     const isPunt = w.special === 'PUNT';
+    const recovery = kick?.recovery;
 
-    let spot = car ? car.z : w.ball.z;
+    // A downed punt, a muff recovery, and a legal free-kick recovery were made
+    // dead by the ball authority at contact.  Their provenance spot—not a runner's
+    // later presentation position—is the next snap spot.
+    if (recovery && recovery.kind !== 'RECEIVING_RECOVERY') {
+      const inReceivingEndZone = recovery.side === 0 ? recovery.z <= 0 : recovery.z >= 100;
+      if (recovery.kind === 'PUNT_DOWNED' && inReceivingEndZone) {
+        o.possessionAfter = recovery.side;
+        o.touchback = true;
+        o.spotZ = touchbackSpot(recovery.side);
+        o.spotX = 0;
+        o.turnover = true;
+        o.turnoverKind = 'PUNT';
+        this.bus.emit({ type: 'touchback', tick: w.tick });
+        return;
+      }
+      o.possessionAfter = recovery.side;
+      o.spotZ = clampSpot(recovery.z);
+      o.spotX = clamp(recovery.x, -FIELD_HALF_WIDTH + 2, FIELD_HALF_WIDTH - 2);
+      o.turnover = true;
+      o.turnoverKind = recovery.kind === 'PUNT_DOWNED' ? 'PUNT' : null;
+      if (recovery.kind === 'KICKING_RECOVERY') {
+        this.bus.emit({ type: 'turnover', tick: w.tick, to: recovery.side, kind: 'FUMBLE' });
+      }
+      return;
+    }
+
+    // A direct free kick out of bounds before return possession awards the
+    // receiving side its mirrored own 35.  A punt is deliberately different:
+    // it stays at the exit spot.
+    if (reason === 'OUT_OF_BOUNDS' && !kick?.receivingPossessed
+      && !kick?.receivingTouched && !isPunt) {
+      o.possessionAfter = receiving;
+      o.spotZ = receiving === 0 ? 35 : 65;
+      o.spotX = 0;
+      o.turnover = true;
+      o.turnoverKind = null;
+      return;
+    }
+
+    // A held receiving recovery is live and resolves at the actual carrier;
+    // untouched balls (including a punt out at the boundary) are awarded to the
+    // receiving side at their exit/dead spot.
+    const recovered: TeamSide = car ? car.side : (recovery?.side ?? receiving);
+    let spot = car ? car.z : (recovery?.z ?? w.ball.z);
     // Ball dead in the receiving team's own end zone (or through it) → touchback.
     const inRecvEndzone = recovered === 0 ? spot <= 0.01 : spot >= 99.99;
     if (inRecvEndzone && !isOnside) {
@@ -1337,7 +1505,7 @@ export class Match {
 
     o.possessionAfter = recovered;
     o.spotZ = clampSpot(spot);
-    o.spotX = clamp(car ? car.x : w.ball.x, -FIELD_HALF_WIDTH + 2, FIELD_HALF_WIDTH - 2);
+    o.spotX = clamp(car ? car.x : (recovery?.x ?? w.ball.x), -FIELD_HALF_WIDTH + 2, FIELD_HALF_WIDTH - 2);
     o.turnover = true;                 // forces the possession-assignment path
     o.turnoverKind = isPunt ? 'PUNT' : null;
     if (recovered === kicking) {
@@ -1375,6 +1543,9 @@ export class Match {
     m.pendingScore = null;
     if (!ps) { this.setPhase('PLAY_CALL'); return; }
     if (this.ruleset.endOnDriveEnd) { this.finish(); return; }
+    // The score has already been applied by applyOutcome.  In OT4+ it ends the
+    // game immediately, with no PAT/two-point attempt and no following kickoff.
+    if (this.suddenDeath) { this.finish(); return; }
     if (ps.kind === 'TD') {
       m.possession = ps.side;
       m.down = 1;
@@ -1463,7 +1634,7 @@ export class Match {
         const scored = o.reason === 'TOUCHDOWN';
         const scorer = scored ? (carrier(w)?.side ?? m.possession) : null;
         if (scored && scorer !== null) m.teams[scorer].score += 2;
-        this.bus.emit({ type: 'twoPoint', tick: w.tick, side: m.possession, good: !!scored });
+        this.bus.emit({ type: 'twoPoint', tick: w.tick, side: scorer ?? m.possession, good: !!scored });
       }
       this.conversionTwoActive = false;
       this.conversionActive = false;
@@ -1531,8 +1702,8 @@ export class Match {
     this.bus.emit({ type: 'match.end', tick: this.world.tick, winner: m.winner });
   }
 
-  /** In sudden death (past OT3) any score ends the match immediately. */
-  private get suddenDeath(): boolean { return this.state.overtimePeriod >= OVERTIME_PERIODS; }
+  /** OT1–OT3 are timed; OT4 and every later period are sudden death. */
+  private get suddenDeath(): boolean { return this.state.overtimePeriod > OVERTIME_PERIODS; }
 
   // ── helpers for UI/tests ─────────────────────────────────────────────────
 

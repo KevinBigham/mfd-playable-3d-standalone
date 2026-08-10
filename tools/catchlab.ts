@@ -146,7 +146,7 @@ async function browserEvidence(): Promise<void> {
           a.x=0; a.z=50; a.prevX=0; a.prevZ=50; a.facing=0; a.prevFacing=0;
           a.vx=0; a.vz=7; a.anim.state='RUN'; a.anim.phase=.16; a.anim.prevPhase=.16;
           a.anim.speed01=.72; a.anim.ground=7; a.hasBall=false; a.move='NORMAL';
-          w.possession=a.side; w.passThrown=true; w.lastCatcher=-1; w.playPhase='LIVE';
+          w.snapSide=a.side; w.ball.possession=a.side; w.passThrown=true; w.lastCatcher=-1; w.playPhase='LIVE';
           w.ball.x=target[0]; w.ball.y=target[1]; w.ball.z=50+target[2];
           w.ball.prevX=w.ball.x; w.ball.prevY=w.ball.y; w.ball.prevZ=w.ball.z;
           w.ball.state={kind:'inAir',from:0,intended:a.id,passKind:'NORMAL',t:.8,flightTime:1,

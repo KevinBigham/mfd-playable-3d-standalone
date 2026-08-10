@@ -15,7 +15,7 @@ import {
 import { clamp, clamp01, dist } from '../core/math.ts';
 import type { World } from './world.ts';
 import { dirOf } from './world.ts';
-import { giveBall, dropLoose, killBall, bobbleBall, hasBallAttempt, markBallAttempt } from './ball.ts';
+import { giveBall, dropLoose, killBall, bobbleBall, hasBallAttempt, markBallAttempt, deadKickRecovery } from './ball.ts';
 import { knockDown, startJump } from './movement.ts';
 
 const STAND_REACH = 2.35;
@@ -143,10 +143,10 @@ export function oneFootInBounds(a: Athlete): { legal: boolean; sideline: boolean
  * stays a pure function of the world — which the replay harness requires.
  */
 export function kickReturner(w: World): Athlete | null {
-  const dir = dirOf(w.possession);          // the kicking team kicks this way; deepest is furthest
+  const dir = dirOf(w.snapSide);          // the kicking team kicks this way; deepest is furthest
   let best: Athlete | null = null;
   for (const a of w.athletes) {
-    if (a.side === w.possession) continue;
+    if (a.side === w.snapSide) continue;
     if (best === null || a.homeZ * dir > best.homeZ * dir) best = a;
   }
   return best;
@@ -436,6 +436,12 @@ export function resolveLooseBall(w: World): boolean {
   const b = w.ball;
   if (b.y > 1.6) return false;
 
+  // A return kick is not an ordinary fumble until the receiving side has established a return.
+  // Keep its contact provenance here, before the generic loose-ball contest consumes RNG.
+  if (w.kickProvenance !== null && !w.kickProvenance.receivingPossessed) {
+    return resolveReturnKickLooseBall(w);
+  }
+
   let best: Athlete | null = null; let bestScore = -1;
   for (const a of w.athletes) {
     if (a.move === 'DOWN' || a.move === 'GETUP') continue;
@@ -448,6 +454,63 @@ export function resolveLooseBall(w: World): boolean {
   }
   if (!best) return false;
   giveBall(w, best.id);
+  w.bus.emit({ type: 'recover', tick: w.tick, by: best.id, side: best.side });
+  return true;
+}
+
+/** Resolve a landed punt/free kick without manufacturing a live kicking-team return. */
+function resolveReturnKickLooseBall(w: World): boolean {
+  const st = w.ball.state;
+  const kick = w.kickProvenance;
+  if (st.kind !== 'loose' || kick === null) return false;
+  const b = w.ball;
+  const receivingSide = kick.kickingSide === 0 ? 1 : 0;
+  if (st.lastTouch >= 0 && w.athletes[st.lastTouch].side === receivingSide) {
+    kick.receivingTouched = true;
+  }
+
+  let best: Athlete | null = null;
+  let bestScore = -Infinity;
+  for (const a of w.athletes) {
+    if (a.move === 'DOWN' || a.move === 'GETUP') continue;
+    const d = dist(a.x, a.z, b.x, b.z);
+    const r = a.move === 'DIVE' ? 1.85 : 1.15;
+    if (d > r) continue;
+    // Before a free kick travels ten yards, the kicking side cannot be the first to possess it
+    // unless the receiving side has touched it. The strict comparison leaves exactly ten yards
+    // legal and works in either field direction.
+    const dir = kick.kickingSide === 0 ? 1 : -1;
+    const currentTravel = (b.z - kick.launchZ) * dir;
+    const traveled = Math.max(kick.maxDownfieldTravel ?? 0, currentTravel);
+    kick.maxDownfieldTravel = traveled;
+    if ((kick.kind === 'KICKOFF' || kick.kind === 'ONSIDE') && a.side === kick.kickingSide
+      && !kick.receivingTouched && traveled < 10) continue;
+    const score = (r - d) + (a.move === 'DIVE' ? 0.5 : 0)
+      + (a.def.ratings.awareness - 50) * 0.004;
+    if (score > bestScore || (score === bestScore && (best === null || a.id < best.id))) {
+      best = a;
+      bestScore = score;
+    }
+  }
+  if (best === null) return false;
+
+  if (best.side !== kick.kickingSide) {
+    // The receiving side has actual possession now; a later fumble deliberately becomes an
+    // ordinary fumble through dropLoose's established-return transition.
+    giveBall(w, best.id);
+    w.bus.emit({ type: 'recover', tick: w.tick, by: best.id, side: best.side });
+    return true;
+  }
+
+  if (kick.kind === 'PUNT' && !kick.receivingTouched) {
+    deadKickRecovery(w, best.id, receivingSide, 'PUNT_DOWNED');
+    w.bus.emit({ type: 'recover', tick: w.tick, by: best.id, side: receivingSide });
+    return true;
+  }
+
+  // A muffed punt and a legal kickoff/onside recovery are dead at the contact spot. Neither
+  // creates a held ball, so the kicking team can never advance a kick before return possession.
+  deadKickRecovery(w, best.id, kick.kickingSide, 'KICKING_RECOVERY');
   w.bus.emit({ type: 'recover', tick: w.tick, by: best.id, side: best.side });
   return true;
 }
@@ -471,7 +534,7 @@ function resolveTippedBall(w: World): boolean {
   for (const a of w.athletes) {
     if (a.move === 'DOWN' || a.move === 'GETUP' || a.move === 'STUNNED') continue;
     if (hasBallAttempt(st, a.id)) continue;
-    const isDefense = a.side !== w.possession;
+    const isDefense = a.side !== w.snapSide;
     // The target relationship is gone after a tip, but a defender still has to see the current
     // ball. This deliberately uses no future endpoint and grants no in-phase shortcut.
     if (isDefense && defenderBallGeometry(a, null, b.x, b.z, b.vx, b.vz).facing < 0.25) continue;
@@ -486,7 +549,7 @@ function resolveTippedBall(w: World): boolean {
       + (a.id === st.lastTouch ? -TIP_SELF_PENALTY : 0)
       // The offense knows where this ball was supposed to be — they are tracking it, the defense
       // is reacting to it. Keeps a bobble a chaotic highlight instead of a 62% takeaway.
-      + (a.side === w.possession ? TIP_OFFENSE_TRACK : 0);
+      + (a.side === w.snapSide ? TIP_OFFENSE_TRACK : 0);
     if (claim > bestClaim || (claim === bestClaim && best !== null && a.id < best.id)) {
       bestClaim = claim; best = a; bestReach = reach;
     }
@@ -499,7 +562,7 @@ function resolveTippedBall(w: World): boolean {
     const contact = { x: b.x, y: b.y, z: b.z };
     w.bus.emit({ type: 'drop', tick: w.tick, by: best.id,
       at: contact,
-      technique: best.side === w.possession ? 'BALANCED' : 'PLAY_BALL',
+      technique: best.side === w.snapSide ? 'BALANCED' : 'PLAY_BALL',
       sideline: true, reason: 'OUT_OF_BOUNDS' });
     killBall(w);
     w.ball.x = contact.x; w.ball.y = 0.3; w.ball.z = contact.z;
@@ -513,7 +576,7 @@ function resolveTippedBall(w: World): boolean {
   markBallAttempt(st, best.id);
   if (w.rng.next() >= grab) return false;       // a hand on it and still no ball: it stays live
 
-  const stolen = best.side !== w.possession;
+  const stolen = best.side !== w.snapSide;
   const contact = { x: b.x, y: b.y, z: b.z };
   giveBall(w, best.id);
   w.lastCatcher = best.id;

@@ -3,7 +3,6 @@ import {
   FIRST_DOWN_YARDS, DOWNS, TOUCHBACK_Z, KICKOFF_FROM_Z, TWO_POINT_Z, ENDZONE_DEPTH,
   OVERDRIVE_CATCH_STREAK, OVERDRIVE_TEAM_STREAK, OVERDRIVE_SACK_STREAK, OVERDRIVE_MAX_TICKS,
   OVERDRIVE_PERFECT_TICKS,
-  OVERTIME_PERIODS,
 } from '../core/constants.ts';
 import { clamp } from '../core/math.ts';
 
@@ -114,7 +113,6 @@ export function applyOutcome(m: MatchState, o: PlayOutcome): 'SCORE_RESOLVE' | '
     m.losZ = o.touchback ? touchbackSpot(next) : clampSpot(o.spotZ);
     m.firstDownZ = computeFirstDown(m.losZ, next);
     m.driveStartZ = m.losZ; m.driveSide = next;
-    if (o.turnoverKind === 'INT') m.teams[next].stats.ints++;
     return 'PLAY_CALL';
   }
 
@@ -239,8 +237,11 @@ export function isHalftime(m: MatchState): boolean { return m.quarter === 2; }
 
 export function matchShouldEnd(m: MatchState): boolean {
   if (m.quarter < 4) return false;
-  if (m.quarter === 4) return m.teams[0].score !== m.teams[1].score;
-  return m.teams[0].score !== m.teams[1].score || m.overtimePeriod >= OVERTIME_PERIODS;
+  // Overtime periods one through three are ordinary timed periods.  A tie at the
+  // end of OT3 therefore enters OT4 rather than being mistaken for a terminal tie.
+  // OT4 and later are sudden death at the match controller seam, but a score also
+  // necessarily makes the score unequal, so this remains a useful pure expiry test.
+  return m.teams[0].score !== m.teams[1].score;
 }
 
 export function winnerOf(m: MatchState): TeamSide | 'TIE' {
@@ -264,6 +265,16 @@ export function validateMatchState(m: MatchState): Violation[] {
     if (sc < 0 || !Number.isFinite(sc)) v.push({ code: 'SCORE_INVALID', detail: `side ${side} = ${sc}` });
   }
   if (m.possession !== 0 && m.possession !== 1) v.push({ code: 'POSSESSION_INVALID', detail: `${m.possession}` });
+  if (!Number.isFinite(m.firstDownZ)) v.push({ code: 'FIRST_DOWN_NAN', detail: 'first down is NaN' });
+  else if (m.firstDownZ < 0 || m.firstDownZ > 100) {
+    v.push({ code: 'FIRST_DOWN_RANGE', detail: `firstDown=${m.firstDownZ}` });
+  }
+  if (!Number.isInteger(m.quarter) || m.quarter < 1) v.push({ code: 'QUARTER_RANGE', detail: `quarter=${m.quarter}` });
+  if (m.driveSide !== 0 && m.driveSide !== 1) v.push({ code: 'DRIVE_SIDE_INVALID', detail: `${m.driveSide}` });
+  if (m.pendingScore !== null && ((m.pendingScore.side !== 0 && m.pendingScore.side !== 1)
+    || (m.pendingScore.kind !== 'TD' && m.pendingScore.kind !== 'FG' && m.pendingScore.kind !== 'SAFETY'))) {
+    v.push({ code: 'PENDING_SCORE_INVALID', detail: `${m.pendingScore.side}/${String(m.pendingScore.kind)}` });
+  }
   const dir = dirOf(m.possession);
   const beyond = dir > 0 ? m.firstDownZ < m.losZ - 0.01 : m.firstDownZ > m.losZ + 0.01;
   if (beyond) v.push({ code: 'FIRST_DOWN_BEHIND', detail: `los=${m.losZ} fd=${m.firstDownZ}` });

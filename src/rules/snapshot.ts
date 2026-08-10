@@ -24,7 +24,8 @@
  * the sounds and camera shakes of the old session are not part of the game state.
  */
 import type {
-  AthleteId, BallState, DeadReason, MatchState, PlayerDef, SeatId, TeamSide,
+  AthleteId, BallState, DeadReason, FumbleOrigin, KickProvenance, MatchState, PlayerDef,
+  PossessionHistory, SeatId, TeamSide,
 } from '../core/types.ts';
 
 export const SNAPSHOT_VERSION = 1 as const;
@@ -67,7 +68,14 @@ export interface WorldSnapshot {
    */
   intents: number[];
   ball: { x: number; y: number; z: number; vx: number; vy: number; vz: number; spin: number; possession: TeamSide; state: BallState };
+  /** Legacy serialized snap-side key. Kept for version-1 saves. */
   possession: TeamSide;
+  /** Explicit v1 extension; absent snapshots use `possession`. */
+  snapSide?: TeamSide;
+  possessionHistory?: PossessionHistory;
+  crossedLos?: boolean;
+  fumbleOrigin?: FumbleOrigin | null;
+  kickProvenance?: KickProvenance | null;
   losZ: number; spotZ: number; spotX: number;
   playPhase: string; playTicks: number; snapTick: number;
   deadReason: DeadReason | null;
