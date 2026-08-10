@@ -1,0 +1,42 @@
+{
+  "fingerprint": {
+    "tool": "passprobe",
+    "buildVersion": "1.0.0",
+    "gitCommit": "e3a82dc",
+    "rulesVersion": 2,
+    "firstDownYards": 30,
+    "seeds": "19100..19199",
+    "teams": "rotating home/away over TEAM_IDS",
+    "difficulty": "PRO",
+    "quarterSeconds": 300,
+    "assistProfile": "NONE",
+    "policy": null,
+    "generatedAt": "2026-08-10T01:53:16.953Z",
+    "node": "v22.23.2"
+  },
+  "config": {
+    "games": 100,
+    "seedStart": 19100,
+    "seedEnd": 19199
+  },
+  "outcomes": {
+    "throws": 6480,
+    "caught": 3283,
+    "dropped": 930,
+    "swatted": 789,
+    "defenderPossession": 57,
+    "fellIncomplete": 1421,
+    "bobbled": 149,
+    "bobbledToDefender": 10,
+    "bobbledToOffense": 31
+  },
+  "contestedCatches": 38,
+  "contestedBobbles": 36,
+  "swatEvents": 927,
+  "creditedInterceptions": 79,
+  "creditedPassAttempts": 6480,
+  "interceptionTurnoverDrives": 79,
+  "drives": 3810,
+  "pickSixes": 25,
+  "reconciles": true
+}

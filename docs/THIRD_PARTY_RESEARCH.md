@@ -12,6 +12,7 @@ adapted, or independently re-audited here. None is a production dependency.
 | camera-controls | prior pass noted `3.1.2` | Reject for this landing | Native orbit/dolly/focus, exact restore, and input isolation cover the bounded replay-photo need. |
 | three-mesh-bvh | no verified revision recorded | Reject for this landing | Segmented bowl and compact mesh AABBs are low-count and have no measured performance/correctness gap. |
 | img2threejs | no verified revision recorded | Defer | Asset generation does not address a football, replay, photo, lifecycle, or release deficiency. |
+| nflverse-data | 2022–2025 PBP release CSVs, checksums in `reports/play-the-ball/` | Offline calibration only | Anonymous aggregate completion/interception/YAC shape is useful; raw data stays gitignored and no runtime/build network path exists. |
 
 The authoritative simulation remains native TypeScript. Third-party objects may not own movement,
 save state, replay state, simulation RNG, or `PlayerIntent` production without a separate design

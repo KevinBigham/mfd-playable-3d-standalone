@@ -24,6 +24,8 @@ import { Action } from '../src/input/actions.ts';
 /** Action bits looked up by name, so this harness compiles before a feature exists. */
 const ACT = Action as unknown as Record<string, number | undefined>;
 import { carrier } from '../src/sim/world.ts';
+import { evaluateBallReach } from '../src/sim/catching.ts';
+import { applyActions } from '../src/sim/playRunner.ts';
 import { OFFENSE_PLAYS } from '../src/plays/offense.ts';
 import {
   TURBO_MAX, TURBO_DRAIN, TURBO_REGEN, FIRST_DOWN_YARDS, FIELD_HALF_WIDTH, s,
@@ -629,14 +631,27 @@ test('AI-004', 'Gate 3', 'AI', () => {
   };
 });
 
-na('CAT-001', 'Gate 3', 'Catch',
-  'catch eligibility here is a distance-and-timing test inside catching.ts rather than a '
-  + 'configured 3D volume map, so there is no boundary map to compare against. The behaviour it '
-  + 'guards is covered by CAT-003 and CAT-004.');
-na('CAT-002', 'Gate 3', 'Catch',
-  'there is no manual catch button in this game: catches resolve from position and rating. The '
-  + 'design decision is deliberate (see DESIGN.md control grammar), so there is no input window '
-  + 'to sweep.');
+test('CAT-001', 'Gate 3', 'Catch', () => {
+  const m = makeMatch(); const receiver = m.world.athletes[1]; const defender = m.world.athletes[7];
+  receiver.x = 1.9; receiver.z = 0; receiver.facing = 0;
+  defender.x = 1.9; defender.z = 0; defender.facing = 0;
+  const targetInside = evaluateBallReach(receiver, 0, 1.5, 0, 'NORMAL', true, false).eligible;
+  receiver.x = 2.1;
+  const targetOutside = evaluateBallReach(receiver, 0, 1.5, 0, 'NORMAL', true, false).eligible;
+  const defenderEnlarged = evaluateBallReach(defender, 0, 1.5, 0, 'NORMAL', false, true).eligible;
+  return { ok: targetInside && !targetOutside && !defenderEnlarged,
+    detail: `intended@1.9=${targetInside} intended@2.1=${targetOutside} defender@1.9=${defenderEnlarged}` };
+});
+test('CAT-002', 'Gate 3', 'Catch', () => {
+  const m = makeMatch(); const receiver = m.world.athletes[1];
+  m.world.ball.state = { kind: 'inAir', from: 0, intended: receiver.id, passKind: 'NORMAL',
+    t: 0.2, flightTime: 1, sx: 0, sy: 1.85, sz: 0, tx: 0, ty: 1.55, tz: 10,
+    arc: 1, contested: false, attemptMask: 0 };
+  applyActions(m.world, receiver, { moveX: 0, moveZ: 0, aimX: 0, aimZ: 0,
+    held: Action.PROTECT, pressed: Action.PROTECT, released: 0 });
+  return { ok: receiver.ballPlayTechnique === 'POSSESSION' && receiver.ballPlayUntilTick > m.world.tick,
+    detail: `${receiver.ballPlayTechnique} latched through tick ${receiver.ballPlayUntilTick}` };
+});
 na('AI-001', 'Gate 3', 'AI',
   'defenders here react to the ball, not to a target identity — there is no "final target" value '
   + 'for the AI to read early, because target selection happens at release. Structurally immune '

@@ -6,7 +6,7 @@ import type { World } from '../sim/world.ts';
 import { OFF_START, DEF_START, dirOf, goalOf, carrier } from '../sim/world.ts';
 import { routeSteer } from '../sim/playRunner.ts';
 import { baseSpeed, turboSpeed, topSpeed, interceptPoint } from '../sim/movement.ts';
-import { ballLead, ballArrival, kickReturner } from '../sim/catching.ts';
+import { ballLead, ballArrival, defenderBallGeometry, kickReturner } from '../sim/catching.ts';
 import type { AiProfile } from './difficulty.ts';
 
 const steer = { x: 0, z: 0, turbo: false };
@@ -146,8 +146,17 @@ function offenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
         out.moveZ = (arrival.z - a.z) / Math.max(0.001, d);
         out.held |= Action.TURBO;
         if (arrival.eta < 0.34 && d < 3.0) {
-          if (w.ball.y > 2.1 && w.rng.chance(0.4)) out.held |= Action.JUMP;
-          else if (d > 1.4 && w.rng.chance(0.35 * ctx.profile.catchFocus)) out.held |= Action.DIVE;
+          let nearest = 99;
+          for (const defender of w.athletes) {
+            if (defender.side === a.side || defender.move === 'DOWN') continue;
+            nearest = Math.min(nearest, dist(defender.x, defender.z, a.x, a.z));
+          }
+          const screen = w.offensePlay?.tags.includes('SCREEN') ?? false;
+          if (screen && Math.abs(arrival.x) <= FIELD_HALF_WIDTH - 1) out.held |= Action.ACTION;
+          else if (w.ball.y > 2.1) out.held |= Action.JUMP;
+          else if (d > 1.4) out.held |= Action.DIVE;
+          else if (Math.abs(arrival.x) > FIELD_HALF_WIDTH - 1 || nearest < 1.7) out.held |= Action.PROTECT;
+          else out.held |= Action.ACTION;
         }
       }
     }
@@ -590,8 +599,20 @@ function defenseAI(w: World, a: Athlete, out: PlayerIntent, ctx: AiContext): voi
       const d = dist(a.x, a.z, arrival.x, arrival.z);
       if (d < 22) {
         pursue(w, a, arrival.x, arrival.z, out, ctx, 1);
-        if (arrival.eta < 0.3 && d < 3.0 && w.rng.chance(0.3 + p.catchFocus * 0.4)) {
-          out.held |= Action.JUMP;
+        // Break from the projected arrival point to the visible football for the final hand-play
+        // window. The distance guard prevents remote defenders from homing toward the ball.
+        if (arrival.eta < 0.3 && d < 3.0) {
+          const ballDistance = dist(a.x, a.z, w.ball.x, w.ball.z);
+          if (ballDistance > 0.15) {
+            out.moveX = (w.ball.x - a.x) / ballDistance;
+            out.moveZ = (w.ball.z - a.z) / ballDistance;
+            if (a.turbo > 8) out.held |= Action.TURBO;
+          }
+          const target = st.intended === null ? null : w.athletes[st.intended];
+          const geometry = defenderBallGeometry(
+            a, target, w.ball.x, w.ball.z, st.tx - st.sx, st.tz - st.sz,
+          );
+          out.held |= geometry.inPhase ? Action.JUMP : Action.DIVE;
         }
         return;
       }

@@ -1,0 +1,41 @@
+{
+  "fingerprint": {
+    "tool": "deepprobe",
+    "buildVersion": "1.0.0",
+    "gitCommit": "e3a82dc",
+    "rulesVersion": 2,
+    "firstDownYards": 30,
+    "seeds": "9100..9199",
+    "teams": "rotating home/away over TEAM_IDS",
+    "difficulty": "PRO",
+    "quarterSeconds": 120,
+    "assistProfile": "NONE",
+    "policy": null,
+    "generatedAt": "2026-08-10T01:53:01.280Z",
+    "node": "v22.23.2"
+  },
+  "config": {
+    "games": 100,
+    "seedStart": 9100,
+    "seedEnd": 9199,
+    "deepAir": 18
+  },
+  "shots": 2101,
+  "completed": 728,
+  "intercepted": 22,
+  "failed": 1351,
+  "completionRate": 0.34650166587339365,
+  "means": {
+    "airYards": 41.64721617573007,
+    "flightSeconds": 2.162665623276318,
+    "separationAtThrow": 7.552831300038264,
+    "separationAtArrival": 4.222160941855811,
+    "separationChange": -3.330670358182453,
+    "correction": 17.88282076559156,
+    "defenderTurbo": 56.2221085197522,
+    "completionSeparationAtThrow": 7.3588549117865,
+    "completionSeparationAtArrival": 3.4585801473980626,
+    "failureSeparationAtThrow": 7.676776254508433,
+    "failureSeparationAtArrival": 4.681064618336968
+  }
+}

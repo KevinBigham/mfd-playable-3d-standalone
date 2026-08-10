@@ -366,7 +366,10 @@ Full detail in QA_REPORT.md. Headline numbers:
 
 ## ACTIVE BLOCKERS
 
-None.
+The PLAY THE BALL release is functionally complete but cannot be called GREEN against its own
+balance contract: physically valid defender-possession events measure 0.8% on development seeds
+and 0.9% on the untouched holdout, below the requested 9–15%. Do not restore the former magnetic
+interception radius or tune against the holdout to erase this result.
 
 ## KNOWN LIMITATIONS
 
@@ -397,15 +400,15 @@ None.
   margin, and roughly a quarter of matches finish 28+ apart. That is the nature of ~10 scoring
   drives a game; comeback assist bounds it rather than removing it.
 - The crowd is instanced billboards; it reads as a crowd, not as individuals.
-- Instant replay covers scores and turnovers only, not arbitrary rewind.
+- Instant replay packages ten decisive event categories, but remains a bounded 6.5-second clip
+  rather than arbitrary rewind.
 - Mid-match save is a single slot with no manual slot management, and it is cleared the moment the
   game is resumed. That is deliberate — it is "put the controller down", not a save-state library —
   but it means there is no way to keep two games going at once.
-- Planted feet still slip about a yard a second even running straight, and about 2.3 yd/s on
-  average. The swing plane now follows the path rather than the chest, which took 15 % off the mean
-  (QA_REPORT.md §12.11); the rest is structural — stride length is derived from smoothed ground
-  speed, so a cadence mismatch scrubs the shoe. Removing it needs world-space foot placement and a
-  leg solved to reach it, which is a different architecture for the pose layer.
+- Native two-bone planted-leg IK now keeps the simulation root untouched. The deterministic release
+  scenarios pass (straight p95 1.195, moderate p95 0.862, hard-cut mean 0.827/p95 5.296 yd/s), but
+  the broad live census still has hard-cut outliers (p95 14.042). Treat that aggregate tail as a
+  presentation limitation, not as an authoritative movement error.
 - **First downs are rare at 2.3 per team per game** — 4.6 across both teams, over 200 games at
   PRO on 2:00 quarters. This entry used to read "4.3 per team". It was wrong: `simulateBatch`
   summed both teams into `avgFirstDowns` and divided by games only, one line above the passing
@@ -425,12 +428,10 @@ None.
   stick that moves the quarterback, so no script can measure it honestly (QA_REPORT.md §12.12). It
   cannot affect CPU-versus-CPU play — the AI passes no placement — but whether it feels good needs
   a person with a controller.
-- Nothing the player decides about a throw measurably changes the outcome: over 20 games per arm,
-  reading the play, choosing the throw type and hammering one button all landed within noise of
-  each other. That is a skill-expression gap, not a difficulty setting.
-- Screens still measure about zero on half a call a game. The quick game recovered to 6.2 yd/play
-  once BLOCK-node holds started expiring, but screens did not, and the sample is small enough
-  (about 19 plays over 24 games) that the number is not yet trustworthy either way.
+- Manual receiver techniques now change reach/control tradeoffs through the existing action bits;
+  whether those four choices feel distinct under a real controller remains a human-playtest item.
+- Screens measure 6.5172 yd/play on development seeds and 4.0926 on holdout. The samples remain
+  modest (29 / 54 selected plays), so preserve both ranges rather than tuning to either headline.
 - Plays per game is 54.7 against a 55 floor — out of band. It fell from 59.6 over the course of M15:
   every fix that made the offence better made drives end sooner. Sacks at 4.1 sit on their floor of
   4 for a different and deliberate reason (the hot read).
@@ -451,9 +452,9 @@ npm run gait       npm run touch      npm run anthro     npm run roster
 
 ## Current standalone mission status
 
-Native movement intelligence, replay director, replay photo mode, and bounded hard-cut foot
-anchoring are implemented. See `reports/final-validation.md` for the authoritative YELLOW receipt:
-the deterministic, acceptance, browser, artifact, stadium, and performance gates pass. The
-renderer-level foot-slip gate is now valid and repeatable, but hard-cut p95 slip remains high
-enough to require visual acceptance or a deeper pose/stance correction before an unconditional
-GREEN release claim.
+Native movement intelligence, replay/photo mode, planted-leg IK, ball-targeted catch presentation,
+receiver control transfer, four receiver techniques, defender play-ball/swat geometry, one-foot
+arcade possession and bounded replay cues are implemented. See
+`reports/play-the-ball/FINAL_VALIDATION.md` for the authoritative YELLOW receipt. Every functional,
+deterministic, browser, lifecycle, performance and offline-artifact gate passes; the release stays
+YELLOW only because defender possessions miss the declared 9–15% balance envelope.

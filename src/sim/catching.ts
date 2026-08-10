@@ -1,16 +1,21 @@
-import type { Athlete } from '../core/types.ts';
+import type {
+  Athlete, DefenderBallTechnique, PassKind, ReceiverCatchTechnique,
+} from '../core/types.ts';
 import {
   CATCH_RADIUS_BY_KIND, CATCH_HANDS_SCALE, CATCH_TARGET_RADIUS_SCALE,
+  CATCH_TARGET_BEHIND_SCALE, CATCH_EXTEND_RADIUS_SCALE, DEFENDER_BEHIND_RADIUS_SCALE,
   INT_BASE, CONTEST_PENALTY, DROP_PRESSURE,
   OVERDRIVE_CATCH, BOBBLE_CONTESTED, BOBBLE_BULLET, BOBBLE_DIVING, BOBBLE_POP, BOBBLE_SCATTER,
   BOBBLE_GRAB, SWAT_TIP_UP, TIP_SELF_PENALTY, s,
-  COVER_TIGHT_YD, COVER_CATCH_PENALTY, COVER_BREAKUP_YD, COVER_BREAKUP_MAX, COVER_FLIGHT_FULL_S,
+  COVER_TIGHT_YD, COVER_BREAKUP_YD, COVER_CATCH_PENALTY, COVER_FLIGHT_FULL_S,
   SCREEN_DIAGNOSE_TICKS, TIP_OFFENSE_TRACK,
+  FIELD_HALF_WIDTH, FIXED_DT, SIDELINE_FOOT_HALF_STANCE, SIDELINE_EPSILON,
+  CATCH_CONTACT_NORMALIZED, CATCH_CONTACT_ARRIVAL_S,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist } from '../core/math.ts';
 import type { World } from './world.ts';
 import { dirOf } from './world.ts';
-import { giveBall, dropLoose, killBall, bobbleBall } from './ball.ts';
+import { giveBall, dropLoose, killBall, bobbleBall, hasBallAttempt, markBallAttempt } from './ball.ts';
 import { knockDown, startJump } from './movement.ts';
 
 const STAND_REACH = 2.35;
@@ -21,7 +26,115 @@ function reachOf(a: Athlete): number {
   return (jumping ? JUMP_REACH : STAND_REACH) + a.y + (a.def.build - 0.5) * 0.25;
 }
 
-export interface CatchCandidate { a: Athlete; d: number; claim: number }
+export interface BallReach {
+  eligible: boolean;
+  normalized: number;
+  forward: number;
+  lateral: number;
+  radiusForward: number;
+  radiusLateral: number;
+}
+
+export interface CatchCandidate {
+  a: Athlete;
+  d: number;
+  claim: number;
+  reach: BallReach;
+  receiverTechnique: ReceiverCatchTechnique;
+  defenderTechnique: DefenderBallTechnique;
+}
+
+export function compareCatchCandidates(p: CatchCandidate, q: CatchCandidate): number {
+  return (q.claim - p.claim) || (p.a.id - q.a.id);
+}
+
+function defaultReceiverTechnique(a: Athlete): ReceiverCatchTechnique {
+  if (a.move === 'DIVE') return 'EXTEND';
+  if (a.move === 'JUMP' || a.move === 'HURDLE' || a.move === 'HIGH_HURDLE') return 'AGGRESSIVE';
+  const t = a.ballPlayUntilTick >= 0 ? a.ballPlayTechnique : 'BALANCED';
+  return t === 'RAC' || t === 'POSSESSION' || t === 'AGGRESSIVE' || t === 'EXTEND' ? t : 'BALANCED';
+}
+
+function defaultDefenderTechnique(a: Athlete): DefenderBallTechnique {
+  const t = a.ballPlayUntilTick >= 0 ? a.ballPlayTechnique : 'AUTO';
+  return t === 'PLAY_BALL' || t === 'SWAT' ? t : 'AUTO';
+}
+
+/**
+ * Actual hands-and-body reach in the athlete's local frame. The old scalar bubble made a ball
+ * behind a defender as catchable as one in front; this keeps the receiver's generous lateral
+ * window while making body orientation matter.
+ */
+export function evaluateBallReach(
+  a: Athlete, ballX: number, ballY: number, ballZ: number, passKind: PassKind,
+  isTarget: boolean, isDefense: boolean, technique: ReceiverCatchTechnique = 'BALANCED',
+): BallReach {
+  const dx = ballX - a.x, dz = ballZ - a.z;
+  const forward = dx * Math.sin(a.facing) + dz * Math.cos(a.facing);
+  const lateral = dx * Math.cos(a.facing) - dz * Math.sin(a.facing);
+  const base = (CATCH_RADIUS_BY_KIND[passKind] ?? 1.35)
+    * (1 + (a.def.ratings.hands - 50) * CATCH_HANDS_SCALE)
+    * (a.onFire ? OVERDRIVE_CATCH : 1)
+    * (a.move === 'JUMP' ? 1.15 : 1);
+  let forwardScale = 0.92;
+  let lateralScale = 0.92;
+  if (isTarget && !isDefense) {
+    forwardScale = technique === 'EXTEND' ? CATCH_EXTEND_RADIUS_SCALE : CATCH_TARGET_RADIUS_SCALE;
+    lateralScale = forwardScale;
+    if (forward < 0) forwardScale = CATCH_TARGET_BEHIND_SCALE;
+  } else if (isDefense && forward < 0) {
+    forwardScale = DEFENDER_BEHIND_RADIUS_SCALE;
+  }
+  const radiusForward = Math.max(0.05, base * forwardScale);
+  const radiusLateral = Math.max(0.05, base * lateralScale);
+  const normalized = Math.hypot(forward / radiusForward, lateral / radiusLateral);
+  const vertical = ballY >= 0.25 && ballY <= reachOf(a);
+  return { eligible: vertical && normalized <= 1, normalized, forward, lateral, radiusForward, radiusLateral };
+}
+
+export interface DefenderBallGeometry {
+  facing: number;
+  lateralSeparation: number;
+  trail: number;
+  inPhase: boolean;
+}
+
+export function defenderBallGeometry(
+  defender: Athlete, receiver: Athlete | null, ballX: number, ballZ: number,
+  pathX: number, pathZ: number,
+): DefenderBallGeometry {
+  const toX = ballX - defender.x, toZ = ballZ - defender.z;
+  const toLen = Math.hypot(toX, toZ);
+  const facing = toLen < 1e-6 ? 1
+    : clamp((toX * Math.sin(defender.facing) + toZ * Math.cos(defender.facing)) / toLen, -1, 1);
+  const pathLen = Math.hypot(pathX, pathZ) || 1;
+  const px = pathX / pathLen, pz = pathZ / pathLen;
+  let lateralSeparation = 99; let trail = -99;
+  if (receiver) {
+    const rx = defender.x - receiver.x, rz = defender.z - receiver.z;
+    lateralSeparation = Math.abs(rx * pz - rz * px);
+    trail = rx * px + rz * pz;
+  }
+  const inPhase = facing >= 0.25 && lateralSeparation <= 1.25 && trail >= -0.75;
+  return { facing, lateralSeparation, trail, inPhase };
+}
+
+export function automaticDefenderTechnique(g: DefenderBallGeometry): DefenderBallTechnique {
+  return g.inPhase ? 'PLAY_BALL' : 'SWAT';
+}
+
+/** One-foot arcade boundary check, using simulation stance rather than renderer bones. */
+export function oneFootInBounds(a: Athlete): { legal: boolean; sideline: boolean; projectedX: number } {
+  let projectedX = a.x;
+  if (a.move === 'JUMP' || a.move === 'DIVE') {
+    const remaining = Math.min(0.75, Math.max(0, a.moveTicks) * FIXED_DT);
+    projectedX += a.vx * remaining;
+  }
+  const footOffset = Math.cos(a.facing) * SIDELINE_FOOT_HALF_STANCE;
+  const limit = FIELD_HALF_WIDTH + SIDELINE_EPSILON;
+  const legal = Math.abs(projectedX - footOffset) <= limit || Math.abs(projectedX + footOffset) <= limit;
+  return { legal, sideline: Math.abs(projectedX) >= FIELD_HALF_WIDTH - 0.55, projectedX };
+}
 
 /**
  * The deep man on a kick return: whoever on the receiving team lined up furthest from the kicker.
@@ -80,129 +193,186 @@ export function fieldKickoff(w: World): boolean {
  */
 export function resolveAirBall(w: World): boolean {
   const st = w.ball.state;
-  if (st.kind !== 'inAir') return false;
+  if (st.kind !== 'inAir' || st.t < 0.055) return false;
   const b = w.ball;
-
-  // Only allow contests once the ball has cleared the thrower a bit.
-  if (st.t < 0.055) return false;
-
+  const offenseSide = w.athletes[st.from].side;
+  const target = st.intended === null ? null : w.athletes[st.intended];
   const cands: CatchCandidate[] = [];
+
   for (const a of w.athletes) {
     if (a.id === st.from && st.t < 0.35) continue;
     if (a.move === 'DOWN' || a.move === 'GETUP' || a.move === 'STUNNED') continue;
-    const reach = reachOf(a);
-    if (b.y > reach || b.y < 0.25) continue;
-    const d = dist(a.x, a.z, b.x, b.z);
+    const isDefense = a.side !== offenseSide;
+    if (isDefense && hasBallAttempt(st, a.id)) continue;
     const isTarget = a.id === st.intended;
-    const kindR = CATCH_RADIUS_BY_KIND[st.passKind] ?? 1.35;
-    const r = kindR
-      * (1 + (a.def.ratings.hands - 50) * CATCH_HANDS_SCALE)
-      // Widen only the intended receiver's hands-and-body envelope. Raising the pass-kind base
-      // would also give defenders magnetic interception reach; this keeps their existing radius
-      // while making a well-placed throw within roughly two yards catch-eligible.
-      * (isTarget ? CATCH_TARGET_RADIUS_SCALE : 0.92)
-      * (a.onFire ? OVERDRIVE_CATCH : 1)
-      * (a.move === 'JUMP' ? 1.15 : 1);
-    if (d > r) continue;
-    const claim = (r - d) + (isTarget ? 0.55 : 0) + (a.def.ratings.awareness - 50) * 0.004;
-    cands.push({ a, d, claim });
+    let receiverTechnique = defaultReceiverTechnique(a);
+    if (a.ballPlayUntilTick < w.tick && receiverTechnique !== 'AGGRESSIVE' && receiverTechnique !== 'EXTEND') {
+      receiverTechnique = 'BALANCED';
+    }
+    let reach = evaluateBallReach(a, b.x, b.y, b.z, st.passKind, isTarget, isDefense, receiverTechnique);
+    if (!reach.eligible) continue;
+    const d = dist(a.x, a.z, b.x, b.z);
+    const claim = (1 - reach.normalized) + (isTarget ? 0.55 : 0)
+      + (a.def.ratings.awareness - 50) * 0.004;
+    cands.push({
+      a, d, claim, reach, receiverTechnique,
+      defenderTechnique: defaultDefenderTechnique(a),
+    });
   }
   if (cands.length === 0) return false;
+  cands.sort(compareCatchCandidates);
 
-  cands.sort((p, q) => q.claim - p.claim);
-  const winner = cands[0].a;
-  const contested = cands.length > 1 && cands[1].d < cands[0].d + 1.4
-    && cands[1].a.side !== winner.side;
+  let receiver: CatchCandidate | null = null;
+  let defender: CatchCandidate | null = null;
+  for (const c of cands) {
+    if (c.a.side === offenseSide) { if (!receiver) receiver = c; }
+    else if (!defender) defender = c;
+  }
+  if (!receiver && !defender) return false;
+  const remaining = st.flightTime - st.t;
+  let nearbyCoverage = false;
+  if (receiver) {
+    for (const athlete of w.athletes) {
+      if (athlete.side === receiver.a.side || athlete.move === 'DOWN' || athlete.move === 'GETUP') continue;
+      if (dist(athlete.x, athlete.z, receiver.a.x, receiver.a.z) <= COVER_BREAKUP_YD) {
+        nearbyCoverage = true; break;
+      }
+    }
+  }
+  if (!defender && receiver && nearbyCoverage
+      && receiver.reach.normalized > CATCH_CONTACT_NORMALIZED
+      && remaining > CATCH_CONTACT_ARRIVAL_S) return false;
+  const contested = !!receiver && !!defender && Math.abs(receiver.claim - defender.claim) <= 0.75;
+  const contact = { x: b.x, y: b.y, z: b.z };
+  const primaryRoll = w.rng.next();
+  let receiverRoll = primaryRoll;
 
-  const isDefense = winner.side !== w.athletes[st.from].side;
-  const diving = winner.move === 'DIVE' || winner.move === 'JUMP';
-
-  if (isDefense) {
-    // Defender arrives: intercept, swat, or fail to do either.
-    const facingBall = 1;
-    const intChance = clamp01(
+  // A defender whose hand can physically reach the ball gets one play regardless of the target
+  // receiver's route/awareness claim bonus. Geometry and the primary roll decide whether that
+  // play succeeds; a miss leaves the same roll's remainder for the receiver.
+  if (defender) {
+    const d = defender.a;
+    const geometry = defenderBallGeometry(d, target, b.x, b.z, st.tx - st.sx, st.tz - st.sz);
+    let technique = defender.defenderTechnique;
+    if (d.ballPlayUntilTick < w.tick || technique === 'AUTO') technique = automaticDefenderTechnique(geometry);
+    const facingQuality = clamp01((geometry.facing + 0.15) / 1.15);
+    const reachQuality = clamp01(1 - defender.reach.normalized * 0.55);
+    const canPick = technique === 'PLAY_BALL' && geometry.inPhase;
+    const intChance = canPick ? clamp01(
       INT_BASE
-      + (winner.def.ratings.hands - 50) * 0.006
-      + (winner.def.ratings.awareness - 50) * 0.005
-      + (winner.move === 'JUMP' ? 0.10 : 0)
+      + (d.def.ratings.hands - 50) * 0.006
+      + (d.def.ratings.awareness - 50) * 0.005
+      + (d.move === 'JUMP' ? 0.10 : 0)
       - (st.passKind === 'BULLET' ? 0.16 : 0)
-      - (contested ? 0.20 : 0),
-    ) * facingBall;
-    if (w.rng.chance(intChance)) {
-      giveBall(w, winner.id);
-      w.bus.emit({ type: 'interception', tick: w.tick, by: winner.id });
-      w.bus.emit({ type: 'camera.impulse', tick: w.tick, power: 0.7, at: { x: winner.x, y: 1, z: winner.z } });
-      w.bus.emit({ type: 'crowd.swell', tick: w.tick, power: 1, side: winner.side });
+      - (contested ? 0.16 : 0),
+    ) * facingQuality * reachQuality : 0;
+    const swatRaw = 0.90
+      + (d.def.ratings.awareness - 50) * 0.004
+      + (technique === 'SWAT' ? 0.18 : 0)
+      - (st.passKind === 'BULLET' ? 0.06 : 0)
+      - defender.reach.normalized * 0.18;
+    // Facing is decisive for possession, but a defender who has physically put a hand inside the
+    // ellipse may still bat the ball while trailing or looking through the receiver. SWAT is the
+    // deliberate safe technique; a failed PLAY_BALL attempt has less fallback breakup control.
+    const swatFacing = (technique === 'SWAT' ? 0.95 : 0.40)
+      + facingQuality * (technique === 'SWAT' ? 0.05 : 0.40);
+    const swatChance = clamp01(swatRaw) * swatFacing;
+    const swatCut = intChance + (1 - intChance) * swatChance;
+    markBallAttempt(st, d.id);
+
+    if (primaryRoll < intChance) {
+      const boundary = oneFootInBounds(d);
+      if (!boundary.legal) {
+        w.bus.emit({ type: 'drop', tick: w.tick, by: d.id, at: contact, technique: 'PLAY_BALL',
+          sideline: true, reason: 'OUT_OF_BOUNDS' });
+        killBall(w);
+        w.ball.x = contact.x; w.ball.y = 0.3; w.ball.z = contact.z;
+        return true;
+      }
+      giveBall(w, d.id);
+      w.bus.emit({ type: 'interception', tick: w.tick, by: d.id, at: contact, technique: 'PLAY_BALL' });
+      w.bus.emit({ type: 'camera.impulse', tick: w.tick, power: 0.7, at: { x: d.x, y: 1, z: d.z } });
+      w.bus.emit({ type: 'crowd.swell', tick: w.tick, power: 1, side: d.side });
       return true;
     }
-    // Swat. Batting a ball DOWN is one outcome and batting it UP is another, and the second one
-    // is where tipped interceptions come from — the defender gets a hand on it, the ball hangs,
-    // and everyone in the area has a play on it. A swat that pops up is the most common tip in
-    // football and the game was resolving all of them as an instant incompletion.
-    w.bus.emit({ type: 'swat', tick: w.tick, by: winner.id });
-    if (st.passKind === 'LATERAL') {
-      dropLoose(w, winner.id, w.rng.spread(5), 4.5, w.rng.spread(5), false);
-    } else if (w.rng.chance(SWAT_TIP_UP)) {
-      w.bus.emit({ type: 'bobble', tick: w.tick, by: winner.id, contested });
-      bobbleBall(w, winner.id, w.rng.spread(BOBBLE_SCATTER * 1.4), BOBBLE_POP + w.rng.range(0, 1.8), w.rng.spread(BOBBLE_SCATTER * 1.4));
-    } else {
-      killBall(w);
-      w.ball.x = b.x; w.ball.y = 0.3; w.ball.z = b.z;
+    if (primaryRoll < swatCut) {
+      w.bus.emit({ type: 'swat', tick: w.tick, by: d.id, at: contact, technique });
+      if (st.passKind === 'LATERAL') {
+        dropLoose(w, d.id, w.rng.spread(5), 4.5, w.rng.spread(5), false);
+      } else if (((primaryRoll * 65536) % 1) < SWAT_TIP_UP) {
+        w.bus.emit({ type: 'bobble', tick: w.tick, by: d.id, contested });
+        bobbleBall(w, d.id, w.rng.spread(BOBBLE_SCATTER * 1.4), BOBBLE_POP + w.rng.range(0, 1.8), w.rng.spread(BOBBLE_SCATTER * 1.4));
+      } else {
+        killBall(w);
+        w.ball.x = contact.x; w.ball.y = 0.3; w.ball.z = contact.z;
+      }
+      return true;
     }
+    // Conditional remainder of the same primary roll; no second gameplay die is drawn.
+    receiverRoll = swatCut < 0.999 ? clamp01((primaryRoll - swatCut) / (1 - swatCut)) : 1;
+    if (!receiver) return false;
+  }
+
+  if (!receiver) return false;
+  const winner = receiver.a;
+  const technique = receiver.receiverTechnique === 'BALANCED'
+    ? contextualReceiverTechnique(w, receiver, contested) : receiver.receiverTechnique;
+  const boundary = oneFootInBounds(winner);
+  if (!boundary.legal) {
+    w.bus.emit({ type: 'drop', tick: w.tick, by: winner.id, at: contact, technique,
+      sideline: true, reason: 'OUT_OF_BOUNDS' });
+    killBall(w);
+    w.ball.x = contact.x; w.ball.y = 0.3; w.ball.z = contact.z;
     return true;
   }
 
-  // Receiver catch — but coverage matters CONTINUOUSLY now (rules v2). The old contest was
-  // binary: a defender either physically reached the ball or did not exist, which made deep
-  // completions a pure accuracy lottery and made reading leverage worthless. The nearest live
-  // defender's distance to the catch point pressures the outcome even when he cannot touch it.
-  let defDist = 99; let nearDef: Athlete | null = null;
+  let defDist = 99;
   for (const d of w.athletes) {
     if (d.side === winner.side || d.move === 'DOWN' || d.move === 'GETUP' || d.move === 'STUNNED') continue;
-    const dd = dist(d.x, d.z, winner.x, winner.z);
-    if (dd < defDist) { defDist = dd; nearDef = d; }
+    defDist = Math.min(defDist, dist(d.x, d.z, winner.x, winner.z));
   }
-  // The pass breakup: a defender in phase, close but not to the ball, gets an honest play on it.
-  // A throw into tight coverage now dies as a legible PBU far more often than as a takeaway.
   const flightScale = clamp01(st.flightTime / COVER_FLIGHT_FULL_S);
-  if (!contested && nearDef && defDist < COVER_BREAKUP_YD) {
-    const breakup = (COVER_BREAKUP_MAX * (1 - defDist / COVER_BREAKUP_YD)
-      + (nearDef.def.ratings.awareness - 50) * 0.003) * flightScale;
-    if (w.rng.chance(clamp01(breakup))) {
-      w.bus.emit({ type: 'swat', tick: w.tick, by: nearDef.id });
-      killBall(w);
-      w.ball.x = b.x; w.ball.y = 0.3; w.ball.z = b.z;
-      return true;
-    }
-  }
   const coverage = contested ? 0 : clamp01((COVER_TIGHT_YD - defDist) / COVER_TIGHT_YD) * flightScale;
   const pressure = contested ? CONTEST_PENALTY : coverage * COVER_CATCH_PENALTY;
+  const highOrContested = b.y > 2.25 || contested;
+  const screenBonus = w.offensePlay?.tags.includes('SCREEN') ? 0.45 : 0;
+  const compressedTechniqueBonus = w.offensePlay?.tags.includes('QUICK')
+    && Math.abs((winner.side === 0 ? 100 : 0) - w.losZ) <= 12
+    && (technique === 'POSSESSION' || technique === 'AGGRESSIVE') ? 0.08 : 0;
+  const techniqueBonus = technique === 'POSSESSION' ? (boundary.sideline || contested ? 0.10 : 0.02)
+    : technique === 'AGGRESSIVE' ? (highOrContested ? 0.10 : -0.08)
+      : technique === 'EXTEND' ? -0.16 : 0;
+  const diving = technique === 'EXTEND' || winner.move === 'DIVE';
+  const extensionPenalty = receiver.reach.normalized > 0.78 ? (receiver.reach.normalized - 0.78) * 0.35 : 0;
   const catchChance = clamp01(
-    0.70
+    0.45
     + (winner.def.ratings.hands - 50) * 0.0075
     + (winner.id === st.intended ? 0.12 : -0.06)
     + (winner.onFire ? 0.10 : 0)
+    + screenBonus
+    + compressedTechniqueBonus
+    + techniqueBonus
+    - extensionPenalty
     - pressure
     - (st.passKind === 'BULLET' ? 0.06 : 0)
-    - (diving ? 0.10 : 0)
+    - (diving ? 0.06 : 0)
     - DROP_PRESSURE * (w.conditions.weather === 'RAIN' || w.conditions.weather === 'SNOW' ? 1 : 0),
   );
 
-  if (w.rng.chance(catchChance)) {
+  if (receiverRoll < catchChance) {
     const yards = (winner.side === 0 ? 1 : -1) * (winner.z - w.losZ);
+    const from = st.from; const sz = st.sz; const passKind = st.passKind;
     giveBall(w, winner.id);
+    if (technique === 'POSSESSION') { winner.vx *= 0.75; winner.vz *= 0.75; }
     w.lastCatcher = winner.id;
-    w.lastPassAirYards = Math.abs(w.ball.z - st.sz);
-    if (st.passKind === 'LATERAL') {
-      w.bus.emit({ type: 'lateral', tick: w.tick, from: st.from, to: winner.id });
+    w.lastPassAirYards = Math.abs(contact.z - sz);
+    if (passKind === 'LATERAL') {
+      w.bus.emit({ type: 'lateral', tick: w.tick, from, to: winner.id });
       return true;
     }
-    w.bus.emit({ type: 'catch', tick: w.tick, by: winner.id, contested, diving, yards });
+    w.bus.emit({ type: 'catch', tick: w.tick, by: winner.id, contested, diving, yards,
+      at: contact, technique, sideline: boundary.sideline });
     w.bus.emit({ type: 'crowd.swell', tick: w.tick, power: contested ? 0.9 : 0.5, side: winner.side });
-    // A completion BEHIND the line (a screen, a swing) has to be diagnosed before the defense
-    // converges — that beat of hesitation is the screen's entire payoff, and it never existed.
-    // The rush and the contain keep coming (their pursue gate ignores this queue), which is what
-    // keeps disciplined edge defense as the screen's honest counter.
     const dir = winner.side === 0 ? 1 : -1;
     if ((winner.z - w.losZ) * dir < -0.5) {
       for (const d of w.athletes) {
@@ -210,47 +380,48 @@ export function resolveAirBall(w: World): boolean {
         d.reactionQueue = Math.max(d.reactionQueue, SCREEN_DIAGNOSE_TICKS);
       }
     }
-    if (contested) {
-      const defender = cands[1].a;
-      if (w.rng.chance(0.45)) knockDown(defender, s(0.9));
+    if (contested && defender) {
+      // Reuse the contest roll: ball-skill resolution owns exactly one gameplay draw. The
+      // fractional lane is deterministic and cannot perturb the simulation RNG stream.
+      if (((primaryRoll * 4096) % 1) < 0.45) knockDown(defender.a, s(0.9));
       w.bus.emit({ type: 'camera.impulse', tick: w.tick, power: 0.5, at: { x: winner.x, y: 1, z: winner.z } });
     }
     return true;
   }
 
-  // A failed catch is not always a dead ball. When two men have hands on it — or when a receiver
-  // gets a hand to a hard throw and cannot squeeze it — the ball goes UP, and for the second or so
-  // it stays up, anybody can take it. This is the single best moment in arcade football and the
-  // game did not have it: every contested throw resolved instantly to caught or incomplete.
-  //
-  // It is deliberately not available on every drop. A wide-open receiver who drops a soft ball has
-  // dropped it; the juggle belongs to contact and to velocity.
+  const failRoll = catchChance < 0.999 ? clamp01((receiverRoll - catchChance) / (1 - catchChance)) : 1;
   if (st.passKind !== 'LATERAL') {
-    const bobbleChance = (contested ? BOBBLE_CONTESTED : 0)
+    const bobbleChance = clamp01((contested ? BOBBLE_CONTESTED : 0)
       + (st.passKind === 'BULLET' ? BOBBLE_BULLET : 0)
-      + (diving ? BOBBLE_DIVING : 0);
-    if (w.rng.chance(bobbleChance)) {
+      + (diving ? BOBBLE_DIVING : 0));
+    if (failRoll < bobbleChance) {
       w.bus.emit({ type: 'bobble', tick: w.tick, by: winner.id, contested });
       w.bus.emit({ type: 'crowd.swell', tick: w.tick, power: 0.55, side: winner.side });
-      // Straight up and mostly still: the ball has to hang long enough to be a contest, and it
-      // must not squirt so far that the players who were reaching for it can never reach it.
-      bobbleBall(
-        w, winner.id,
-        b.vx * 0 + w.rng.spread(BOBBLE_SCATTER), BOBBLE_POP + w.rng.range(0, 1.4),
-        w.rng.spread(BOBBLE_SCATTER),
-      );
+      bobbleBall(w, winner.id, w.rng.spread(BOBBLE_SCATTER), BOBBLE_POP + w.rng.range(0, 1.4), w.rng.spread(BOBBLE_SCATTER));
       return true;
     }
   }
 
-  w.bus.emit({ type: 'drop', tick: w.tick, by: winner.id });
-  if (st.passKind === 'LATERAL') {
-    dropLoose(w, winner.id, w.rng.spread(3), 3.0, w.rng.spread(3), false);
-  } else {
+  // Eligibility at maximum extension means the athlete can attempt the play, not that the ball
+  // necessarily touched a hand. Keep the drop census honest: failures near the body are drops;
+  // failures on the outer reach ellipse continue as untouched incompletions.
+  const touched = receiver.reach.normalized <= 0.72;
+  if (touched) w.bus.emit({ type: 'drop', tick: w.tick, by: winner.id, at: contact, technique,
+    sideline: boundary.sideline, reason: 'HANDS' });
+  if (st.passKind === 'LATERAL') dropLoose(w, winner.id, w.rng.spread(3), 3.0, w.rng.spread(3), false);
+  else {
     killBall(w);
-    w.ball.x = b.x; w.ball.y = 0.3; w.ball.z = b.z;
+    w.ball.x = contact.x; w.ball.y = 0.3; w.ball.z = contact.z;
   }
   return true;
+}
+
+function contextualReceiverTechnique(w: World, c: CatchCandidate, contested: boolean): ReceiverCatchTechnique {
+  const b = w.ball;
+  if (c.reach.normalized > 0.88 && c.reach.forward >= -0.05) return 'EXTEND';
+  if (b.y > 2.25 || contested) return 'AGGRESSIVE';
+  if (Math.abs(c.a.x) >= FIELD_HALF_WIDTH - 1) return 'POSSESSION';
+  return 'RAC';
 }
 
 /** Loose-ball recovery: whoever gets a body on it first, with a dive bonus. */
@@ -296,15 +467,18 @@ function resolveTippedBall(w: World): boolean {
   const b = w.ball;
   if (b.y < 0.3) return false;                 // on the deck: the down is over, not a scramble
 
-  let best: Athlete | null = null; let bestClaim = -1;
+  let best: Athlete | null = null; let bestReach: BallReach | null = null; let bestClaim = -Infinity;
   for (const a of w.athletes) {
     if (a.move === 'DOWN' || a.move === 'GETUP' || a.move === 'STUNNED') continue;
-    if (b.y > reachOf(a)) continue;
-    const d = dist(a.x, a.z, b.x, b.z);
-    const r = 1.5 * (1 + (a.def.ratings.hands - 50) * CATCH_HANDS_SCALE)
-      * (a.move === 'JUMP' ? 1.15 : 1);
-    if (d > r) continue;
-    const claim = (r - d) + (a.def.ratings.awareness - 50) * 0.004
+    if (hasBallAttempt(st, a.id)) continue;
+    const isDefense = a.side !== w.possession;
+    // The target relationship is gone after a tip, but a defender still has to see the current
+    // ball. This deliberately uses no future endpoint and grants no in-phase shortcut.
+    if (isDefense && defenderBallGeometry(a, null, b.x, b.z, b.vx, b.vz).facing < 0.25) continue;
+    const technique = !isDefense && a.move === 'DIVE' ? 'EXTEND' : 'BALANCED';
+    const reach = evaluateBallReach(a, b.x, b.y, b.z, 'NORMAL', false, isDefense, technique);
+    if (!reach.eligible) continue;
+    const claim = (1 - reach.normalized) + (a.def.ratings.awareness - 50) * 0.004
       // The man who caused the tip is the WORST placed to recover it, and he is also the one
       // standing closest, which is why the first version of this handed the defence a tipped
       // interception on two thirds of them. He swung through the ball; his hands are past it and
@@ -313,25 +487,44 @@ function resolveTippedBall(w: World): boolean {
       // The offense knows where this ball was supposed to be — they are tracking it, the defense
       // is reacting to it. Keeps a bobble a chaotic highlight instead of a 62% takeaway.
       + (a.side === w.possession ? TIP_OFFENSE_TRACK : 0);
-    if (claim > bestClaim) { bestClaim = claim; best = a; }
+    if (claim > bestClaim || (claim === bestClaim && best !== null && a.id < best.id)) {
+      bestClaim = claim; best = a; bestReach = reach;
+    }
   }
-  if (!best) return false;
+  if (!best || !bestReach) return false;
+
+  const boundary = oneFootInBounds(best);
+  if (!boundary.legal) {
+    markBallAttempt(st, best.id);
+    const contact = { x: b.x, y: b.y, z: b.z };
+    w.bus.emit({ type: 'drop', tick: w.tick, by: best.id,
+      at: contact,
+      technique: best.side === w.possession ? 'BALANCED' : 'PLAY_BALL',
+      sideline: true, reason: 'OUT_OF_BOUNDS' });
+    killBall(w);
+    w.ball.x = contact.x; w.ball.y = 0.3; w.ball.z = contact.z;
+    return true;
+  }
 
   const grab = clamp01(
     BOBBLE_GRAB + (best.def.ratings.hands - 50) * 0.006 + (best.onFire ? 0.1 : 0)
-    - (best.id === st.lastTouch ? TIP_SELF_PENALTY : 0),
+    - (best.id === st.lastTouch ? TIP_SELF_PENALTY : 0) - bestReach.normalized * 0.12,
   );
-  if (!w.rng.chance(grab)) return false;       // a hand on it and still no ball: it stays live
+  markBallAttempt(st, best.id);
+  if (w.rng.next() >= grab) return false;       // a hand on it and still no ball: it stays live
 
   const stolen = best.side !== w.possession;
+  const contact = { x: b.x, y: b.y, z: b.z };
   giveBall(w, best.id);
   w.lastCatcher = best.id;
   if (stolen) {
-    w.bus.emit({ type: 'interception', tick: w.tick, by: best.id });
+    w.bus.emit({ type: 'interception', tick: w.tick, by: best.id, at: contact, technique: 'PLAY_BALL' });
     w.bus.emit({ type: 'crowd.swell', tick: w.tick, power: 1, side: best.side });
   } else {
     const yards = (best.side === 0 ? 1 : -1) * (best.z - w.losZ);
-    w.bus.emit({ type: 'catch', tick: w.tick, by: best.id, contested: true, diving: best.move === 'DIVE', yards });
+    w.bus.emit({ type: 'catch', tick: w.tick, by: best.id, contested: true,
+      diving: best.move === 'DIVE', yards, at: contact,
+      technique: best.move === 'DIVE' ? 'EXTEND' : 'AGGRESSIVE', sideline: boundary.sideline });
     w.bus.emit({ type: 'crowd.swell', tick: w.tick, power: 0.95, side: best.side });
   }
   w.bus.emit({ type: 'camera.impulse', tick: w.tick, power: 0.8, at: { x: best.x, y: 1.4, z: best.z } });

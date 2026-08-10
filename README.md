@@ -15,11 +15,19 @@ exact drive and try to beat your score. Reworked pass coverage (rules v2) makes 
 beat button-mashing — receipts for every claim live in
 [`MOBILE_TRANSFORMATION_STATUS.md`](MOBILE_TRANSFORMATION_STATUS.md).
 
+**New — PLAY THE BALL is live.** Airborne contests now use deterministic body-local reach,
+facing, leverage and ball speed. Receivers can choose RAC, possession, aggressive or extension
+catches; defenders must physically reach the ball to intercept or swat it; one inbounds foot is
+enough under the arcade sideline rule. Native arm/leg IK presents catches, tips and toe taps without
+changing the fixed-step simulation or replay authority.
+
 **It plays on a phone.** Open [the link above](https://kevinbigham.github.io/mfd-playable-3d-standalone/)
 on your handset and hold it sideways. Your left thumb is a floating stick that appears wherever you
 put it; push past the ring for turbo. Everything else is your right thumb: tap **SNAP** to hike, tap
 the badge over a receiver to throw to him — and **drag off that badge to place the ball**, away from
 the defender or back to the sideline. Swipe to juke, hurdle and dive.
+Once control switches to the receiver, tap for RAC, hold for possession, swipe up to high-point,
+or swipe down to extend. A neutral stick follows the route; moving the stick takes full control.
 
 Use your browser's **Add to Home Screen** and it runs without browser chrome, which on a landscape
 phone is the scarce axis. A phone also gets its own graphics tier, its own camera framing and a
@@ -68,10 +76,11 @@ line of code was made for this project.
 
 ## LEGAL ORIGINALITY
 
-This game is **not affiliated with, endorsed by, or derived from** any real football league,
+This game is **not affiliated with or endorsed by** any real football league,
 players' association, team, athlete, broadcaster, arcade operator or console manufacturer. It
-contains no real-world names, marks, uniforms, likenesses or data, and reuses no code, art, audio
-or text from any existing game.
+contains no real-world names, marks, uniforms or likenesses, and reuses no code, art, audio or text
+from any existing game. Committed nflverse output is anonymous aggregate calibration data only;
+raw play-by-play remains offline and outside the shipped game.
 
 It was built clean-room. What it takes from the arcade football games of the late 1990s is the
 *design language* of the genre — short quarters, small squads, long chains, fast play selection,
@@ -120,13 +129,16 @@ npm run sim:batch    # 200 games
 npm run invariants   # 50 games with per-tick rules-invariant checking
 npm run acceptance   # the 61-test release matrix
 npm run smoke        # boots the real build in Chromium and plays a match to a final score
-npm run capture      # regenerates the 30-image visual review set in docs/captures/
+npm run capture      # regenerates the 31-image visual review set in docs/captures/
 npm run perf         # frame-time profile of moving gameplay at every quality preset
 npm run smoothness   # motion quality: animation churn, heading and position jerk, stride cadence
 npm run pacing       # frame pacing: apparent-speed jitter across eight display models
 npm run human        # scripts a PLAYER onto the sticks and checks what the game does about it
 npm run touch        # plays a down on a phone-sized screen with two thumbs and no keyboard
 npm run footslip     # do planted feet actually grip the turf, measured at the shoe
+npm run catchlab     # receiver IK error and close/gameplay-distance captures
+npm run balllab      # receiver + defender simulation/event/IK drills at 30/60/120 Hz
+npm run calibrate:passing -- --input-dir .cache/nflverse  # offline aggregate reference only
 npm run fieldpos     # where drives start, how kick returns go, and every safety explained
 npm run driveprobe   # yards and conversions by concept, down and distance
 npm run runprobe     # run-game autopsy: blockers, first contact, gain shape
@@ -218,7 +230,7 @@ far more than any other setting.
 
 ## ONE-FILE BUILD
 
-`npm run artifact` writes `dist-artifact/gridiron-overdrive.html` — the entire game, about 1 027 kB,
+`npm run artifact` writes `dist-artifact/gridiron-overdrive.html` — the entire game, about 1,144 kB,
 in a single document. No module imports, no stylesheet link, no fonts, no images, no network of any
 kind. Open it from a disk, email it to somebody, or drop it in an iframe and it plays. The same
 bytes are written to `docs/index.html`, which is what the play link at the top of this file serves,
@@ -267,12 +279,13 @@ photo mode with orbit, dolly, focus, touch orbit, and static camera-collision pr
 foot planting uses a render-only anchor and never writes into simulation state. Research provenance
 and validation receipts live in `docs/THIRD_PARTY_RESEARCH.md` and `reports/`.
 
-The authoritative validation status is currently **YELLOW**: typecheck, 324 unit tests,
-determinism, scenarios, invariants, browser presentation gates, and stadium gates pass. The
-renderer-level foot-slip gate now produces deterministic samples and is the default `footslip`
-command; `footslip:geometry` is only a matrix sanity check. Straight running is controlled, but
-hard cuts still have high slip outliers and require a final visual acceptance decision. Exact
-measurements and command results are in `reports/final-validation.md`.
+The authoritative validation status is currently **YELLOW**: typecheck, 366 unit tests,
+determinism, scenarios, invariants, browser presentation, controls, lifecycle, performance and the
+offline artifact pass. Completion (51.8% development / 50.7% holdout), deep completion, drops,
+physical swats, screens and goal-to-go remain inside their release bands. The sole blocker is an
+honest football-balance miss: physically valid defender possessions are 0.8% / 0.9%, below the
+planned 9–15% envelope. The implementation does not restore magnetic interceptions to manufacture
+that number. Exact receipts are in `reports/play-the-ball/FINAL_VALIDATION.md`.
 
 ## KNOWN LIMITATIONS
 

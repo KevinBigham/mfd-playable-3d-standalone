@@ -90,6 +90,22 @@ async function main(): Promise<void> {
         await advance(page, 20); await settle(page, 0.5); await page.waitForTimeout(400);
         await shot(`22-${tag}-live-${i}`);
       }
+      if (tag === 'clear') {
+        const ballPlay = await page.evaluate(() => {
+          const g = (window as any).GO; const m = g.match;
+          let found: any = null;
+          const stopSwat = m.bus.on('swat', (event: any) => { if (!found) found = event; });
+          const stopPick = m.bus.on('interception', (event: any) => { if (!found) found = event; });
+          let ticks = 0;
+          while (!found && !m.state.finished && ticks < 60000) { m.tick(); ticks++; }
+          stopSwat(); stopPick();
+          if (found) g.renderer.handleEvent(found);
+          return found ? { type: found.type, tick: found.tick, by: found.by, ticks } : null;
+        });
+        if (!ballPlay) throw new Error('No live defender ball play found within 60000 fixed steps');
+        await settle(page, 0.06); await page.waitForTimeout(400);
+        await shot(`24-clear-live-${ballPlay.type}`);
+      }
       // Run forward to a score and grab the celebration.
       await toPhase(page, 'SCORE_RESOLVE', 12000);
       await advance(page, 70);      // let the celebration get going before the shot

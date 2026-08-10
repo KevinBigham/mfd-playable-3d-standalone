@@ -1,11 +1,13 @@
 import type {
-  Athlete, AthleteId, DeadReason, DefensePlay, OffensePlay, PassKind, PlayerIntent, TeamSide,
+  Athlete, AthleteId, BallPlayTechnique, DeadReason, DefensePlay, OffensePlay, PassKind,
+  PlayerIntent, TeamSide,
 } from '../core/types.ts';
 import { Action, has } from '../input/actions.ts';
 import {
   FIELD_HALF_WIDTH, MOVE_TICKS, TURBO_COST, LEAD_TIME_SCALE, PASS_SPEED,
   OVERDRIVE_ACCURACY, PASS_ERROR_NEAR, PASS_ERROR_PER_YARD,
   PLACE_NEAR, PLACE_PER_YARD, PLACE_MAX, s, FIXED_DT, MOMENTUM_YARDS,
+  BALL_PLAY_LATCH_TICKS,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist, heading, angDelta } from '../core/math.ts';
 import type { World } from './world.ts';
@@ -282,6 +284,11 @@ export function tryLateral(w: World, car: Athlete): boolean {
 
 // ── per-athlete action application ─────────────────────────────────────────
 
+export function latchBallPlay(a: Athlete, technique: BallPlayTechnique, tick: number): void {
+  a.ballPlayTechnique = technique;
+  a.ballPlayUntilTick = tick + BALL_PLAY_LATCH_TICKS;
+}
+
 export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
   if (!canAct(a)) return;
   const car = carrier(w);
@@ -297,6 +304,9 @@ export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
   const onOffense = a.side === offenseSide;
   const pastLos = (a.z - w.losZ) * dir > 0.8;
   const turbo = has(it.held, Action.TURBO);
+  if (a.ballPlayUntilTick < w.tick) {
+    a.ballPlayTechnique = onOffense ? 'BALANCED' : 'AUTO';
+  }
 
   if (isCarrier) {
     // A pass requires a snapped ball. `applyActions` runs during PRE-SNAP as well — it has to,
@@ -385,8 +395,16 @@ export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
 
   if (onOffense) {
     // Non-carrier offense (free receiver / blocker under human control).
-    if (has(it.pressed, Action.JUMP)) startJump(a);
-    if (has(it.pressed, Action.DIVE)) startDive(a);
+    const receiving = w.ball.state.kind === 'inAir' && w.ball.state.intended === a.id;
+    if (receiving) {
+      if (has(it.held, Action.PROTECT)) latchBallPlay(a, 'POSSESSION', w.tick);
+      else if (has(it.pressed, Action.ACTION)) latchBallPlay(a, 'RAC', w.tick);
+      if (has(it.pressed, Action.JUMP)) { latchBallPlay(a, 'AGGRESSIVE', w.tick); startJump(a); }
+      if (has(it.pressed, Action.DIVE)) { latchBallPlay(a, 'EXTEND', w.tick); startDive(a); }
+    } else {
+      if (has(it.pressed, Action.JUMP)) startJump(a);
+      if (has(it.pressed, Action.DIVE)) startDive(a);
+    }
     if (has(it.pressed, Action.SPECIAL) && turbo) applyPush(w, a);
     return;
   }
@@ -394,11 +412,14 @@ export function applyActions(w: World, a: Athlete, it: PlayerIntent): void {
   // Defense.
   const ballInAir = w.ball.state.kind === 'inAir';
   if (has(it.pressed, Action.JUMP)) {
-    if (ballInAir) { startJump(a); return; }
+    if (ballInAir) { latchBallPlay(a, 'PLAY_BALL', w.tick); startJump(a); return; }
     if (turbo) { if (startPowerTackle(a)) return; }
     if (startDiveTackle(a)) return;
   }
-  if (has(it.pressed, Action.DIVE)) { startDiveTackle(a); return; }
+  if (has(it.pressed, Action.DIVE)) {
+    if (ballInAir) { latchBallPlay(a, 'SWAT', w.tick); startDive(a); return; }
+    startDiveTackle(a); return;
+  }
   if (has(it.pressed, Action.SPECIAL)) {
     if (turbo) { if (startPowerTackle(a)) return; }
     else if (spendTurbo(a, TURBO_COST.PUSH)) { applyPush(w, a); return; }

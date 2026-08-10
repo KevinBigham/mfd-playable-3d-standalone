@@ -1,4 +1,4 @@
-import type { AnimState, GameEvent, TeamSide } from '../core/types.ts';
+import type { AnimState, BallPlayCue, GameEvent, TeamSide } from '../core/types.ts';
 import type { World } from '../sim/world.ts';
 import { carryArm } from '../sim/ball.ts';
 import { FALLBACK_REPLAY_SHOTS, type MfdReplayShotSetV1, type ReplayEventKind, validateReplayShotSet, type ReplayShotV1 } from './replayShots.ts';
@@ -17,6 +17,7 @@ const FRAMES = Math.round(HZ * SECONDS);
 const ATHLETES = 14;
 const PER_ATHLETE = 6;   // x, y, z, facing, animPhase, carryArm
 const STRIDE = ATHLETES * PER_ATHLETE + 3;  // + ball xyz
+const MAX_BALL_PLAY_CUES = 32;
 
 export interface ReplayFrame {
   athletes: Array<{ x: number; y: number; z: number; facing: number; state: AnimState; phase: number; carry: number }>;
@@ -28,6 +29,10 @@ export class ReplayBuffer {
   private states = new Array<AnimState>(FRAMES * ATHLETES).fill('IDLE');
   private jerseys = new Int16Array(FRAMES * ATHLETES);
   private sides = new Uint8Array(FRAMES * ATHLETES);
+  private frameSerial = new Int32Array(FRAMES);
+  private ballPlayCues: Array<{ serial: number; cue: BallPlayCue }> = [];
+  private pendingBallPlayCues: BallPlayCue[] = [];
+  private serial = 0;
   private head = 0;
   private count = 0;
   private accum = 0;
@@ -37,7 +42,20 @@ export class ReplayBuffer {
     this.accum += dt;
     if (this.accum < 1 / HZ) return;
     this.accum = 0;
+    this.writeFrame(w);
+  }
+
+  /** Preserve a terminal ball-play cue even when the event changed LIVE to DEAD this tick. */
+  flushPending(w: World): void {
+    if (this.pendingBallPlayCues.length === 0) return;
+    this.accum = 0;
+    this.writeFrame(w);
+  }
+
+  private writeFrame(w: World): void {
     const base = this.head * STRIDE;
+    const serial = ++this.serial;
+    this.frameSerial[this.head] = serial;
     for (let i = 0; i < ATHLETES; i++) {
       const a = w.athletes[i];
       const o = base + i * PER_ATHLETE;
@@ -50,12 +68,24 @@ export class ReplayBuffer {
     }
     const b = base + ATHLETES * PER_ATHLETE;
     this.data[b] = w.ball.x; this.data[b + 1] = w.ball.y; this.data[b + 2] = w.ball.z;
+    for (const cue of this.pendingBallPlayCues) this.ballPlayCues.push({ serial, cue });
+    this.pendingBallPlayCues.length = 0;
+    const oldestSerial = serial - FRAMES + 1;
+    this.ballPlayCues = this.ballPlayCues.filter((entry) => entry.serial >= oldestSerial).slice(-MAX_BALL_PLAY_CUES);
     this.head = (this.head + 1) % FRAMES;
     this.count = Math.min(FRAMES, this.count + 1);
   }
 
   get length(): number { return this.count; }
   get ready(): boolean { return this.count >= HZ; }
+
+  /** Queue presentation metadata emitted by the authoritative simulation for the next frame. */
+  observe(event: GameEvent): void {
+    const cue = ballPlayCueFromEvent(event);
+    if (!cue) return;
+    this.pendingBallPlayCues.push(cue);
+    if (this.pendingBallPlayCues.length > MAX_BALL_PLAY_CUES) this.pendingBallPlayCues.shift();
+  }
 
   /** Read frame `i` counting back from the oldest retained frame (0 = oldest). */
   read(i: number, out: ReplayView): boolean {
@@ -73,10 +103,16 @@ export class ReplayBuffer {
     }
     const b = base + ATHLETES * PER_ATHLETE;
     out.ball.x = this.data[b]; out.ball.y = this.data[b + 1]; out.ball.z = this.data[b + 2];
+    out.cues.length = 0;
+    const serial = this.frameSerial[idx];
+    for (const entry of this.ballPlayCues) if (entry.serial === serial) out.cues.push(entry.cue);
     return true;
   }
 
-  clear(): void { this.count = 0; this.head = 0; this.accum = 0; }
+  clear(): void {
+    this.count = 0; this.head = 0; this.accum = 0; this.serial = 0;
+    this.ballPlayCues.length = 0; this.pendingBallPlayCues.length = 0;
+  }
 }
 
 export interface ReplayView {
@@ -85,6 +121,8 @@ export interface ReplayView {
     state: AnimState; jersey: number; side: number; carry: number;
   }>;
   ball: { x: number; y: number; z: number };
+  /** Bounded presentation-only cues associated with this recorded transform frame. */
+  cues: BallPlayCue[];
 }
 
 export function makeReplayView(): ReplayView {
@@ -92,7 +130,24 @@ export function makeReplayView(): ReplayView {
     athletes: Array.from({ length: ATHLETES }, () => ({
       x: 0, y: 0, z: 0, facing: 0, phase: 0, state: 'IDLE' as AnimState, jersey: 0, side: 0, carry: 0,
     })),
-    ball: { x: 0, y: 0, z: 0 },
+    ball: { x: 0, y: 0, z: 0 }, cues: [],
+  };
+}
+
+/** Preserve event compatibility while enriching only the presentation path. */
+export function ballPlayCueFromEvent(event: GameEvent): BallPlayCue | null {
+  if (event.type !== 'catch' && event.type !== 'drop'
+      && event.type !== 'swat' && event.type !== 'interception') return null;
+  if (!event.at) return null;
+  const outcome = event.type === 'catch' ? 'CATCH'
+    : event.type === 'drop' ? 'DROP'
+      : event.type === 'swat' ? 'SWAT' : 'INTERCEPTION';
+  const technique = event.technique ?? (event.type === 'swat' ? 'SWAT'
+    : event.type === 'interception' ? 'PLAY_BALL' : 'BALANCED');
+  return {
+    tick: event.tick, by: event.by, technique, outcome,
+    at: { x: event.at.x, y: event.at.y, z: event.at.z },
+    sideline: (event.type === 'catch' || event.type === 'drop') && !!event.sideline,
   };
 }
 

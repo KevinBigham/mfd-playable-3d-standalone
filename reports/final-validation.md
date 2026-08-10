@@ -1,5 +1,9 @@
 # Final senior validation
 
+> Superseded for the current PLAY THE BALL worktree by
+> `reports/play-the-ball/FINAL_VALIDATION.md`. The measurements below remain the receipt for the
+> preceding movement/replay/photo landing and must not be read as current ball-skills results.
+
 STATUS: YELLOW
 
 The football, replay, photo-mode, lifecycle, browser, offline, and artifact implementations are

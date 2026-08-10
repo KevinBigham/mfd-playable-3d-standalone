@@ -2096,10 +2096,11 @@ Stated as failures rather than omissions:
 14. **Adaptive resolution assumes a 60 Hz target.** On a 30 Hz-locked display it would scale down to
     its 60 % floor and stay there. Rare on desktop, and switchable, but it is a real limitation of
     the heuristic rather than an oversight.
-15. **Foot slip during a cut is unsolved.** Planted feet grip the turf while an athlete runs
-    straight (1.19 yd/s, §9) but skate during a hard change of direction (11.0 yd/s at the 95th
-    percentile), because the stride is solved in the athlete's own frame and a cutting athlete is
-    travelling somewhere other than where he is facing. Measured, reported, not fixed.
+15. **Foot slip has a controlled release scenario and a noisy live tail.** Native planted-leg IK
+    passes the deterministic straight/moderate/hard-cut bounds (hard-cut mean 0.827, p95 5.296),
+    never translates the root, and produces 166+ eligible hard-cut samples. The broader live-match
+    census still reports hard-cut p95 14.042 yd/s, so long-tail presentation slip remains visible
+    evidence to watch rather than a solved universal claim.
 16. **Nothing has ever run on a real phone.** Every mobile figure in §15 is Chromium with touch
     emulation at 844×390 on an Apple M4 — honest about layout, geometry, draw calls, input plumbing
     and boot structure, and silent on thermals, sustained frame rate and touch latency. The iOS
@@ -2120,13 +2121,15 @@ Stated as failures rather than omissions:
 
 ## MFD standalone mission addendum
 
-The current implementation adds native bounded pursuit intercepts, screen/run/pass situational
-intelligence, deterministic replay event routing and three-shot packages, replay-only photo mode
-with stadium-derived static camera proxies, and a render-only planted-foot anchor for hard cuts.
-The acceptance harness now exits nonzero on failures; the final run has no failed rows. Artifact
-validation remains an end-to-end offline gate with zero network requests and no console errors.
+The current implementation also adds the PLAY THE BALL release: athlete-local reach ellipses,
+facing/leverage defender geometry, stable one-attempt contests, four receiver techniques, late
+receiver control transfer, deterministic route assist, one-foot arcade sideline possession,
+event-driven catch/swat/interception IK, and a bounded replay-cue sidecar. `catching.ts` remains the
+sole contest resolver; simulation feet—not renderer bones—decide possession.
 
-Foot-slip is no longer unverified. The default command measures the actual renderer pose/sole path
-for 2,400 fixed ticks and reports repeatable category distributions. Its result is mixed: straight
-running is controlled, but hard cuts retain high p95 outliers. See `reports/final-validation.md`;
-the geometry-only command is explicitly not accepted as equivalent visual evidence.
+The final run has 366/366 unit tests, 25/25 scenarios, 12/12 replay checks, 36/36 touch checks,
+20/20 lifecycle checks, 44 applicable acceptance rows with zero failures, 31 browser captures with
+zero console errors, and an 11/11 offline artifact check with zero network requests. Completion is
+51.8% development / 50.7% holdout, deep completion 35% / 38%, and physical swats 14.4% / 14.3%.
+Defender possessions are only 0.8% / 0.9%, below the declared 9–15% target; that is why the release
+is YELLOW. See `reports/play-the-ball/FINAL_VALIDATION.md`.

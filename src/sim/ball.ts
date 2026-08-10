@@ -1,4 +1,4 @@
-import type { Athlete, AthleteId, PassKind, KickKind, TeamSide } from '../core/types.ts';
+import type { Athlete, AthleteId, BallState, PassKind, KickKind, TeamSide } from '../core/types.ts';
 import {
   FIXED_DT, PASS_SPEED, PASS_ARC, PASS_MAX_YARDS, FIELD_HALF_WIDTH,
 } from '../core/constants.ts';
@@ -9,6 +9,24 @@ import { other } from './world.ts';
 /**
  * THE ONLY module allowed to mutate `world.ball.state`. ARCHITECTURE.md §10.
  */
+
+/** Read the per-flight contact bitset while remaining compatible with legacy snapshots. */
+export function hasBallAttempt(state: BallState, id: AthleteId): boolean {
+  if (state.kind !== 'inAir' && !(state.kind === 'loose' && state.tipped)) return false;
+  return ((state.attemptMask ?? 0) & (1 << id)) !== 0;
+}
+
+/** Mark one physical play on an airborne ball; only this authority module mutates the bitset. */
+export function markBallAttempt(state: BallState, id: AthleteId): void {
+  if (state.kind !== 'inAir' && !(state.kind === 'loose' && state.tipped)) return;
+  state.attemptMask = (state.attemptMask ?? 0) | (1 << id);
+}
+
+/** Materialize the legacy default when restoring an older airborne-ball snapshot. */
+export function normalizeBallAttempts(state: BallState): void {
+  if ((state.kind === 'inAir' || (state.kind === 'loose' && state.tipped))
+      && !Number.isInteger(state.attemptMask)) state.attemptMask = 0;
+}
 
 export function giveBall(w: World, id: AthleteId): void {
   for (const a of w.athletes) a.hasBall = false;
@@ -59,11 +77,19 @@ export function releasePass(
   w.ball.state = {
     kind: 'inAir', from, intended, passKind, t: 0, flightTime: flight,
     sx, sy, sz, tx, ty: passKind === 'LATERAL' ? 1.2 : 1.55, tz, arc,
-    contested: false,
+    contested: false, attemptMask: 0,
   };
   w.ball.possession = thrower.side;
   w.ball.x = sx; w.ball.y = sy; w.ball.z = sz;
   w.ball.spin = passKind === 'BULLET' ? 34 : 22;
+  // Coverage players no longer receive a magnetic 2.3-yard breakup. Once the pass is visibly
+  // released they must instead diagnose it and run to a point where a hand can reach it. Preserve
+  // a small awareness-based read delay, but discard the longer run-diagnosis queue from the snap.
+  for (const defender of w.athletes) {
+    if (defender.side === thrower.side) continue;
+    const readTicks = Math.max(0, Math.round((95 - defender.def.ratings.awareness) / 18));
+    defender.reactionQueue = Math.min(defender.reactionQueue, readTicks);
+  }
 }
 
 export function dropLoose(w: World, from: AthleteId, vx: number, vy: number, vz: number, fromFumble: boolean): void {
@@ -87,7 +113,7 @@ export function dropLoose(w: World, from: AthleteId, vx: number, vy: number, vz:
 export function bobbleBall(w: World, from: AthleteId, vx: number, vy: number, vz: number): void {
   for (const a of w.athletes) a.hasBall = false;
   w.ball.vx = vx; w.ball.vy = vy; w.ball.vz = vz;
-  w.ball.state = { kind: 'loose', lastTouch: from, ticks: 0, fromFumble: false, tipped: true };
+  w.ball.state = { kind: 'loose', lastTouch: from, ticks: 0, fromFumble: false, tipped: true, attemptMask: 0 };
 }
 
 export function launchKick(

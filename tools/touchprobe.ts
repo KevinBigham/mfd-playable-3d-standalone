@@ -449,6 +449,33 @@ async function main(): Promise<void> {
     check('swipe down dives', (verbs.down & (1 << 6)) !== 0, `held=${verbs.down}`);
     check('swipe sideways jukes', (verbs.left & (1 << 19)) !== 0, `held=${verbs.left}`);
 
+    // ── receive gestures map to all four catch techniques ────────────
+    const receive = await page.evaluate(`(() => {
+      const g = window.GO;
+      const a = window.__TP;
+      const grab = () => { g.input.poll(); const it = g.input.intentFor(0); return it ? it.held : 0; };
+      const probe = (dx, dy, id) => {
+        g.touch.mode = 'RECEIVE';
+        a.gesture(640, 200, dx, dy, id);
+        return grab();
+      };
+      const tap = probe(0, 0, 52);
+      const up = probe(0, -70, 53);
+      const down = probe(0, 70, 54);
+      g.touch.mode = 'RECEIVE';
+      a.ev('pointerdown', 640, 200, 55);
+      const start = performance.now();
+      while (performance.now() - start < 360) { /* deliberate hold gesture */ }
+      const hold = grab();
+      a.ev('pointerup', 640, 200, 55);
+      grab();
+      return { tap, hold, up, down };
+    })()`) as Record<string, number>;
+    check('receive tap selects RAC', (receive.tap & (1 << 1)) !== 0, `held=${receive.tap}`);
+    check('receive hold selects possession', (receive.hold & (1 << 20)) !== 0, `held=${receive.hold}`);
+    check('receive swipe up selects aggressive', (receive.up & (1 << 2)) !== 0, `held=${receive.up}`);
+    check('receive swipe down selects extension', (receive.down & (1 << 6)) !== 0, `held=${receive.down}`);
+
     // ── the stick steers ─────────────────────────────────────────────
     const stick = await page.evaluate(`(() => {
       const g = window.GO;

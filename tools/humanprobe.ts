@@ -237,6 +237,7 @@ function playAGame(seed: number, blind = false): { yards: number; score: number;
   m.bus.on('touchdown', (e: any) => { if (e.side === 0) tds++; });
   let t = 0;
   let armed = false;
+  let catchCommanded = false;
   while (!m.state.finished && t < 60 * 60 * 25) {
     const w = m.world;
     // A person picks a play in about a second rather than letting the timer run out.
@@ -248,7 +249,7 @@ function playAGame(seed: number, blind = false): { yards: number; score: number;
       if (!armed) { release(Action.ACTION); armed = true; }
       else press(Action.ACTION);
     } else if (w.playPhase === 'LIVE' && m.state.possession === 0) {
-      release(Action.ACTION);
+      for (const action of [Action.ACTION, Action.PROTECT, Action.JUMP, Action.DIVE]) release(action);
       armed = false;
       // Throw on the play's own primary read — or immediately if a rusher is on top of him,
       // which is what a person does. A fixed 0.67s timer with no regard for pressure took this
@@ -283,13 +284,34 @@ function playAGame(seed: number, blind = false): { yards: number; score: number;
       const btn = slot === 0 ? Action.TARGET_L : slot === 2 ? Action.TARGET_R : Action.TARGET_M;
       for (const b of [Action.TARGET_L, Action.TARGET_M, Action.TARGET_R]) release(b);
       if (holdingIt && (w.playTicks > readAt || hurried)) press(btn);
+      // Exercise the actual RECEIVE grammar after the late auto-switch. This must be a fresh edge,
+      // not the throw press that launched the ball; neutral movement leaves route assist in charge.
+      const selectedReceiver = w.ball.state.kind === 'inAir'
+        ? w.athletes.find((athlete) => athlete.controlledBySeat === 0 && athlete.id !== w.qbId)
+        : undefined;
+      if (selectedReceiver && !catchCommanded) {
+        let nearest = 99;
+        for (const defender of w.athletes) {
+          if (defender.side === selectedReceiver.side || defender.move === 'DOWN') continue;
+          nearest = Math.min(nearest, Math.hypot(
+            defender.x - selectedReceiver.x,
+            defender.z - selectedReceiver.z,
+          ));
+        }
+        const catchAction = w.ball.y > 2.1 ? Action.JUMP
+          : Math.abs(selectedReceiver.x) > 25.66 || nearest < 1.7 ? Action.PROTECT
+            : Action.ACTION;
+        press(catchAction);
+        catchCommanded = true;
+      }
+      if (w.ball.state.kind !== 'inAir') catchCommanded = false;
       // Once the ball is caught the seat drives the receiver, and a person runs with it.
       const car = carrier(w);
       const mine = car && car.controlledBySeat === 0 && car.id !== w.qbId;
       held.moveZ = mine ? 1 : 0;
       if (mine) press(Action.TURBO); else release(Action.TURBO);
     } else {
-      clearInput(); armed = false;
+      clearInput(); armed = false; catchCommanded = false;
       // A person does not put the controller down because the other team kicked off. The seat
       // takes the returner the instant he catches it, and this script handed him to nobody — it
       // froze him where he stood and then measured the human offence's field position as whatever

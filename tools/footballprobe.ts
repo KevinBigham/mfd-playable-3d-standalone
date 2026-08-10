@@ -13,6 +13,8 @@ const seedStart = Number(argv[argv.indexOf('--seed-start') + 1]) || 9100;
 const playsById = new Map(OFFENSE_PLAYS.map((play) => [play.id, play]));
 
 let plays = 0, yards = 0, conversions = 0, negative = 0, sacks = 0, turnovers = 0;
+let throws = 0, catches = 0, drops = 0, swats = 0, interceptions = 0;
+const techniques: Record<string, number> = {};
 for (let g = 0; g < games; g++) {
   const cfg = defaultMatchConfig({ seed: seedStart + g, quarterSeconds: 120, difficulty: 'PRO',
     home: TEAM_IDS[g % TEAM_IDS.length], away: TEAM_IDS[(g + 3) % TEAM_IDS.length],
@@ -33,6 +35,11 @@ for (let g = 0; g < games; g++) {
   });
   bus.on('touchdown', () => { if (active) scored = true; });
   bus.on('sack', () => { if (active) sacks++; });
+  bus.on('throw', () => { if (active) throws++; });
+  bus.on('catch', (e) => { if (active) { catches++; techniques[`catch:${e.technique ?? 'NONE'}`] = (techniques[`catch:${e.technique ?? 'NONE'}`] ?? 0) + 1; } });
+  bus.on('drop', (e) => { if (active) { drops++; techniques[`drop:${e.technique ?? 'NONE'}`] = (techniques[`drop:${e.technique ?? 'NONE'}`] ?? 0) + 1; } });
+  bus.on('swat', (e) => { if (active) { swats++; techniques[`swat:${e.technique ?? 'NONE'}`] = (techniques[`swat:${e.technique ?? 'NONE'}`] ?? 0) + 1; } });
+  bus.on('interception', () => { if (active) interceptions++; });
   bus.on('play.end', (e) => {
     if (!active) return;
     plays++; yards += e.yards ?? 0;
@@ -47,4 +54,5 @@ for (let g = 0; g < games; g++) {
 const mean = plays ? yards / plays : 0;
 console.log(JSON.stringify({ concept, seedStart, games, selectedPlays: plays, yardsPerPlay: Number(mean.toFixed(4)),
   conversionRate: Number((conversions / Math.max(1, plays)).toFixed(4)), negativeRate: Number((negative / Math.max(1, plays)).toFixed(4)),
-  sackRate: Number((sacks / Math.max(1, plays)).toFixed(4)), turnoverRate: Number((turnovers / Math.max(1, plays)).toFixed(4)) }));
+  sackRate: Number((sacks / Math.max(1, plays)).toFixed(4)), turnoverRate: Number((turnovers / Math.max(1, plays)).toFixed(4)),
+  passing: { throws, catches, drops, swats, interceptions, techniques } }));

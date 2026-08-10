@@ -118,10 +118,22 @@ export const CATCH_RADIUS_BY_KIND = { TOUCH: 1.55, NORMAL: 1.35, BULLET: 1.05, L
 export const CATCH_HANDS_SCALE = 0.006;   // per rating point over 50
 /** Intended receivers get a readable hands-and-body envelope without increasing defender reach. */
 export const CATCH_TARGET_RADIUS_SCALE = 1.50;
-export const CATCH_WINDOW_TICKS = s(0.34);
-export const INT_BASE = 0.22;             // defender in position → chance to pick vs swat (v2: fewer
+/** Intended target's behind-body reach stays generous but does not equal a forward extension. */
+export const CATCH_TARGET_BEHIND_SCALE = 1.30;
+/** A committed extension can reach farther than a balanced catch, at a control penalty. */
+export const CATCH_EXTEND_RADIUS_SCALE = 1.70;
+export const DEFENDER_BEHIND_RADIUS_SCALE = 0.70;
+export const BALL_PLAY_LATCH_TICKS = s(0.40);
+export const RECEIVER_SWITCH_ETA = 0.90;
+export const RECEIVER_ASSIST_FULL = 0.15;
+export const RECEIVER_ASSIST_NONE = 0.35;
+export const SIDELINE_FOOT_HALF_STANCE = 0.18;
+export const SIDELINE_EPSILON = 0.05;
+/** Outer reach is eligibility, not an early magnetic catch; wait for the contact window to close. */
+export const CATCH_CONTACT_NORMALIZED = 0.35;
+export const CATCH_CONTACT_ARRIVAL_S = 0.10;
+export const INT_BASE = 0.50;             // defender in position → chance to pick vs swat (v2: fewer
                                           // marginal errors become takeaways; swats carry the message)
-export const SWAT_ANGLE_BONUS = 0.25;
 export const CONTEST_PENALTY = 0.34;      // catch chance reduction when contested
 export const DROP_PRESSURE = 0.12;
 export const LEAD_TIME_SCALE = 0.92;
@@ -176,7 +188,6 @@ export const COVER_FLIGHT_FULL_S = 1.3;
 /** A defender this close can play the ball even without reaching it — the pass breakup. */
 export const COVER_BREAKUP_YD = 2.3;
 /** Breakup chance at zero separation; scales linearly to zero at COVER_BREAKUP_YD. */
-export const COVER_BREAKUP_MAX = 0.34;
 /** How long the defense needs to diagnose a completion behind the line (the screen's window). */
 export const SCREEN_DIAGNOSE_TICKS = 33;
 /** Offense tracks its own tipped balls better than a defender who just swung through one. */

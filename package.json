@@ -43,6 +43,8 @@
     "footslip:browser": "tsx tools/footslip.ts --browser",
     "footslip:geometry": "tsx tools/footslip.ts --geometry",
     "catchlab": "tsx tools/catchlab.ts",
+    "balllab": "tsx tools/balllab.ts",
+    "calibrate:passing": "tsx tools/calibratePassing.ts",
     "fieldpos": "tsx tools/fieldpos.ts",
     "acceptance": "tsx tools/acceptance.ts",
     "passprobe": "tsx tools/passprobe.ts",

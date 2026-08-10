@@ -1,0 +1,257 @@
+{
+  "schemaVersion": 1,
+  "dataset": "nflverse play-by-play",
+  "seasons": [
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "sourceUrls": [
+    "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_2022.csv.gz",
+    "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_2023.csv.gz",
+    "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_2024.csv.gz",
+    "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_2025.csv.gz"
+  ],
+  "sources": [
+    {
+      "season": 2022,
+      "file": "play_by_play_2022.csv.gz",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_2022.csv.gz",
+      "sha256": "0c69a71eb39498956c7b1d5c1ca52ce7fe679934a95d1af249facb5ea9829ea4"
+    },
+    {
+      "season": 2023,
+      "file": "play_by_play_2023.csv.gz",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_2023.csv.gz",
+      "sha256": "4649804ee0f0a40b41e51ec75a1ce921949d7fab5459213488656b92f78560e8"
+    },
+    {
+      "season": 2024,
+      "file": "play_by_play_2024.csv.gz",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_2024.csv.gz",
+      "sha256": "f7075073401727c98e2c22f88b5ee9a178a98f1e53e10033f972c8bd6f0e940a"
+    },
+    {
+      "season": 2025,
+      "file": "play_by_play_2025.csv.gz",
+      "url": "https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_2025.csv.gz",
+      "sha256": "9c25c980f103d58fae5a0675f572aa4857e4672f6599973c1bc8a50e586a04e6"
+    }
+  ],
+  "filters": {
+    "seasonType": "REG",
+    "passAttempt": 1,
+    "excluded": [
+      "qb_spike",
+      "qb_kneel",
+      "two_point_attempt",
+      "no_play"
+    ],
+    "notes": "Actual regular-season pass attempts only; rates use attempts, and YAC uses completed passes with numeric yards_after_catch."
+  },
+  "counts": {
+    "inputRows": 197362,
+    "includedAttempts": 76664,
+    "excluded": {
+      "notRegularSeason": 9080,
+      "notPassAttempt": 92964,
+      "spike": 278,
+      "kneel": 0,
+      "twoPointAttempt": 357,
+      "noPlay": 18019
+    },
+    "unclassified": {
+      "airYards": 5310,
+      "passLocation": 5312,
+      "goalToGo": 0
+    }
+  },
+  "overall": {
+    "attempts": 76664,
+    "completions": 46259,
+    "interceptions": 1615,
+    "yacSamples": 46258,
+    "yacYards": 240264,
+    "rates": {
+      "completion": 0.603399,
+      "interception": 0.021066,
+      "yardsAfterCatchPerCompletion": 5.193999
+    },
+    "relativeMultipliers": {
+      "completion": 1,
+      "interception": 1,
+      "yardsAfterCatch": 1
+    }
+  },
+  "dimensions": {
+    "airYards": [
+      {
+        "key": "<0",
+        "attempts": 12795,
+        "completions": 10004,
+        "interceptions": 97,
+        "yacSamples": 10004,
+        "yacYards": 90582,
+        "rates": {
+          "completion": 0.781868,
+          "interception": 0.007581,
+          "yardsAfterCatchPerCompletion": 9.054578
+        },
+        "relativeMultipliers": {
+          "completion": 1.15,
+          "interception": 0.85,
+          "yardsAfterCatch": 1.15
+        }
+      },
+      {
+        "key": "0-9",
+        "attempts": 35436,
+        "completions": 25180,
+        "interceptions": 490,
+        "yacSamples": 25179,
+        "yacYards": 103146,
+        "rates": {
+          "completion": 0.710577,
+          "interception": 0.013828,
+          "yardsAfterCatchPerCompletion": 4.096509
+        },
+        "relativeMultipliers": {
+          "completion": 1.15,
+          "interception": 0.85,
+          "yardsAfterCatch": 0.85
+        }
+      },
+      {
+        "key": "10-19",
+        "attempts": 14899,
+        "completions": 8136,
+        "interceptions": 524,
+        "yacSamples": 8136,
+        "yacYards": 30125,
+        "rates": {
+          "completion": 0.546077,
+          "interception": 0.03517,
+          "yardsAfterCatchPerCompletion": 3.702679
+        },
+        "relativeMultipliers": {
+          "completion": 0.905001,
+          "interception": 1.15,
+          "yardsAfterCatch": 0.85
+        }
+      },
+      {
+        "key": "20+",
+        "attempts": 8224,
+        "completions": 2939,
+        "interceptions": 504,
+        "yacSamples": 2939,
+        "yacYards": 16411,
+        "rates": {
+          "completion": 0.357369,
+          "interception": 0.061284,
+          "yardsAfterCatchPerCompletion": 5.583872
+        },
+        "relativeMultipliers": {
+          "completion": 0.85,
+          "interception": 1.15,
+          "yardsAfterCatch": 1.075062
+        }
+      }
+    ],
+    "passLocation": [
+      {
+        "key": "left",
+        "attempts": 27009,
+        "completions": 17585,
+        "interceptions": 529,
+        "yacSamples": 17585,
+        "yacYards": 94110,
+        "rates": {
+          "completion": 0.651079,
+          "interception": 0.019586,
+          "yardsAfterCatchPerCompletion": 5.35172
+        },
+        "relativeMultipliers": {
+          "completion": 1.079019,
+          "interception": 0.92975,
+          "yardsAfterCatch": 1.030366
+        }
+      },
+      {
+        "key": "middle",
+        "attempts": 14996,
+        "completions": 10000,
+        "interceptions": 528,
+        "yacSamples": 10000,
+        "yacYards": 46752,
+        "rates": {
+          "completion": 0.666844,
+          "interception": 0.035209,
+          "yardsAfterCatchPerCompletion": 4.6752
+        },
+        "relativeMultipliers": {
+          "completion": 1.105146,
+          "interception": 1.15,
+          "yardsAfterCatch": 0.900116
+        }
+      },
+      {
+        "key": "right",
+        "attempts": 29347,
+        "completions": 18674,
+        "interceptions": 557,
+        "yacSamples": 18673,
+        "yacYards": 99402,
+        "rates": {
+          "completion": 0.636317,
+          "interception": 0.01898,
+          "yardsAfterCatchPerCompletion": 5.323301
+        },
+        "relativeMultipliers": {
+          "completion": 1.054554,
+          "interception": 0.90097,
+          "yardsAfterCatch": 1.024895
+        }
+      }
+    ],
+    "goalToGo": [
+      {
+        "key": "false",
+        "attempts": 72784,
+        "completions": 44344,
+        "interceptions": 1531,
+        "yacSamples": 44343,
+        "yacYards": 236348,
+        "rates": {
+          "completion": 0.609255,
+          "interception": 0.021035,
+          "yardsAfterCatchPerCompletion": 5.329996
+        },
+        "relativeMultipliers": {
+          "completion": 1.009704,
+          "interception": 0.998523,
+          "yardsAfterCatch": 1.026183
+        }
+      },
+      {
+        "key": "true",
+        "attempts": 3880,
+        "completions": 1915,
+        "interceptions": 84,
+        "yacSamples": 1915,
+        "yacYards": 3916,
+        "rates": {
+          "completion": 0.493557,
+          "interception": 0.021649,
+          "yardsAfterCatchPerCompletion": 2.044909
+        },
+        "relativeMultipliers": {
+          "completion": 0.85,
+          "interception": 1.0277,
+          "yardsAfterCatch": 0.85
+        }
+      }
+    ]
+  }
+}

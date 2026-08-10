@@ -226,6 +226,20 @@ export type MoveState =
   | 'TACKLING' | 'DIVE_TACKLE' | 'POWER_TACKLE' | 'DOWN' | 'GETUP'
   | 'BLOCK_ENGAGE' | 'THROWING' | 'JUMP' | 'KICKING' | 'CELEBRATE' | 'STUNNED';
 
+export type ReceiverCatchTechnique = 'BALANCED' | 'RAC' | 'POSSESSION' | 'AGGRESSIVE' | 'EXTEND';
+export type DefenderBallTechnique = 'AUTO' | 'PLAY_BALL' | 'SWAT';
+export type BallPlayTechnique = ReceiverCatchTechnique | DefenderBallTechnique;
+
+/** Presentation-only receipt of an authoritative ball play. */
+export interface BallPlayCue {
+  tick: number;
+  by: AthleteId;
+  technique: BallPlayTechnique;
+  outcome: 'CATCH' | 'DROP' | 'SWAT' | 'INTERCEPTION';
+  at: Vec3;
+  sideline: boolean;
+}
+
 export interface Athlete {
   id: AthleteId;
   side: TeamSide;
@@ -257,6 +271,10 @@ export interface Athlete {
   blockedBy: AthleteId | -1;
   engagedWith: AthleteId | -1;
   onFire: boolean;
+  /** Short authoritative latch selected through PlayerIntent or deterministic AI. */
+  ballPlayTechnique: BallPlayTechnique;
+  /** Inclusive simulation tick through which the selected ball technique remains active. */
+  ballPlayUntilTick: number;
 
   // assignment (rewritten at each snap)
   role: OffenseRole | 'DEF';
@@ -299,13 +317,16 @@ export type BallState =
       tx: number; ty: number; tz: number;
       arc: number;
       contested: boolean;
+      /** One bit per athlete: a failed play on this flight may not be rerolled every tick. */
+      attemptMask?: number;
     }
   // `tipped` marks a ball that is loose because a forward pass was juggled or batted up rather
   // than dropped. Legally it is still a forward pass: anyone may take it out of the air, either
   // team, but the instant it touches the ground the play is incomplete, not a fumble. Without the
   // flag a tipped ball would bounce as a live fumble and hand the defence free possession on
   // every contested throw.
-  | { kind: 'loose'; lastTouch: AthleteId | -1; ticks: number; fromFumble: boolean; tipped?: boolean }
+  | { kind: 'loose'; lastTouch: AthleteId | -1; ticks: number; fromFumble: boolean;
+      tipped?: boolean; attemptMask?: number }
   | {
       kind: 'kicked';
       from: AthleteId;
@@ -425,11 +446,13 @@ export type GameEvent =
   | ({ type: 'handoff'; to: AthleteId } & BaseEvent)
   | ({ type: 'throw'; from: AthleteId; to: AthleteId | null; passKind: PassKind } & BaseEvent)
   | ({ type: 'pass.arrive'; at: Vec3 } & BaseEvent)
-  | ({ type: 'catch'; by: AthleteId; contested: boolean; diving: boolean; yards: number } & BaseEvent)
-  | ({ type: 'drop'; by: AthleteId } & BaseEvent)
+  | ({ type: 'catch'; by: AthleteId; contested: boolean; diving: boolean; yards: number;
+       at?: Vec3; technique?: ReceiverCatchTechnique; sideline?: boolean } & BaseEvent)
+  | ({ type: 'drop'; by: AthleteId; at?: Vec3; technique?: BallPlayTechnique;
+       sideline?: boolean; reason?: 'HANDS' | 'OUT_OF_BOUNDS' } & BaseEvent)
   | ({ type: 'bobble'; by: AthleteId; contested: boolean } & BaseEvent)
-  | ({ type: 'swat'; by: AthleteId } & BaseEvent)
-  | ({ type: 'interception'; by: AthleteId } & BaseEvent)
+  | ({ type: 'swat'; by: AthleteId; at?: Vec3; technique?: DefenderBallTechnique } & BaseEvent)
+  | ({ type: 'interception'; by: AthleteId; at?: Vec3; technique?: DefenderBallTechnique } & BaseEvent)
   | ({ type: 'lateral'; from: AthleteId; to: AthleteId } & BaseEvent)
   | ({ type: 'fumble'; by: AthleteId; forcedBy: AthleteId | -1 } & BaseEvent)
   | ({ type: 'recover'; by: AthleteId; side: TeamSide } & BaseEvent)

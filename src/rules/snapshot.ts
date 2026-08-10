@@ -42,6 +42,8 @@ export interface AthleteSnapshot {
   hasBall: boolean; turbo: number; turboHeld: boolean; protecting: boolean;
   turboLockTicks: number; stamina: number; downTicks: number; stunTicks: number;
   blockedBy: number; engagedWith: number; onFire: boolean;
+  ballPlayTechnique?: import('../core/types.ts').BallPlayTechnique;
+  ballPlayUntilTick?: number;
   role: string; routeIdx: number; routeHold: number; blockDir: -1 | 0 | 1;
   targetButton: 0 | 1 | 2 | null;
   homeX: number; homeZ: number;
@@ -109,6 +111,8 @@ export interface MatchSnapshot {
   snapArmed: boolean; snapHeldPrev: boolean; snapRequested: boolean;
   seatHeldPrev: number[];
   actionSpent: number[];
+  receiverControlTarget?: AthleteId;
+  receiverCatchSuppressed?: number[];
   catchUp: [number, number];
   /** Play-call tendency memory, so the defence does not forget what you have been doing. */
   tendency: Array<{ runs: number; passes: number; deep: number; plays: number }>;

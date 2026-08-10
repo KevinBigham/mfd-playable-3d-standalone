@@ -8,16 +8,56 @@
  * come from? If he is already open when the ball leaves the hand, the problem is coverage. If he is
  * covered at the release and open at the catch, the problem is what happens during the flight.
  *
- *   npm run deepprobe [-- --games 10 --deep 18]
+ *   npm run deepprobe [-- --games 10 --seed-start 4400 --deep 18 --json reports/deepprobe.json]
  */
 import { Match, defaultMatchConfig } from '../src/rules/match.ts';
 import { getTeam, TEAM_IDS } from '../src/data/index.ts';
 import { dist } from '../src/core/math.ts';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { fingerprint, printFingerprint, type ProbeFingerprint } from './lib/fingerprint.ts';
 
-const argv = process.argv.slice(2);
-const games = Number(argv[argv.indexOf('--games') + 1]) || 10;
-/** Air yards at or above which a throw counts as a deep shot. */
-const DEEP_AIR = Number(argv[argv.indexOf('--deep') + 1]) || 18;
+export interface DeepProbeArgs {
+  games: number;
+  seedStart: number;
+  deepAir: number;
+  jsonPath: string | null;
+}
+
+function positiveNumber(argv: readonly string[], flag: string, fallback: number): number {
+  const index = argv.indexOf(flag);
+  if (index < 0) return fallback;
+  const value = Number(argv[index + 1]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function positiveInteger(argv: readonly string[], flag: string, fallback: number): number {
+  const value = positiveNumber(argv, flag, fallback);
+  return Number.isInteger(value) ? value : fallback;
+}
+
+function integer(argv: readonly string[], flag: string, fallback: number): number {
+  const index = argv.indexOf(flag);
+  if (index < 0) return fallback;
+  const value = Number(argv[index + 1]);
+  return Number.isSafeInteger(value) ? value : fallback;
+}
+
+function optionalPath(argv: readonly string[], flag: string): string | null {
+  const index = argv.indexOf(flag);
+  const value = index >= 0 ? argv[index + 1] : undefined;
+  return value && !value.startsWith('--') ? value : null;
+}
+
+export function parseDeepProbeArgs(argv: readonly string[]): DeepProbeArgs {
+  return {
+    games: positiveInteger(argv, '--games', 10),
+    seedStart: integer(argv, '--seed-start', 4400),
+    deepAir: positiveNumber(argv, '--deep', 18),
+    jsonPath: optionalPath(argv, '--json'),
+  };
+}
 
 interface Shot {
   air: number;
@@ -30,11 +70,37 @@ interface Shot {
   correction: number;
   defenderTurbo: number;
 }
+
+export interface DeepProbeReport {
+  fingerprint: ProbeFingerprint;
+  config: { games: number; seedStart: number; seedEnd: number; deepAir: number };
+  shots: number;
+  completed: number;
+  intercepted: number;
+  failed: number;
+  completionRate: number | null;
+  means: {
+    airYards: number;
+    flightSeconds: number;
+    separationAtThrow: number;
+    separationAtArrival: number;
+    separationChange: number;
+    correction: number;
+    defenderTurbo: number;
+    completionSeparationAtThrow: number;
+    completionSeparationAtArrival: number;
+    failureSeparationAtThrow: number;
+    failureSeparationAtArrival: number;
+  };
+}
+
+export function runDeepProbe(options: DeepProbeArgs): DeepProbeReport {
+const { games, seedStart, deepAir: DEEP_AIR, jsonPath } = options;
 const shots: Shot[] = [];
 
 for (let g = 0; g < games; g++) {
   const cfg = defaultMatchConfig({
-    seed: 4400 + g, quarterSeconds: 120, difficulty: 'PRO',
+    seed: seedStart + g, quarterSeconds: 120, difficulty: 'PRO',
     home: TEAM_IDS[g % TEAM_IDS.length], away: TEAM_IDS[(g + 5) % TEAM_IDS.length],
     seats: [{ side: 0, active: false }, { side: 1, active: false }],
   });
@@ -45,6 +111,7 @@ for (let g = 0; g < games; g++) {
   let target = -1;
 
   bus.on('throw', ((e: { to: number | null }) => {
+    if (live) finish();
     const w = m.world;
     const st = w.ball.state;
     if (st.kind !== 'inAir' || e.to === null) return;
@@ -74,7 +141,9 @@ for (let g = 0; g < games; g++) {
     finish();
   }) as never);
   bus.on('interception', (() => { if (live) { live.picked = true; finish(); } }) as never);
-  for (const ev of ['drop', 'swat', 'bobble', 'play.end'] as const) {
+  // A swat or bobble can keep a tipped pass airborne. Close only on an actual terminal event;
+  // otherwise the probe would count a recoverable tip as an incompletion before its outcome.
+  for (const ev of ['drop', 'play.end'] as const) {
     bus.on(ev, (() => { if (live) finish(); }) as never);
   }
 
@@ -111,8 +180,35 @@ const mean = (f: (s: Shot) => number, set = shots): number =>
 const caught = shots.filter((s) => s.caught);
 const failed = shots.filter((s) => !s.caught && !s.picked);
 const pct = (a: number, b: number): string => (b === 0 ? '—' : `${((a / b) * 100).toFixed(0)}%`);
+const fp = fingerprint({
+  tool: 'deepprobe', seeds: `${seedStart}..${seedStart + games - 1}`,
+  teams: 'rotating home/away over TEAM_IDS', difficulty: 'PRO', quarterSeconds: 120,
+});
+const report: DeepProbeReport = {
+  fingerprint: fp,
+  config: { games, seedStart, seedEnd: seedStart + games - 1, deepAir: DEEP_AIR },
+  shots: shots.length,
+  completed: caught.length,
+  intercepted: shots.filter((s) => s.picked).length,
+  failed: failed.length,
+  completionRate: shots.length > 0 ? caught.length / shots.length : null,
+  means: {
+    airYards: mean((s) => s.air),
+    flightSeconds: mean((s) => s.flight),
+    separationAtThrow: mean((s) => s.sepAtThrow),
+    separationAtArrival: mean((s) => Math.max(0, s.sepAtArrival)),
+    separationChange: mean((s) => Math.max(0, s.sepAtArrival)) - mean((s) => s.sepAtThrow),
+    correction: mean((s) => s.correction),
+    defenderTurbo: mean((s) => s.defenderTurbo),
+    completionSeparationAtThrow: mean((s) => s.sepAtThrow, caught),
+    completionSeparationAtArrival: mean((s) => Math.max(0, s.sepAtArrival), caught),
+    failureSeparationAtThrow: mean((s) => s.sepAtThrow, failed),
+    failureSeparationAtArrival: mean((s) => Math.max(0, s.sepAtArrival), failed),
+  },
+};
 
 console.log(`\nDEEP-BALL AUTOPSY — ${shots.length} throws of ${DEEP_AIR}+ air yards over ${games} games`);
+printFingerprint(fp);
 console.log('─'.repeat(70));
 console.log(`  completed            ${caught.length}/${shots.length} = ${pct(caught.length, shots.length)}`);
 console.log(`  intercepted          ${shots.filter((s) => s.picked).length}`);
@@ -129,3 +225,12 @@ console.log('─'.repeat(70));
 console.log(`  completions had      ${mean((s) => s.sepAtThrow, caught).toFixed(2)} yd at release, ${mean((s) => Math.max(0, s.sepAtArrival), caught).toFixed(2)} at arrival`);
 console.log(`  failures had         ${mean((s) => s.sepAtThrow, failed).toFixed(2)} yd at release, ${mean((s) => Math.max(0, s.sepAtArrival), failed).toFixed(2)} at arrival`);
 console.log('─'.repeat(70) + '\n');
+if (jsonPath) {
+  mkdirSync(dirname(jsonPath), { recursive: true });
+  writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+}
+return report;
+}
+
+const directEntry = process.argv[1] ? pathToFileURL(process.argv[1]).href : '';
+if (import.meta.url === directEntry) runDeepProbe(parseDeepProbeArgs(process.argv.slice(2)));

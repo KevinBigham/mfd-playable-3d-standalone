@@ -12,6 +12,7 @@ docs/captures/
 *.log
 .DS_Store
 .vite/
+.cache/nflverse/
 
 # Stadium Visual Studio working state. Only explicitly promoted semantic assets are tracked.
 .stadium-staging/

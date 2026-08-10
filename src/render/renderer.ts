@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type {
-  AnimState, Conditions, GameEvent, MatchState, StadiumDef, TeamDef, TeamSide,
+  AnimState, BallPlayCue, Conditions, GameEvent, MatchState, StadiumDef, TeamDef, TeamSide,
 } from '../core/types.ts';
 import { carryArm } from '../sim/ball.ts';
 import { SceneRegistry, coarseDisplay, devicePreset, type QualitySettings, type QualityTier } from './registry.ts';
@@ -16,7 +16,7 @@ import { buildBall, buildMarkers, makeNumberSprite, type Markers } from './props
 import { resolveKits } from './kits.ts';
 import { buildEnvironment, type Environment } from './env/index.ts';
 import { resolveStadiumVisual } from './stadiumVisual/generatedRegistry.ts';
-import { replayTarget, type ReplayView } from './replay.ts';
+import { ballPlayCueFromEvent, replayTarget, type ReplayView } from './replay.ts';
 import type { ReplayShotV1 } from './replayShots.ts';
 import type { World } from '../sim/world.ts';
 import { carrier } from '../sim/world.ts';
@@ -28,7 +28,7 @@ import { makeFootLockState, resetFootLock, updateFootLock, type FootLockState } 
 import { solveTwoBoneIK } from './twoBoneIK.ts';
 import {
   applyCatchReach, makeCatchPresentationState, presentationBallPosition,
-  resetCatchPresentation, stepCatchPresentation,
+  beginBallPlayPresentation, resetCatchPresentation, stepCatchPresentation,
   type CatchPresentationState,
 } from './catchPresentation.ts';
 
@@ -134,14 +134,33 @@ interface RigMotion {
   footLock: FootLockState;
   /** Ball-targeted receiver reach and secure sequence; presentation only. */
   catch: CatchPresentationState;
+  /** Authoritative event waiting for the next drawn pose of this actor. */
+  pendingBallCue: BallPlayCue | null;
+  /** Brief one-foot arcade sideline presentation; never moves the athlete root. */
+  sidelinePlant: { foot: -1 | 0 | 1; pending: boolean; elapsed: number; anchor: THREE.Vector3 };
+  /** Prevent a 30 Hz replay cue from restarting on both 60 Hz presentation frames. */
+  lastReplayCueTick: number;
 }
 function makeMotion(): RigMotion {
   return {
     fadeFrom: new Float32Array(POSE_FLOATS), basePose: new Float32Array(POSE_FLOATS), basePoseValid: false,
     fadeT: 0, fadeDur: 0,
     yaw: 0, prevYaw: 0, turn: 0, bank: 0, visible: false, rigKey: -1,
-    footLock: makeFootLockState(), catch: makeCatchPresentationState(),
+    footLock: makeFootLockState(), catch: makeCatchPresentationState(), pendingBallCue: null,
+    sidelinePlant: { foot: -1, pending: false, elapsed: 0, anchor: new THREE.Vector3() },
+    lastReplayCueTick: -1,
   };
+}
+
+function resetBallPlayMotion(motion: RigMotion): void {
+  resetFootLock(motion.footLock);
+  resetCatchPresentation(motion.catch);
+  motion.pendingBallCue = null;
+  motion.sidelinePlant.foot = -1;
+  motion.sidelinePlant.pending = false;
+  motion.sidelinePlant.elapsed = 0;
+  motion.sidelinePlant.anchor.set(0, 0, 0);
+  motion.lastReplayCueTick = -1;
 }
 
 /** Body yaw chases the simulation heading; 26 is roughly a 40 ms tail. */
@@ -157,6 +176,39 @@ const IK_TIP = new THREE.Vector3();
 const CATCH_WORLD = new THREE.Vector3();
 const CATCH_LOCAL = new THREE.Vector3();
 const CATCH_TUCK = new THREE.Vector3();
+
+/** Apply the 0.12-second arcade toe-tap overlay without translating the root transform. */
+function applySidelineFootPlant(rig: AthleteRig, motion: RigMotion, dt: number): boolean {
+  const plant = motion.sidelinePlant;
+  const feet = [rig.bones.footL, rig.bones.footR];
+  rig.root.updateMatrixWorld(true);
+  for (let f = 0; f < 2; f++) solePointAt(feet[f].matrixWorld.elements, PLANT_CONTACT_Z, PLANT_CONTACTS[f]);
+  if (plant.pending) {
+    plant.foot = Math.abs(PLANT_CONTACTS[0].x) <= Math.abs(PLANT_CONTACTS[1].x) ? 0 : 1;
+    plant.anchor.copy(PLANT_CONTACTS[plant.foot]);
+    plant.elapsed = 0;
+    plant.pending = false;
+    resetFootLock(motion.footLock);
+  }
+  if (plant.foot === -1) return false;
+  plant.elapsed += Math.max(0, dt);
+  if (plant.elapsed >= 0.12) { plant.foot = -1; return false; }
+  const weight = smoothstep(clamp01(plant.elapsed / 0.045))
+    * smoothstep(clamp01((0.12 - plant.elapsed) / 0.045));
+  const f = plant.foot;
+  const thigh = f === 0 ? rig.bones.thighL : rig.bones.thighR;
+  const knee = f === 0 ? rig.bones.kneeL : rig.bones.kneeR;
+  const foot = feet[f];
+  IK_TIP.setFromMatrixPosition(foot.matrixWorld);
+  IK_TARGET.copy(IK_TIP).add(IK_HINT.set(
+    plant.anchor.x - PLANT_CONTACTS[f].x,
+    plant.anchor.y - PLANT_CONTACTS[f].y,
+    plant.anchor.z - PLANT_CONTACTS[f].z,
+  ));
+  IK_HINT.setFromMatrixPosition(knee.matrixWorld);
+  solveTwoBoneIK(thigh, knee, foot, IK_TARGET, IK_HINT, weight);
+  return true;
+}
 
 const YAW_LAMBDA = 26;
 /** Beyond this the heading changed because the athlete was moved, not because he turned. */
@@ -406,7 +458,7 @@ export class GameRenderer {
       }
       for (const m of this.motion) {
         m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1; m.basePoseValid = false;
-        resetFootLock(m.footLock); resetCatchPresentation(m.catch);
+        resetBallPlayMotion(m);
       }
       for (let i = 0; i < this.lastAnimState.length; i++) { this.lastAnimState[i] = ''; this.animT[i] = 0; }
       this.prewarm();
@@ -431,7 +483,7 @@ export class GameRenderer {
     for (const sp of this.numberSprites) sp.visible = false;
     for (const m of this.motion) {
       m.visible = false; m.fadeDur = 0; m.bank = 0; m.rigKey = -1; m.basePoseValid = false;
-      resetFootLock(m.footLock); resetCatchPresentation(m.catch);
+      resetBallPlayMotion(m);
     }
     for (let i = 0; i < this.lastAnimState.length; i++) { this.lastAnimState[i] = ''; this.animT[i] = 0; }
   }
@@ -511,7 +563,7 @@ export class GameRenderer {
     this.envRT = null;
     for (const m of this.motion) {
       m.visible = false; m.fadeDur = 0; m.rigKey = -1; m.basePoseValid = false;
-      resetFootLock(m.footLock); resetCatchPresentation(m.catch);
+      resetBallPlayMotion(m);
     }
     for (const m of this.rigs) { for (const r of m.values()) r.dispose(); m.clear(); }
     this.numberSprites.length = 0;
@@ -526,6 +578,8 @@ export class GameRenderer {
   }
 
   handleEvent(e: GameEvent): void {
+    const cue = ballPlayCueFromEvent(e);
+    if (cue && this.motion[cue.by]) this.motion[cue.by].pendingBallCue = cue;
     if (!this.effects) return;
     switch (e.type) {
       case 'camera.impulse':
@@ -565,7 +619,7 @@ export class GameRenderer {
   sync(world: World, match: MatchState, alpha: number, dt: number, celebrating: boolean): void {
     if (this.disposed) return;
     if (this.replayPresentation) {
-      for (const state of this.motion) { resetFootLock(state.footLock); resetCatchPresentation(state.catch); }
+      for (const state of this.motion) resetBallPlayMotion(state);
       this.replayPresentation = false;
       this.replayBallValid = false;
     }
@@ -583,7 +637,7 @@ export class GameRenderer {
       const key = a.side * 1000 + a.def.number;
       if (mo.rigKey !== key) {
         mo.rigKey = key; mo.visible = false; mo.fadeDur = 0; mo.basePoseValid = false;
-        resetFootLock(mo.footLock); resetCatchPresentation(mo.catch);
+        resetBallPlayMotion(mo);
       }
       // IK is a transient presentation overlay. Restore the authored/cross-faded pose before
       // sampling a transition or writing the next procedural frame, then snapshot again only if
@@ -681,7 +735,19 @@ export class GameRenderer {
       // contact target so the secure animation travels with him rather than hanging in world space.
       let catchTarget = mo.catch.target;
       let anticipating = false;
-      const caught = a.hasBall && !mo.catch.hadBall && world.passThrown
+      let cueStarted = false;
+      if (mo.pendingBallCue) {
+        rig.root.updateMatrixWorld(true);
+        CATCH_LOCAL.set(mo.pendingBallCue.at.x, mo.pendingBallCue.at.y, mo.pendingBallCue.at.z);
+        rig.root.worldToLocal(CATCH_LOCAL);
+        beginBallPlayPresentation(mo.catch, mo.pendingBallCue, CATCH_LOCAL);
+        mo.sidelinePlant.pending = mo.pendingBallCue.sideline
+          && (mo.pendingBallCue.outcome === 'CATCH' || mo.pendingBallCue.outcome === 'INTERCEPTION');
+        catchTarget = mo.catch.target;
+        cueStarted = true;
+        mo.pendingBallCue = null;
+      }
+      const caught = !cueStarted && a.hasBall && !mo.catch.hadBall && world.passThrown
         && world.lastCatcher === a.id && a.side === world.possession;
       if (caught) {
         rig.root.updateMatrixWorld(true);
@@ -698,12 +764,31 @@ export class GameRenderer {
           CATCH_LOCAL.copy(CATCH_WORLD); rig.root.worldToLocal(CATCH_LOCAL);
           catchTarget = CATCH_LOCAL;
         }
+      } else if (b.state.kind === 'inAir' && a.side !== world.possession
+          && (a.ballPlayTechnique === 'PLAY_BALL' || a.ballPlayTechnique === 'SWAT')
+          && a.ballPlayUntilTick >= world.tick) {
+        const remaining = b.state.flightTime - b.state.t;
+        anticipating = remaining <= 0.30 && remaining >= -FIXED_DT
+          && Math.hypot(bx - x, bz - z) <= 2.4;
+        if (anticipating) {
+          rig.root.updateMatrixWorld(true);
+          CATCH_WORLD.set(bx, by, bz);
+          CATCH_LOCAL.copy(CATCH_WORLD); rig.root.worldToLocal(CATCH_LOCAL);
+          catchTarget = CATCH_LOCAL;
+        }
       }
-      stepCatchPresentation(mo.catch, { dt, hasBall: a.hasBall, caught, anticipating, target: catchTarget });
+      if (anticipating) mo.catch.technique = a.ballPlayTechnique;
+      if (!cueStarted) stepCatchPresentation(mo.catch, { dt, hasBall: a.hasBall, caught, anticipating, target: catchTarget });
       if (mo.catch.weight > 0.001) {
         capturePose(rig, mo.basePose);
         mo.basePoseValid = true;
         applyCatchReach(rig, mo.catch);
+      }
+
+      const sidelinePlanting = mo.sidelinePlant.pending || mo.sidelinePlant.foot !== -1;
+      if (sidelinePlanting) {
+        if (!mo.basePoseValid) { capturePose(rig, mo.basePose); mo.basePoseValid = true; }
+        applySidelineFootPlant(rig, mo, dt);
       }
 
       // Solve the planted leg to the exact sole point the end-to-end foot-slip gate measures. The
@@ -711,11 +796,11 @@ export class GameRenderer {
       // the old root offset, this cannot move the authoritative body/collision position sideways.
       const movingRun = a.anim.ground > 3.5 && (st === 'RUN' || st === 'SPRINT');
       const turningRun = movingRun && Math.abs(sample.drift) > 0.12;
-      if (!turningRun && mo.footLock.foot === -1) {
+      if (!sidelinePlanting && !turningRun && mo.footLock.foot === -1) {
         mo.footLock.pendingFoot = -1;
         mo.footLock.groundedFrames = 0;
       }
-      if (turningRun || mo.footLock.foot !== -1) {
+      if (!sidelinePlanting && (turningRun || mo.footLock.foot !== -1)) {
         rig.root.updateMatrixWorld(true);
         const feet = [rig.bones.footL, rig.bones.footR];
         for (let f = 0; f < 2; f++) {
@@ -922,7 +1007,7 @@ export class GameRenderer {
   syncReplay(view: ReplayView, dt: number, shot?: ReplayShotV1, cameraOverride = false): void {
     if (this.disposed || !this.effects) return;
     if (!this.replayPresentation) {
-      for (const state of this.motion) { resetFootLock(state.footLock); resetCatchPresentation(state.catch); }
+      for (const state of this.motion) resetBallPlayMotion(state);
       this.replayPresentation = true;
       this.replayBallValid = false;
     }
@@ -937,7 +1022,7 @@ export class GameRenderer {
       const key = a.side * 1000 + a.jersey;
       if (mo.rigKey !== key) {
         mo.rigKey = key; mo.visible = false; mo.fadeDur = 0; mo.basePoseValid = false;
-        resetFootLock(mo.footLock); resetCatchPresentation(mo.catch);
+        resetBallPlayMotion(mo);
       }
       if (mo.basePoseValid) {
         blendPose(rig, mo.basePose, 1);
@@ -977,19 +1062,34 @@ export class GameRenderer {
         else blendPose(rig, mo.fadeFrom, 1 - smoothstep(k));
       }
       const hasBall = a.carry !== 0;
-      const caught = this.replayBallValid && hasBall && !mo.catch.hadBall;
+      const cue = view.cues.find((candidate) => candidate.by === i
+        && candidate.tick !== mo.lastReplayCueTick) ?? null;
+      let cueStarted = false;
+      if (cue) {
+        mo.lastReplayCueTick = cue.tick;
+        CATCH_LOCAL.set(cue.at.x, cue.at.y, cue.at.z); rig.root.worldToLocal(CATCH_LOCAL);
+        beginBallPlayPresentation(mo.catch, cue, CATCH_LOCAL);
+        mo.sidelinePlant.pending = cue.sideline
+          && (cue.outcome === 'CATCH' || cue.outcome === 'INTERCEPTION');
+        cueStarted = true;
+      }
+      const caught = !cueStarted && this.replayBallValid && hasBall && !mo.catch.hadBall;
       let replayTarget = mo.catch.target;
       if (caught) {
         CATCH_LOCAL.copy(this.replayPrevBall); rig.root.worldToLocal(CATCH_LOCAL);
         replayTarget = CATCH_LOCAL;
       }
-      stepCatchPresentation(mo.catch, {
-        dt, hasBall, caught, anticipating: false, target: replayTarget,
-      });
+      if (!cueStarted) stepCatchPresentation(mo.catch, {
+          dt, hasBall, caught, anticipating: false, target: replayTarget,
+        });
       if (mo.catch.weight > 0.001) {
         capturePose(rig, mo.basePose);
         mo.basePoseValid = true;
         applyCatchReach(rig, mo.catch);
+      }
+      if (mo.sidelinePlant.pending || mo.sidelinePlant.foot !== -1) {
+        if (!mo.basePoseValid) { capturePose(rig, mo.basePose); mo.basePoseValid = true; }
+        applySidelineFootPlant(rig, mo, dt);
       }
     }
     for (const side of [0, 1] as TeamSide[]) {

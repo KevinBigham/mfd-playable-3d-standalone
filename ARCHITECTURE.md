@@ -390,13 +390,18 @@ Capsule-vs-capsule in 2D (XZ) with a height term. Layers:
 ```
 BODY      athlete torso, r=0.42yd  — blocks & tackles
 TACKLE    expanding hit volume during a tackle attempt
-CATCH     sphere around ball, r=1.35yd base, scaled by hands rating & pass kind
+CATCH     athlete-local reach ellipse, scaled by target role, technique, hands & pass kind
 BLOCK     lineman engagement disc, r=0.9yd
 GROUND    y<=0 plane for loose balls
 ```
 
 Contact resolution order per tick: movement → blocking → tackling → ball → rules. Contact never
 depends on visual physics.
+
+`src/sim/catching.ts` is the sole contest resolver. It ranks reachable candidates by contest score
+and athlete id, uses current facing/leverage and one deterministic primary outcome roll, and routes
+all attempt-bit mutations through `src/sim/ball.ts`. Renderer bones may present a reach or toe tap,
+but simulation foot points and the one-foot arcade boundary rule decide possession.
 
 ## 16. SAVE SCHEMA (`src/persistence/save.ts`)
 

@@ -63,7 +63,13 @@ export function emptyTally(): ThrowTally {
 
 export class ThrowLedger {
   readonly records: ThrowRecord[] = [];
-  private open: { tick: number; bucket: string; bobbled: boolean; throwaway: boolean } | null = null;
+  private open: {
+    tick: number;
+    bucket: string;
+    bobbled: boolean;
+    throwaway: boolean;
+    pendingSwat: boolean;
+  } | null = null;
 
   constructor(private bucketOf: () => string = () => 'ALL') {}
 
@@ -73,15 +79,28 @@ export class ThrowLedger {
       case 'throw':
         // A second throw before the first resolved would mean the sim allowed two live balls;
         // close the stale one as incomplete rather than corrupt the count.
-        if (this.open) this.close('FELL_INCOMPLETE');
-        this.open = { tick: e.tick, bucket: this.bucketOf(), bobbled: false, throwaway: e.to === null };
+        if (this.open) this.close(this.open.pendingSwat ? 'SWATTED' : 'FELL_INCOMPLETE');
+        this.open = {
+          tick: e.tick,
+          bucket: this.bucketOf(),
+          bobbled: false,
+          throwaway: e.to === null,
+          pendingSwat: false,
+        };
         break;
       case 'catch': this.close('CAUGHT'); break;
       case 'drop': this.close('DROPPED'); break;
-      case 'swat': this.close('SWATTED'); break;
+      // A successful swat may be followed immediately by `bobble`, leaving the tipped ball live.
+      // Wait for that event (or play.end) before declaring the swat the terminal outcome.
+      case 'swat': if (this.open) this.open.pendingSwat = true; break;
       case 'interception': this.close('DEFENDER_POSSESSION'); break;
-      case 'bobble': if (this.open) this.open.bobbled = true; break;
-      case 'play.end': this.close('FELL_INCOMPLETE'); break;
+      case 'bobble':
+        if (this.open) {
+          this.open.bobbled = true;
+          this.open.pendingSwat = false;
+        }
+        break;
+      case 'play.end': this.close(this.open?.pendingSwat ? 'SWATTED' : 'FELL_INCOMPLETE'); break;
       default: break;
     }
   }

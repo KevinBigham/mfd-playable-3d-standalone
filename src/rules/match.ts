@@ -10,7 +10,8 @@ import {
   QUARTER_BREAK_TICKS, PLAY_CALL_SECONDS, PLAY_CLOCK_SECONDS, PAT_MAKE_BASE, PAT_DISTANCE,
   FG_METER_PERIOD, PUNT_POWER_PERIOD, TOUCHBACK_Z, FIELD_HALF_WIDTH, OVERTIME_PERIODS,
   CLOCK_SCALE,
-  DEFAULT_QUARTER_SECONDS, RETURNER_DEPTH,
+  DEFAULT_QUARTER_SECONDS, RETURNER_DEPTH, RECEIVER_SWITCH_ETA,
+  RECEIVER_ASSIST_FULL, RECEIVER_ASSIST_NONE,
 } from '../core/constants.ts';
 import { clamp, clamp01, dist } from '../core/math.ts';
 import {
@@ -24,7 +25,7 @@ import {
   createWorld, assignUnits, makeConditions, carrier, OFF_START, DEF_START, type World,
 } from '../sim/world.ts';
 import { setupPlay, snap, stepPlay, idleStep, type Controller } from '../sim/playRunner.ts';
-import { giveBall, killBall, assertBallInvariant, dropLoose } from '../sim/ball.ts';
+import { giveBall, killBall, assertBallInvariant, dropLoose, normalizeBallAttempts } from '../sim/ball.ts';
 import { kickReturner } from '../sim/catching.ts';
 import {
   KICKOFF_OFFENSE, KICKOFF_DEFENSE, PUNT_OFFENSE, PUNT_DEFENSE, FG_OFFENSE, FG_DEFENSE,
@@ -65,6 +66,21 @@ export interface MatchOptions {
 }
 
 const BLANK: PlayerIntent = { moveX: 0, moveZ: 0, aimX: 0, aimZ: 0, held: 0, pressed: 0, released: 0 };
+const CATCH_ACTION_MASK = Action.ACTION | Action.PROTECT | Action.JUMP | Action.DIVE;
+
+export function receiverAssistWeight(stickMagnitude: number): number {
+  if (stickMagnitude <= RECEIVER_ASSIST_FULL) return 1;
+  if (stickMagnitude >= RECEIVER_ASSIST_NONE) return 0;
+  return 1 - (stickMagnitude - RECEIVER_ASSIST_FULL) / (RECEIVER_ASSIST_NONE - RECEIVER_ASSIST_FULL);
+}
+
+export function shouldAutoSwitchReceiver(
+  remainingSeconds: number, targetSide: TeamSide, offenseSide: TeamSide,
+  priorTargetSeat: number, primarySeat: number,
+): boolean {
+  return remainingSeconds <= RECEIVER_SWITCH_ETA && targetSide === offenseSide
+    && (priorTargetSeat < 0 || priorTargetSeat === primarySeat);
+}
 
 export class Match {
   readonly config: MatchConfig;
@@ -180,10 +196,33 @@ export class Match {
         if (a.controlledBySeat >= 0) {
           const src = self.seatIntent(a.controlledBySeat);
           if (src) {
-            out.moveX = src.moveX; out.moveZ = src.moveZ;
+            const receiving = self.receiverControlTarget === id && !a.hasBall
+              && (w.ball.state.kind === 'inAir' || (w.ball.state.kind === 'loose' && !!w.ball.state.tipped));
+            if (receiving) {
+              const tx = w.ball.state.kind === 'inAir' ? w.ball.state.tx : w.ball.x;
+              const tz = w.ball.state.kind === 'inAir' ? w.ball.state.tz : w.ball.z;
+              const dx = tx - a.x, dz = tz - a.z;
+              const d = Math.hypot(dx, dz);
+              const mag = Math.hypot(src.moveX, src.moveZ);
+              const assist = receiverAssistWeight(mag);
+              const ax = d > 0.001 ? dx / d : 0;
+              const az = d > 0.001 ? dz / d : 0;
+              out.moveX = src.moveX * (1 - assist) + ax * assist;
+              out.moveZ = src.moveZ * (1 - assist) + az * assist;
+            } else {
+              out.moveX = src.moveX; out.moveZ = src.moveZ;
+            }
             out.aimX = src.aimX; out.aimZ = src.aimZ;
-            out.held = self.actionSpent.has(a.controlledBySeat)
-              ? src.held & ~Action.ACTION : src.held;
+            let held = src.held;
+            if (receiving) {
+              // Every catch command needs a fresh press after control arrives. Suppression follows
+              // each held bit until release, so the throw, protect, jump or dive that preceded the
+              // switch cannot silently select a catch technique.
+              const seat = a.controlledBySeat;
+              self.receiverCatchSuppressed[seat] &= held;
+              held &= ~self.receiverCatchSuppressed[seat];
+            }
+            out.held = self.actionSpent.has(a.controlledBySeat) ? held & ~Action.ACTION : held;
             return;
           }
           out.moveX = 0; out.moveZ = 0; out.aimX = 0; out.aimZ = 0; out.held = 0;
@@ -214,6 +253,8 @@ export class Match {
    */
   private updateControlAssignment(): void {
     const w = this.world;
+    const airborneTarget = w.ball.state.kind === 'inAir' ? w.ball.state.intended : null;
+    const priorTargetSeat = airborneTarget === null ? -1 : w.athletes[airborneTarget]?.controlledBySeat ?? -1;
     for (const a of w.athletes) a.controlledBySeat = -1;
     const car = carrier(w);
     const ballSide: TeamSide = car ? car.side : w.ball.possession;
@@ -225,7 +266,20 @@ export class Match {
         // The quarterback, not slot zero — they coincide on a scrimmage down and do not on a kick.
         const fallback = w.athletes[w.qbId] && w.athletes[w.qbId].side === side
           ? w.qbId : w.athletes[OFF_START].id;
-        const primary = car && car.side === side ? car.id : fallback;
+        if (w.ball.state.kind === 'inAir' && w.ball.state.intended !== null
+            && shouldAutoSwitchReceiver(w.ball.state.flightTime - w.ball.state.t,
+              w.athletes[w.ball.state.intended].side, side, priorTargetSeat, seats[0])
+            && this.receiverControlTarget !== w.ball.state.intended) {
+          this.receiverControlTarget = w.ball.state.intended;
+          const held = this.seatIntent(seats[0])?.held ?? 0;
+          this.receiverCatchSuppressed[seats[0]] = held & CATCH_ACTION_MASK;
+          if (has(held, Action.ACTION)) this.actionSpent.add(seats[0]);
+        }
+        const receiving = this.receiverControlTarget >= 0
+          && (w.ball.state.kind === 'inAir' || (w.ball.state.kind === 'loose' && !!w.ball.state.tipped));
+        const primary = car && car.side === side ? car.id
+          : receiving && w.athletes[this.receiverControlTarget]?.side === side
+            ? this.receiverControlTarget : fallback;
         w.athletes[primary].controlledBySeat = seats[0] as 0 | 1 | 2 | 3;
         if (seats.length > 1) {
           // Teammate drives a skill player who is not the carrier.
@@ -256,6 +310,8 @@ export class Match {
   }
 
   private seatDefender: number[] = [-1, -1, -1, -1];
+  private receiverControlTarget: AthleteId = -1;
+  private receiverCatchSuppressed = [0, 0, 0, 0];
 
   private pickDefender(side: TeamSide, used: Set<number>): number {
     const w = this.world;
@@ -694,6 +750,7 @@ export class Match {
           turboLockTicks: a.turboLockTicks, stamina: a.stamina,
           downTicks: a.downTicks, stunTicks: a.stunTicks,
           blockedBy: a.blockedBy, engagedWith: a.engagedWith, onFire: a.onFire,
+          ballPlayTechnique: a.ballPlayTechnique, ballPlayUntilTick: a.ballPlayUntilTick,
           role: a.role, routeIdx: a.routeIdx, routeHold: a.routeHold, blockDir: a.blockDir,
           targetButton: a.targetButton, homeX: a.homeX, homeZ: a.homeZ,
           controlledBySeat: a.controlledBySeat,
@@ -740,6 +797,8 @@ export class Match {
       snapArmed: this.snapArmed, snapHeldPrev: this.snapHeldPrev, snapRequested: this.snapRequested,
       seatHeldPrev: [...this.seatHeldPrev],
       actionSpent: [...this.actionSpent],
+      receiverControlTarget: this.receiverControlTarget,
+      receiverCatchSuppressed: [...this.receiverCatchSuppressed],
       catchUp: [...this.aiCtx.catchUp] as [number, number],
       tendency: this.tendency.map((t) => t.save()),
     };
@@ -779,6 +838,8 @@ export class Match {
       a.protecting = d.protecting; a.turboLockTicks = d.turboLockTicks; a.stamina = d.stamina;
       a.downTicks = d.downTicks; a.stunTicks = d.stunTicks;
       a.blockedBy = d.blockedBy; a.engagedWith = d.engagedWith; a.onFire = d.onFire;
+      a.ballPlayTechnique = d.ballPlayTechnique ?? (a.unit === 'DEF' ? 'AUTO' : 'BALANCED');
+      a.ballPlayUntilTick = d.ballPlayUntilTick ?? -1;
       a.role = d.role as typeof a.role;
       a.routeIdx = d.routeIdx; a.routeHold = d.routeHold; a.blockDir = d.blockDir;
       a.targetButton = d.targetButton; a.homeX = d.homeX; a.homeZ = d.homeZ;
@@ -800,6 +861,7 @@ export class Match {
     w.ball.vx = s.ball.vx; w.ball.vy = s.ball.vy; w.ball.vz = s.ball.vz;
     w.ball.spin = s.ball.spin; w.ball.possession = s.ball.possession;
     w.ball.state = JSON.parse(JSON.stringify(s.ball.state));
+    normalizeBallAttempts(w.ball.state);
 
     w.possession = s.possession; w.losZ = s.losZ; w.spotZ = s.spotZ; w.spotX = s.spotX;
     w.playPhase = s.playPhase as typeof w.playPhase;
@@ -852,6 +914,8 @@ export class Match {
     this.snapRequested = snap.snapRequested;
     this.seatHeldPrev = [...snap.seatHeldPrev];
     this.actionSpent = new Set(snap.actionSpent);
+    this.receiverControlTarget = snap.receiverControlTarget ?? -1;
+    this.receiverCatchSuppressed = [...(snap.receiverCatchSuppressed ?? [0, 0, 0, 0])];
     for (const b of this.buffers) b.clear();
     this.aiCtx.catchUp = [...snap.catchUp] as [number, number];
     for (let i = 0; i < this.tendency.length && i < snap.tendency.length; i++) {
@@ -880,6 +944,8 @@ export class Match {
 
   private doSnap(): void {
     const w = this.world;
+    this.receiverControlTarget = -1;
+    this.receiverCatchSuppressed.fill(0);
     // Whoever is holding ACTION right now spent it on this snap.
     for (const seat of this.seatsFor(this.state.possession)) {
       this.buffers[seat]?.consume(Action.ACTION);

@@ -5,6 +5,11 @@ transforms and `ReplayDirector` deterministically advances through wide, field-l
 and end-zone shots; neither owns simulation state, RNG, score, clock, possession, or event-log
 mutation.
 
+A parallel presentation-only ring retains at most 32 ball-play cues inside that same window. Each
+cue stores only tick, actor, technique/result and contact point. Terminal cues are force-flushed
+onto the terminal transform frame, replay playback de-duplicates the cue by tick, and neither path
+re-simulates or mutates live football.
+
 `MfdReplayShotSetV1` is deliberately bounded: normalized shot times, a fixed target-role enum,
 bounded offsets and FOV, an easing allowlist, optional slow motion/hold, and a fixed HUD enum.
 Unknown fields—including URLs, executable scripts, and arbitrary object paths—fail validation.

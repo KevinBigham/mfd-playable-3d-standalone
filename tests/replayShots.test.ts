@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { FALLBACK_REPLAY_SHOTS, replayShotSetHash, validateReplayShotSet } from '../src/render/replayShots.ts';
-import { ReplayDirector, ReplayEventRouter, replayTarget } from '../src/render/replay.ts';
+import {
+  ReplayBuffer, ReplayDirector, ReplayEventRouter, ballPlayCueFromEvent, makeReplayView, replayTarget,
+} from '../src/render/replay.ts';
 import * as THREE from 'three';
 import { GameCamera, ReplayFreeCameraController } from '../src/render/camera.ts';
 import { bowlPhotoProxies, collectPhotoProxies } from '../src/render/renderer.ts';
@@ -48,6 +50,43 @@ describe('MfdReplayShotSetV1', () => {
     router.observe({ type: 'catch', tick: 42, by: 5, contested: false, diving: false, yards: 20 });
     router.observe({ type: 'play.end', tick: 43, reason: 'TACKLE', spotZ: 60, yards: 20 });
     expect(router.take()).toBe('EXPLOSIVE_PASS');
+  });
+
+  it('records enriched ball-play events in the bounded presentation sidecar', () => {
+    const event = { type: 'swat', tick: 77, by: 8, at: { x: 2, y: 2.1, z: 44 },
+      technique: 'SWAT' } as const;
+    expect(ballPlayCueFromEvent(event)).toMatchObject({ by: 8, outcome: 'SWAT', technique: 'SWAT' });
+    const buffer = new ReplayBuffer();
+    buffer.observe(event);
+    const athletes = Array.from({ length: 14 }, (_, id) => ({
+      x: id, y: 0, z: id, facing: 0, anim: { phase: 0, state: 'RUN' },
+      hasBall: false, def: { number: id }, side: id < 7 ? 0 : 1,
+    }));
+    buffer.capture({ athletes, ball: { x: 2, y: 2.1, z: 44 } } as any, 1 / 30);
+    const view = makeReplayView();
+    expect(buffer.read(0, view)).toBe(true);
+    expect(view.cues).toEqual([expect.objectContaining({ tick: 77, by: 8, outcome: 'SWAT' })]);
+    buffer.clear();
+    expect(buffer.length).toBe(0);
+  });
+  it('flushes a terminal cue onto the terminal transform instead of the next play', () => {
+    const buffer = new ReplayBuffer();
+    const athletes = Array.from({ length: 14 }, (_, id) => ({
+      x: id, y: 0, z: id, facing: 0, anim: { phase: 0, state: 'RUN' },
+      hasBall: false, def: { number: id }, side: id < 7 ? 0 : 1,
+    }));
+    buffer.observe({ type: 'drop', tick: 88, by: 1, at: { x: 4, y: 1.2, z: 52 },
+      technique: 'EXTEND', sideline: false, reason: 'HANDS' });
+    buffer.flushPending({ athletes, ball: { x: 4, y: 0.3, z: 52 } } as any);
+    expect(buffer.length).toBe(1);
+    const terminal = makeReplayView();
+    expect(buffer.read(0, terminal)).toBe(true);
+    expect(terminal.ball).toEqual({ x: 4, y: expect.closeTo(0.3), z: 52 });
+    expect(terminal.cues).toEqual([expect.objectContaining({ tick: 88, outcome: 'DROP' })]);
+    buffer.capture({ athletes, ball: { x: 0, y: 0, z: 0 } } as any, 1 / 30);
+    const next = makeReplayView();
+    expect(buffer.read(1, next)).toBe(true);
+    expect(next.cues).toEqual([]);
   });
   it('promotes only a recent winning-side decisive event to game-winning', () => {
     const router = new ReplayEventRouter();

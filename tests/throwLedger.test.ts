@@ -100,4 +100,25 @@ describe('throw outcome ledger', () => {
     expect(ledger.tally('QUICK').swatted).toBe(1);
     expect(ledger.tally().throws).toBe(2);
   });
+
+  it('keeps a swatted tip open until the live ball resolves', () => {
+    const ledger = new ThrowLedger();
+    feed(ledger, [
+      t({ type: 'throw', from: 0, to: 5, passKind: 'NORMAL' }),
+      t({ type: 'swat', by: 11 }),
+      t({ type: 'bobble', by: 11, contested: true }),
+      t({ type: 'interception', by: 12 }),
+      t({ type: 'play.end', reason: 'TACKLE', spotZ: 40, yards: 0 }),
+      t({ type: 'throw', from: 0, to: 6, passKind: 'NORMAL' }),
+      t({ type: 'swat', by: 10 }),
+      t({ type: 'play.end', reason: 'INCOMPLETE', spotZ: 38, yards: 0 }),
+    ]);
+
+    const tally = ledger.tally();
+    expect(tally.throws).toBe(2);
+    expect(tally.defenderPossession).toBe(1);
+    expect(tally.bobbledToDefender).toBe(1);
+    expect(tally.swatted).toBe(1);
+    expect(ThrowLedger.reconciles(tally)).toBe(true);
+  });
 });

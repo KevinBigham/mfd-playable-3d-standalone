@@ -31,7 +31,7 @@ import { GestureRecognizer, GESTURE_PRESETS, type SwipeDirection } from '../inpu
  *     a game you get better at.
  */
 
-type Mode = 'OFF' | 'SNAP' | 'QB' | 'CARRY' | 'FREE';
+type Mode = 'OFF' | 'SNAP' | 'QB' | 'CARRY' | 'RECEIVE' | 'FREE';
 
 /** Radius of the stick in CSS pixels. Full deflection at the ring, turbo past it. */
 const STICK_R = 54;
@@ -498,7 +498,7 @@ export class TouchControls implements IntentSource {
     // (a reversal cancels instead of firing the wrong verb), except that a tackle lunge in a
     // legal defensive context may commit early. One committed action per contact.
     if (!t.spent) {
-      const urgentOk = this.mode === 'FREE';
+      const urgentOk = this.mode === 'FREE' || this.mode === 'RECEIVE';
       const g = this.recognizer.move(e.pointerId, e.clientX, e.clientY, now(), urgentOk);
       if (g?.type === 'SWIPE') {
         this.fireSwipe(g.direction);
@@ -620,6 +620,9 @@ export class TouchControls implements IntentSource {
       if (horizontal) this.latch |= Action.SPECIAL;
       else if (direction === 'UP') this.latch |= Action.JUMP;
       else this.latch |= Action.DIVE;
+    } else if (this.mode === 'RECEIVE') {
+      if (direction === 'UP') this.latch |= Action.JUMP;
+      else if (direction === 'DOWN') this.latch |= Action.DIVE;
     } else if (this.mode === 'QB') {
       // Nothing: a stray swipe must not throw the ball away.
       return;
@@ -723,7 +726,11 @@ export class TouchControls implements IntentSource {
     if (phase === 'PRE_SNAP') return m.isHuman(m.state.possession) && me.hasBall ? 'SNAP' : 'OFF';
     const w = m.world;
     if (w.playPhase !== 'LIVE') return 'OFF';
-    if (!me.hasBall) return 'FREE';
+    if (!me.hasBall) {
+      const st = w.ball.state;
+      if (st.kind === 'inAir' && st.intended === me.id && me.side === w.ball.possession) return 'RECEIVE';
+      return 'FREE';
+    }
     const past = (me.z - w.losZ) * (me.side === 0 ? 1 : -1) > 0.8;
     if (me.id === w.qbId && !past && !w.passThrown) return 'QB';
     return 'CARRY';
@@ -894,7 +901,7 @@ export class TouchControls implements IntentSource {
     if (this.turboOn) m |= Action.TURBO;
     // A finger parked on the surface without swiping is two hands on the football. It is the one
     // carrier verb that is a state rather than an event, so it is the one bound to a hold.
-    if (this.mode === 'CARRY') {
+    if (this.mode === 'CARRY' || this.mode === 'RECEIVE') {
       const th = this.recognizer.thresholds;
       const t = now();
       for (const p of this.touches.values()) {
@@ -920,5 +927,6 @@ const COACH: Record<Mode, string> = {
   SNAP: 'LEFT THUMB RUNS · PUSH PAST THE RING FOR TURBO · TAP SNAP TO HIKE IT',
   QB: 'TAP A BADGE TO THROW · DRAG OFF IT TO PLACE THE BALL',
   CARRY: 'SWIPE ⇠⇢ JUKE · ⇡ HURDLE · ⇣ DIVE · TAP SPIN · HOLD TO PROTECT',
+  RECEIVE: 'TAP RAC · HOLD POSSESSION · SWIPE ⇡ AGGRESSIVE · ⇣ EXTEND',
   FREE: 'TAP TO SWITCH · SWIPE ⇡ TACKLE · ⇣ DIVE',
 };

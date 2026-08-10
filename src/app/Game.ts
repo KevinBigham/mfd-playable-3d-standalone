@@ -459,6 +459,7 @@ export class Game {
   replayPhotoFocus(x: number, y: number, z: number): void { if (this.replayPhotoMode) this.replayFreeCamera.focus(x, y, z); }
 
   private onGameEvent(e: GameEvent): void {
+    this.replayBuf.observe(e);
     this.renderer.handleEvent(e);
     this.audio.director.handle(e);
     this.hud.handleEvent(e);
@@ -652,6 +653,7 @@ export class Game {
       const celebrating = m.phase === 'SCORE_RESOLVE' || m.phase === 'FINAL';
       this.renderer.sync(m.world, m.state, alpha, dt, celebrating);
       if (m.world.playPhase === 'LIVE') this.replayBuf.capture(m.world, dt);
+      else this.replayBuf.flushPending(m.world);
       // Fire the clip once the whistle has blown, not mid-play.
       if (this.replayRouter.pending && (m.phase === 'SCORE_RESOLVE' || m.phase === 'PLAY_CALL' || m.phase === 'FINAL')
           && this.replayBuf.ready) {

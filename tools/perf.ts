@@ -56,10 +56,38 @@ async function measure(
   // Sample only while the ball is actually live.
   const t0 = Date.now();
   let liveSamples = 0;
-  while (Date.now() - t0 < seconds * 1000) {
+  let measuredFrames = 0;
+  const minimumMs = seconds * 1000;
+  const maximumMs = Math.max(90000, minimumMs * 4);
+  while (Date.now() - t0 < minimumMs || measuredFrames < 60) {
+    if (Date.now() - t0 > maximumMs) {
+      throw new Error(`${tier} produced only ${measuredFrames} frames in ${maximumMs / 1000}s`);
+    }
     const p = await probe(page);
-    if (p.phase === 'LIVE' || p.phase === 'KICKOFF_LIVE') liveSamples++;
+    if (p.phase === 'LIVE' || p.phase === 'KICKOFF_LIVE') {
+      liveSamples++;
+    } else {
+      // A play can end well before a software-rendered sample window. Advance only staging with
+      // fixed simulation ticks, then resume rAF so every timed frame still depicts moving play.
+      const resumed = await page.evaluate(() => {
+        const g = (window as unknown as { GO: any }).GO;
+        g.stop();
+        let ticks = 0;
+        while (ticks++ < 12000 && g.match
+          && g.match.state.phase !== 'LIVE' && g.match.state.phase !== 'KICKOFF_LIVE') {
+          g.match.tick();
+          g.renderer.sync(g.match.world, g.match.state, 1, 1 / 60, false);
+        }
+        const phase = g.match?.state.phase ?? 'NONE';
+        g.start();
+        return phase;
+      });
+      if (resumed !== 'LIVE' && resumed !== 'KICKOFF_LIVE') {
+        throw new Error(`${tier} could not resume live play during measurement (${resumed})`);
+      }
+    }
     await page.waitForTimeout(120);
+    measuredFrames = await page.evaluate(() => (window as unknown as { GO: any }).GO.perf().frames);
   }
   const r = await page.evaluate(() => {
     const g = (window as unknown as { GO: any }).GO;
